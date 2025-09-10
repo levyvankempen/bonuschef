@@ -1,64 +1,42 @@
-"""Nox sessions for dbt."""
-
 import nox
 from nox.sessions import Session
 
-locations_python = ["main.py"]
-nox.options.sessions = ["lint_python"]
+nox.options.sessions = ["lint", "mypy", "tests"]
+locations = "src", "tests", "noxfile.py"
 
 
-@nox.session(python=["3.12"])
-def lint_sql(session: Session) -> None:
-    """Lint using SQLfluff."""
-    args = session.posargs or locations_sql
-    session.install(
-        "dbt-core",
-        "dbt-postgres",
-        "sqlfluff",
-        "sqlfluff-templater-dbt",
-    )
-    session.run("dbt", "deps", "--project-dir", *args)
-    session.run("sqlfluff", "lint", "--dialect", "postgres", *args)
+@nox.session(python=["3.12"], venv_backend="uv")
+def tests(session: Session) -> None:
+    args = session.posargs or ["--cov=onboarding_ruud", "-q"]
+
+    session.install("uv")
+    session.run("uv", "sync", "--active", external=True)
+    session.run("uv", "run", "--active", "pytest", *args, external=True)
 
 
-@nox.session(python=["3.12"])
-def lint_python(session: Session) -> None:
-    """Lint using flake8."""
-    args = session.posargs or locations_python
-    session.install(
-        "pyproject-flake8",
-        "flake8-annotations",
-        "flake8-black",
-        "flake8-docstrings",
-    )
-    session.run("pflake8", *args)
+@nox.session(python=["3.12"], venv_backend="uv")
+def lint(session: Session) -> None:
+    """Run ruff code linter."""
+    args = session.posargs or locations
+    session.install("ruff", "uv")
+    session.run("uv", "sync", external=True)
+    session.run("uv", "run", "ruff", "check", *args)
+    session.run("uv", "run", "ruff", "format", "--diff", *args)
 
 
-@nox.session(python=["3.12"])
-def format_sql(session: Session) -> None:
-    """Run SQLfluff fix formatter."""
-    args = session.posargs or locations_sql
-    session.install(
-        "dbt-core",
-        "dbt-postgres",
-        "sqlfluff",
-        "sqlfluff-templater-dbt",
-    )
-    session.run("sqlfluff", "fix", "--dialect", "postgres", "-f", *args)
+@nox.session(python="3.12", venv_backend="uv")
+def format(session: Session) -> None:
+    """Run ruff code formatter."""
+    args = session.posargs or locations
+    session.install("ruff", "uv")
+    session.run("uv", "sync")
+    session.run("uv", "run", "ruff", "check", "--fix", *args)
+    session.run("uv", "run", "ruff", "format", *args)
 
 
-@nox.session(python=["3.12"])
-def format_python(session: Session) -> None:
-    """Run black code formatter."""
-    args = session.posargs or locations_python
-    session.install("black", "isort")
-    session.run("black", *args)
-    session.run("isort", *args)
-
-
-@nox.session(python=["3.12"])
-def test_python(session: Session) -> None:
-    """Run the python tests suite for the API."""
-    args = ["portal"]
-    session.install("pytest", "portal/.")
-    session.run("pytest", *args)
+@nox.session(python=["3.12"], venv_backend="uv")
+def mypy(session):
+    args = session.posargs or locations
+    session.install("uv")
+    session.run("uv", "sync")
+    session.run("uv", "run", "mypy", *args)
