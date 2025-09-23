@@ -1913,7 +1913,7 @@ wheels = [
 [[package]]
 name = "recipechecker"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "dagster" },
     { name = "dagster-dg-cli" },
@@ -1926,6 +1926,12 @@ dependencies = [
     { name = "pendulum" },
     { name = "pytest" },
     { name = "pytest-cov" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "dagster-dg-cli" },
+    { name = "dagster-webserver" },
 ]
 
 [package.metadata]
@@ -1941,6 +1947,12 @@ requires-dist = [
     { name = "pendulum", specifier = ">=3.1.0" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "dagster-dg-cli" },
+    { name = "dagster-webserver" },
 ]
 
 [[package]]
