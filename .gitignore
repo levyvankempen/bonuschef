@@ -6,6 +6,7 @@ dist/
 wheels/
 *.egg-info
 .idea
+.tmp_dagster_home_keghkp57
 
 # Virtual environments
 .venv

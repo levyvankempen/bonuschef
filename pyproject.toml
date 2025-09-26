@@ -1,11 +1,12 @@
 [project]
-name = "recipechecker"
+name = "bonuschef"
 requires-python = ">=3.12"
 version = "0.1.0"
 
 dependencies = [
     "dagster>=1.11.11",
     "dagster-dg-cli>=1.11.11",
+    "dagster-duckdb>=0.27.11",
     "dagster-webserver>=1.11.11",
     "dlt[workspace]>=1.16.0",
     "dotenv>=0.9.9",
@@ -39,5 +40,5 @@ directory_type = "project"
 [tool.dg.project]
 root_module = "bonuschef.orchestration"
 registry_modules = [
-    "bonuschef.orchestration.defs.*",
+    "orchestration.components.*",
 ]

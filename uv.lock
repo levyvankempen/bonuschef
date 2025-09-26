@@ -93,6 +93,53 @@ wheels = [
 ]
 
 [[package]]
+name = "bonuschef"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "dagster" },
+    { name = "dagster-dg-cli" },
+    { name = "dagster-duckdb" },
+    { name = "dagster-webserver" },
+    { name = "dlt", extra = ["workspace"] },
+    { name = "dotenv" },
+    { name = "duckdb" },
+    { name = "marimo" },
+    { name = "nox" },
+    { name = "pendulum" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "dagster-dg-cli" },
+    { name = "dagster-webserver" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "dagster", specifier = ">=1.11.11" },
+    { name = "dagster-dg-cli", specifier = ">=1.11.11" },
+    { name = "dagster-duckdb", specifier = ">=0.27.11" },
+    { name = "dagster-webserver", specifier = ">=1.11.11" },
+    { name = "dlt", extras = ["workspace"], specifier = ">=1.16.0" },
+    { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "duckdb", specifier = ">=1.3.2" },
+    { name = "marimo", specifier = ">=0.15.3" },
+    { name = "nox", specifier = ">=2025.5.1" },
+    { name = "pendulum", specifier = ">=3.1.0" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "dagster-dg-cli" },
+    { name = "dagster-webserver" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.8.3"
 source = { registry = "https://pypi.org/simple" }
@@ -480,6 +527,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c9/62/da354609c4fd8a4e72ac33124f04f4c9fe9aae4523a042a72bc3fa2ea498/dagster_dg_core-1.11.11.tar.gz", hash = "sha256:e0e7a0ce287512f6f5fd2b35f3a74eceed70d1b7fcce104af9c50acef63c9c1b", size = 40638, upload-time = "2025-09-18T20:32:34.2Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/f8/f0222e6b8ed44f850f86caecbe8b2975e2218ad1140d4127b7805708ebe7/dagster_dg_core-1.11.11-py3-none-any.whl", hash = "sha256:467747dceb4d398e2a4ca8d363058cab4148ef20861a7270bca947124ffcc6b1", size = 46569, upload-time = "2025-09-18T20:32:33.251Z" },
+]
+
+[[package]]
+name = "dagster-duckdb"
+version = "0.27.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dagster" },
+    { name = "duckdb" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/1f/daa09d4cefe27a7290fbf2caa99c8bb16535d7ca076e3ca3840742fccdef/dagster_duckdb-0.27.11.tar.gz", hash = "sha256:a8fe1a86ac2e720bd38c4dc146f4880464b670e5abba8adb86f921fa088b7567", size = 9374, upload-time = "2025-09-18T20:34:39.222Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/69/f7/e05dbd9c935c3b6dd7fa69fba3ab6b12864ce55ffe214c7fd87c8f27a23c/dagster_duckdb-0.27.11-py3-none-any.whl", hash = "sha256:8fb4d883d8cbbc508569d1c40c72ab0e05c96048fef611e0349bba3c5f21bed3", size = 10593, upload-time = "2025-09-18T20:34:38.383Z" },
 ]
 
 [[package]]
@@ -1908,51 +1968,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/45/eafb0bba0f9988f6a2520f9ca2df2c82ddfa8d67c95d6625452e97b204a5/questionary-2.1.1.tar.gz", hash = "sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d", size = 25845, upload-time = "2025-08-28T19:00:20.851Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/26/1062c7ec1b053db9e499b4d2d5bc231743201b74051c973dadeac80a8f43/questionary-2.1.1-py3-none-any.whl", hash = "sha256:a51af13f345f1cdea62347589fbb6df3b290306ab8930713bfae4d475a7d4a59", size = 36753, upload-time = "2025-08-28T19:00:19.56Z" },
-]
-
-[[package]]
-name = "recipechecker"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "dagster" },
-    { name = "dagster-dg-cli" },
-    { name = "dagster-webserver" },
-    { name = "dlt", extra = ["workspace"] },
-    { name = "dotenv" },
-    { name = "duckdb" },
-    { name = "marimo" },
-    { name = "nox" },
-    { name = "pendulum" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "dagster-dg-cli" },
-    { name = "dagster-webserver" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "dagster", specifier = ">=1.11.11" },
-    { name = "dagster-dg-cli", specifier = ">=1.11.11" },
-    { name = "dagster-webserver", specifier = ">=1.11.11" },
-    { name = "dlt", extras = ["workspace"], specifier = ">=1.16.0" },
-    { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "duckdb", specifier = ">=1.3.2" },
-    { name = "marimo", specifier = ">=0.15.3" },
-    { name = "nox", specifier = ">=2025.5.1" },
-    { name = "pendulum", specifier = ">=3.1.0" },
-    { name = "pytest", specifier = ">=8.4.2" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "dagster-dg-cli" },
-    { name = "dagster-webserver" },
 ]
 
 [[package]]
