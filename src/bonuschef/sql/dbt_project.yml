@@ -1,0 +1,21 @@
+name: 'bonuschef'
+version: '0.1.0'
+config-version: 2
+profile: 'dbt_bonuschef'
+
+models:
+  bonuschef:
+    staging:
+      +meta:
+        dagster:
+          group: staging
+    intermediate:
+      +meta:
+        dagster:
+          group: intermediate
+    marts:
+      +schema: marts
+      +materialized: table    
+      +meta:
+        dagster:
+          group: marts

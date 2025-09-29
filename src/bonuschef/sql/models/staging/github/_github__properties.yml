@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: stg_github__products_ah
+    description: "Staging model for GitHub products_ah"
+    columns:
+      - name: n
+        description: "The name of the product"
+      - name: l
+        description: "The link of the product"
+      - name: price
+        description: "The price of the product"        
+      - name: s
+        description: "The amount of the product"

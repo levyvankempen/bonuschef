@@ -1,0 +1,14 @@
+dbt_bonuschef:
+  outputs:
+
+    default:
+      type: "postgres"
+      host: "localhost"
+      user: "postgres"
+      password: "postgres"
+      port: 5455
+      dbname: "bonuschef"
+      schema: "public"
+      threads: 1
+
+  target: "{{ env_var('ENVIRONMENT', 'default')}}"
