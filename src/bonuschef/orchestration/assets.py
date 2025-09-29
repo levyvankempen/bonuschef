@@ -8,8 +8,8 @@ from .supermarket_pipeline import github_source
     dlt_source=github_source(),
     dlt_pipeline=dlt.pipeline(
         pipeline_name="rest_api_github",
-        dataset_name="github",
-        destination="duckdb",
+        dataset_name="raw_supermarket",
+        destination="postgres",
         progress="log",
     ),
     name="github",

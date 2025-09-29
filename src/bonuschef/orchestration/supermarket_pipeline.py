@@ -34,18 +34,3 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
     }
 
     yield from rest_api_resources(config)
-
-
-def load_github() -> None:
-    pipeline = dlt.pipeline(
-        pipeline_name="rest_api_github",
-        destination="duckdb",
-        dataset_name="rest_api_data",
-    )
-
-    load_info = pipeline.run(github_source())
-    print(load_info)  # noqa: T201
-
-
-if __name__ == "__main__":
-    load_github()
