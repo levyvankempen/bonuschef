@@ -1,7 +1,12 @@
-from pathlib import Path
+from ..orchestration import assets
 
-from dagster import definitions, load_from_defs_folder
+from dagster import Definitions, load_assets_from_modules
+from dagster_dlt import DagsterDltResource
 
-@definitions
-def defs():
-    return load_from_defs_folder(project_root=Path(__file__).parent)
+dlt_resource = DagsterDltResource()
+all_assets = load_assets_from_modules([assets])
+
+defs = Definitions(
+    assets=all_assets,
+    resources={"dlt": dlt_resource},
+) 

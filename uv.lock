@@ -99,7 +99,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dagster" },
     { name = "dagster-dg-cli" },
-    { name = "dagster-duckdb" },
+    { name = "dagster-dlt" },
     { name = "dagster-webserver" },
     { name = "dlt", extra = ["workspace"] },
     { name = "dotenv" },
@@ -121,7 +121,7 @@ dev = [
 requires-dist = [
     { name = "dagster", specifier = ">=1.11.11" },
     { name = "dagster-dg-cli", specifier = ">=1.11.11" },
-    { name = "dagster-duckdb", specifier = ">=0.27.11" },
+    { name = "dagster-dlt", specifier = ">=0.27.11" },
     { name = "dagster-webserver", specifier = ">=1.11.11" },
     { name = "dlt", extras = ["workspace"], specifier = ">=1.16.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
@@ -530,16 +530,16 @@ wheels = [
 ]
 
 [[package]]
-name = "dagster-duckdb"
+name = "dagster-dlt"
 version = "0.27.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dagster" },
-    { name = "duckdb" },
+    { name = "dlt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/1f/daa09d4cefe27a7290fbf2caa99c8bb16535d7ca076e3ca3840742fccdef/dagster_duckdb-0.27.11.tar.gz", hash = "sha256:a8fe1a86ac2e720bd38c4dc146f4880464b670e5abba8adb86f921fa088b7567", size = 9374, upload-time = "2025-09-18T20:34:39.222Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/22/2d2f89978dde7e68c557dc3e8935a2fb4291a36722801b487bcfc18b981a/dagster_dlt-0.27.11.tar.gz", hash = "sha256:2a7b988c2d34e6e16c290d3cb1badd6cad820107b8f4715a148b120652dce23b", size = 17505, upload-time = "2025-09-18T20:33:46.709Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/f7/e05dbd9c935c3b6dd7fa69fba3ab6b12864ce55ffe214c7fd87c8f27a23c/dagster_duckdb-0.27.11-py3-none-any.whl", hash = "sha256:8fb4d883d8cbbc508569d1c40c72ab0e05c96048fef611e0349bba3c5f21bed3", size = 10593, upload-time = "2025-09-18T20:34:38.383Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/db/4b8b9550225b999548db6642bbb52d4c326777ac33280ff5e93234155dd7/dagster_dlt-0.27.11-py3-none-any.whl", hash = "sha256:2a49fdc200ef164a94d593441f37b06340cd60f1709d1eef94e6bd0e0cd6ba35", size = 20053, upload-time = "2025-09-18T20:33:45.874Z" },
 ]
 
 [[package]]
