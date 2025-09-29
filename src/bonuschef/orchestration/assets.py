@@ -4,6 +4,7 @@ from dagster import AssetExecutionContext
 from dagster_dlt import DagsterDltResource, dlt_assets
 from .supermarket_pipeline import github_source
 
+
 @dlt_assets(
     dlt_source=github_source(),
     dlt_pipeline=dlt.pipeline(

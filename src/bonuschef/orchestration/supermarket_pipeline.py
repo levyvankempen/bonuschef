@@ -8,6 +8,7 @@ from dlt.sources.rest_api import (
 
 RAW_PATH = "supermarkt/checkjebon/main/data/supermarkets.json"
 
+
 @dlt.source(name="github")
 def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
     config: RESTAPIConfig = {

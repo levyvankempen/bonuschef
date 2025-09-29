@@ -5,9 +5,11 @@ version = "0.1.0"
 
 dependencies = [
     "dagster>=1.11.11",
+    "dagster-dbt>=0.27.11",
     "dagster-dg-cli>=1.11.11",
     "dagster-dlt>=0.27.11",
     "dagster-webserver>=1.11.11",
+    "dbt-postgres>=1.9.1",
     "dlt[postgres,workspace]>=1.16.0",
     "dotenv>=0.9.9",
     "marimo>=0.15.3",
