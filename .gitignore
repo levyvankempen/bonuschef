@@ -1,13 +1,18 @@
-# Python-generated files
-__pycache__/
+.venv
+.env
+**/sql/logs
+**/sql/target
+**/sql/.user.yml
+**/__pycache__
+**/.pytest_cache
+**/logs
+.nox
+tmp*
+*.vscode
+.idea/
+.dlt/secrets.toml
 *.py[cod]
 build/
 dist/
 wheels/
 *.egg-info
-.idea
-.tmp_dagster_home_*/
-.env
-
-# Virtual environments
-.venv
