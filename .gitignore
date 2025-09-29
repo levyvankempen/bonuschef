@@ -2,12 +2,13 @@
 .env
 **/sql/logs
 **/sql/target
+**/sql/dbt_packages
 **/sql/.user.yml
 **/__pycache__
 **/.pytest_cache
 **/logs
 .nox
-tmp*
+.tmp*
 *.vscode
 .idea/
 .dlt/secrets.toml
