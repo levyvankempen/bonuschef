@@ -2,11 +2,12 @@ WITH
 
 source AS (
 
-    {{ source('github', 'products_ah') }}
+    SELECT * FROM {{ source('github', 'products_ah') }}
 
-)
+),
 
 renamed AS (
+
     SELECT
         n AS name,
         l AS link,

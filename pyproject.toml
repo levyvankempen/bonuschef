@@ -13,9 +13,7 @@ dependencies = [
     "dbt-postgres>=1.9.1",
     "dlt[postgres,workspace]>=1.16.0",
     "dotenv>=0.9.9",
-    "marimo>=0.15.3",
     "nox>=2025.5.1",
-    "pendulum>=3.1.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
 ]

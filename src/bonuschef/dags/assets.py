@@ -9,7 +9,7 @@ from .supermarket_pipeline import github_source
     dlt_source=github_source(),
     dlt_pipeline=dlt.pipeline(
         pipeline_name="supermarket_pipeline",
-        dataset_name="raw_supermarket",
+        dataset_name="public",
         destination="postgres",
         progress="log",
     ),
