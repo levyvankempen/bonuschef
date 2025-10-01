@@ -133,9 +133,7 @@ dependencies = [
     { name = "dbt-postgres" },
     { name = "dlt", extra = ["postgres", "workspace"] },
     { name = "dotenv" },
-    { name = "marimo" },
     { name = "nox" },
-    { name = "pendulum" },
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
@@ -157,9 +155,7 @@ requires-dist = [
     { name = "dbt-postgres", specifier = ">=1.9.1" },
     { name = "dlt", extras = ["postgres", "workspace"], specifier = ">=1.16.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "marimo", specifier = ">=0.15.3" },
     { name = "nox", specifier = ">=2025.5.1" },
-    { name = "pendulum", specifier = ">=3.1.0" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
 ]
