@@ -8,3 +8,6 @@ sources:
       - name: products
         identifier: github__products
         description: "Products from the Albert Heijn."
+        meta:
+          dagster:
+            asset_key: ["dlt_github_products"]

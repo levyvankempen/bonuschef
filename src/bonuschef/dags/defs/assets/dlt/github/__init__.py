@@ -43,16 +43,19 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
     yield from rest_api_resources(config)
 
 
+dlt_pipeline = dlt.pipeline(
+    pipeline_name="github_pipeline",
+    destination="postgres",
+    dataset_name="public",
+    progress="log",
+)
+
+
 @dlt_assets(
     dlt_source=github_source(),
-    dlt_pipeline=dlt.pipeline(
-        pipeline_name="github_pipeline",
-        dataset_name="public",
-        destination="postgres",
-        progress="log",
-    ),
+    dlt_pipeline=dlt_pipeline,
     name="github__products_assets",
     group_name="dlt",
 )
-def dagster_github_assets(context: AssetExecutionContext, dlt: DagsterDltResource):
+def github__products_assets(context: AssetExecutionContext, dlt: DagsterDltResource):
     yield from dlt.run(context=context)
