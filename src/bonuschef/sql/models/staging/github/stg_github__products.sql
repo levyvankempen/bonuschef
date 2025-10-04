@@ -2,7 +2,7 @@ WITH
 
 source AS (
 
-    SELECT * FROM {{ source('github', 'products_ah') }}
+    SELECT * FROM {{ source('github', 'products') }}
 
 ),
 

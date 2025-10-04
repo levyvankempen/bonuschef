@@ -1,5 +1,8 @@
-from typing import Any, Optional
+"""GitHub Asset."""
+
 import dlt
+
+from typing import Any, Optional
 
 from dagster import AssetExecutionContext
 from dagster_dlt import DagsterDltResource, dlt_assets
@@ -26,7 +29,8 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
         },
         "resources": [
             {
-                "name": "products_ah",
+                "name": "products",
+                "table_name": "github__products",
                 "endpoint": {
                     "path": RAW_PATH,
                     "data_selector": "$[?(@.n=='ah')].d[*]",
@@ -42,13 +46,13 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
 @dlt_assets(
     dlt_source=github_source(),
     dlt_pipeline=dlt.pipeline(
-        pipeline_name="supermarket_pipeline",
+        pipeline_name="github_pipeline",
         dataset_name="public",
         destination="postgres",
         progress="log",
     ),
-    name="github",
-    group_name="github",
+    name="github__products_assets",
+    group_name="dlt",
 )
 def dagster_github_assets(context: AssetExecutionContext, dlt: DagsterDltResource):
     yield from dlt.run(context=context)

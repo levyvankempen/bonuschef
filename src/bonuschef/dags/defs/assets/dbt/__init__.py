@@ -11,4 +11,7 @@ from bonuschef.dags.defs.assets.dbt.dbt_project import project
 @dbt_assets(manifest=project.manifest_path)
 def dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource) -> Iterator:
     """All dbt assets."""
-    yield from dbt.cli(["build"], context=context).stream()
+    yield from dbt.cli(
+        ["build"],
+        context=context,
+    ).stream()

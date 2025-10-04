@@ -1,7 +1,7 @@
 """All configured Dagster resources."""
 
 from dagster_dlt import DagsterDltResource
-from bonuschef.dags.defs.resources import dbt
+from bonuschef.dags.defs.resources.dbt import dbt
 
 resources = {
     "dlt": DagsterDltResource(),

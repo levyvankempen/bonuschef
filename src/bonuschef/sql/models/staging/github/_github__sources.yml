@@ -2,10 +2,9 @@ version: 2
 
 sources:
   - name: "github"
-    database: "postgres"
     description: "GitHub data"
     schema: "public"
     tables:
-      - name: products_ah
-        identifier: products_ah
-        description: products_ah
+      - name: products
+        identifier: github__products
+        description: "Products from the Albert Heijn."

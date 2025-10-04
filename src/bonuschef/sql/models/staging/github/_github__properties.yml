@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: stg_github__products_ah
-    description: "Staging model for GitHub products_ah"
+  - name: stg_github__products
+    description: "Staging model for GitHub products"
     columns:
       - name: n
         description: "The name of the product"
