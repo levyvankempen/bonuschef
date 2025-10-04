@@ -38,6 +38,7 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
 
     yield from rest_api_resources(config)
 
+
 @dlt_assets(
     dlt_source=github_source(),
     dlt_pipeline=dlt.pipeline(

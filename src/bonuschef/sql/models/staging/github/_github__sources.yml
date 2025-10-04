@@ -2,6 +2,7 @@ version: 2
 
 sources:
   - name: "github"
+    database: "postgres"
     description: "GitHub data"
     schema: "public"
     tables:
