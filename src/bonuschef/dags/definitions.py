@@ -1,12 +1,11 @@
-from ..dags import assets
+"""Entry point for Dagster."""
 
 from dagster import Definitions, load_assets_from_modules
-from dagster_dlt import DagsterDltResource
 
-dlt_resource = DagsterDltResource()
-all_assets = load_assets_from_modules([assets])
+from bonuschef.dags.defs.assets import all_assets
+from bonuschef.dags.defs.resources.configured_resources import resources
 
 defs = Definitions(
-    assets=all_assets,
-    resources={"dlt": dlt_resource},
+    assets=load_assets_from_modules([all_assets]),
+    resources=resources,
 )

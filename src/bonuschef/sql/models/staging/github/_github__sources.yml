@@ -5,6 +5,9 @@ sources:
     description: "GitHub data"
     schema: "public"
     tables:
-      - name: products_ah
-        identifier: products_ah
-        description: products_ah
+      - name: products
+        identifier: github__products
+        description: "Products from the Albert Heijn."
+        meta:
+          dagster:
+            asset_key: ["dlt_github_products"]
