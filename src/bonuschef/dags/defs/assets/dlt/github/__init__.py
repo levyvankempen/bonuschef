@@ -54,8 +54,8 @@ def github_source(
         _iter_products,
         name="products",
         table_name="github__products",
-        write_disposition="append",
-        primary_key="l",
+        write_disposition="merge",
+        primary_key=["l", "snapshot_at"],
     )
 
 
