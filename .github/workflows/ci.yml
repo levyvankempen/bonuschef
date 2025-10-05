@@ -27,7 +27,7 @@ jobs:
 
       # Lint Python (Ruff)
       - name: nox -s lint_python
-        run: uvx nox -s lint_python -- --output-format=github
+        run: uvx nox -s lint_python
 
       # Lint SQL (sqlfluff + your dbt parse step)
       - name: nox -s lint_sql
