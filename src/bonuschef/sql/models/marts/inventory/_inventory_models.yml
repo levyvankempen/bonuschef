@@ -11,3 +11,7 @@ models:
         description: Price of the product.
       - name: volume
         description: Volume of the product.
+      - name: snapshot_sha
+        description: The SHA used to retrieve the data.
+      - name: snapshot_at
+        description: Timestamp the snapshot data has been made.

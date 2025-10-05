@@ -73,5 +73,8 @@ dlt_pipeline = dlt.pipeline(
     name="github__products_assets",
     group_name="dlt",
 )
-def github__products_assets(context: AssetExecutionContext, dlt: DagsterDltResource):
+def github__products_assets(
+    context: AssetExecutionContext, dlt: DagsterDltResource
+) -> Any:
+    """Asset to retrieve data from GitHub JSON file."""
     yield from dlt.run(context=context)

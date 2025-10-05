@@ -1,13 +1,23 @@
-WITH
-stg_products AS (
+WITH stg_products AS (
 
     SELECT * FROM {{ ref('stg_github__products') }}
 
 ),
 
-products AS (
-    SELECT *
+latest_timestamp AS (
+    SELECT
+        product_link,
+        MAX(snapshot_timestamp) AS latest_snapshot
     FROM stg_products
+    GROUP BY product_link
+),
+
+products AS (
+    SELECT s.*
+    FROM stg_products s
+    INNER JOIN latest_timestamp l
+        ON s.product_link = l.product_link
+       AND s.snapshot_timestamp = l.latest_snapshot
 )
 
 SELECT *

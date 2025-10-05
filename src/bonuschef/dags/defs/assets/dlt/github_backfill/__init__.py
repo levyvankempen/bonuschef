@@ -3,7 +3,12 @@
 import os
 import dlt
 from typing import Optional, Dict, List
-from dagster import AssetExecutionContext, asset, StaticPartitionsDefinition
+from dagster import (
+    AssetExecutionContext,
+    asset,
+    StaticPartitionsDefinition,
+    RetryPolicy,
+)
 
 from ..github import github_source
 from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
@@ -38,8 +43,10 @@ PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
     name="github__products_backfill",
     group_name="dlt",
     partitions_def=PARTITIONS,
+    retry_policy=RetryPolicy(max_retries=2, delay=60),
 )
-def github__products_backfill(context: AssetExecutionContext):
+def github__products_backfill(context: AssetExecutionContext) -> None:
+    """Asset to backfill GitHub product data."""
     sha = context.partition_key
     if sha == "latest":
         commit_sha: Optional[str] = None

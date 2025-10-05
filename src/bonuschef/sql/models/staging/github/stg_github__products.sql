@@ -12,7 +12,9 @@ renamed AS (
         n AS product_name,
         l AS product_link,
         p AS price,
-        s AS amount
+        s AS amount,
+        snapshot_sha AS sha,
+        snapshot_at AS snapshot_timestamp
 
     FROM source
 )

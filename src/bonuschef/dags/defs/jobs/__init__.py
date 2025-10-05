@@ -8,6 +8,7 @@ backfill_job = define_asset_job(
     name="github_products_backfill",
     selection="github__products_backfill",
     executor_def=multiprocess_executor.configured({"max_concurrent": 1}),
+    op_retry_policy=RetryPolicy(max_retries=3, delay=120),
 )
 
 __all__ = ["all_assets_job", "backfill_job"]

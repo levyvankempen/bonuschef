@@ -1,6 +1,5 @@
 """Helper file to get the SHA of all files uploaded on Monday."""
 
-import os
 import requests
 from datetime import datetime
 
@@ -62,18 +61,3 @@ def get_commits_by_message(
                 )
 
     return matches
-
-
-if __name__ == "__main__":
-    commits = get_commits_by_message(
-        owner="supermarkt",
-        repo="checkjebon",
-        token=os.environ.get("GITHUB_TOKEN"),
-        message_filter="Update supermarkets.json",
-    )
-
-    if not commits:
-        print("No matching commits found on a Monday.")
-    else:
-        for c in commits:
-            print(f"{c['date']} | {c['sha']} | {c['weekday']} | {c['message']}")
