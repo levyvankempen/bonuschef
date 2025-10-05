@@ -1,9 +1,7 @@
-"""GitHub Asset."""
+"""GitHub Asset with commit SHA support."""
 
 import dlt
-
 from typing import Any, Optional
-
 from dagster import AssetExecutionContext
 from dagster_dlt import DagsterDltResource, dlt_assets
 from dlt.sources.rest_api import (
@@ -11,11 +9,21 @@ from dlt.sources.rest_api import (
     rest_api_resources,
 )
 
-RAW_PATH = "supermarkt/checkjebon/main/data/supermarkets.json"
+OWNER = "supermarkt"
+REPO = "checkjebon"
+PATH = "data/supermarkets.json"
 
 
 @dlt.source(name="github")
-def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
+def github_source(
+    access_token: Optional[str] = dlt.secrets.value,
+    commit_sha: Optional[str] = None,
+    branch: str = "main",
+) -> Any:
+    """DLT source that loads data from GitHub JSON file."""
+    ref = commit_sha or branch
+    raw_path = f"{OWNER}/{REPO}/{ref}/{PATH}"
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": "https://raw.githubusercontent.com",
@@ -32,7 +40,7 @@ def github_source(access_token: Optional[str] = dlt.secrets.value) -> Any:
                 "name": "products",
                 "table_name": "github__products",
                 "endpoint": {
-                    "path": RAW_PATH,
+                    "path": raw_path,
                     "data_selector": "$[?(@.n=='ah')].d[*]",
                 },
                 "primary_key": "l",
