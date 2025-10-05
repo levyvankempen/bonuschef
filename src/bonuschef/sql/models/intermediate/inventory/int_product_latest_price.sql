@@ -14,10 +14,11 @@ latest_timestamp AS (
 
 products AS (
     SELECT s.*
-    FROM stg_products s
-    INNER JOIN latest_timestamp l
-        ON s.product_link = l.product_link
-       AND s.snapshot_timestamp = l.latest_snapshot
+    FROM stg_products AS s
+    INNER JOIN latest_timestamp AS l
+        ON
+            s.product_link = l.product_link
+            AND s.snapshot_timestamp = l.latest_snapshot
 )
 
 SELECT *
