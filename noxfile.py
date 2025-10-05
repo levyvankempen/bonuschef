@@ -15,7 +15,7 @@ locations_sql = ["src/bonuschef/sql"]
 
 @nox.session(python=["3.12"], venv_backend="uv")
 def tests(session: Session) -> None:
-    args = session.posargs or ["--cov=onboarding_ruud", "-q"]
+    args = session.posargs
 
     session.install("ruff", "uv")
     session.run("uv", "sync", "--active", external=True)
