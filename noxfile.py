@@ -8,7 +8,7 @@ nox.options.sessions = [
     "format_python",
     "format_sql",
     "mypy",
-    # "tests",
+    "tests",
 ]
 locations_python = "src", "tests", "noxfile.py"
 locations_sql = ["src/bonuschef/sql"]
@@ -20,13 +20,13 @@ def _maybe_github_format(extra: list[str]) -> list[str]:
     return extra
 
 
-# @nox.session(python=["3.12"], venv_backend="uv")
-# def tests(session: Session) -> None:
-#     args = session.posargs
-#
-#     session.run("uv", "sync", "--active", "--dev")
-#     session.run("uv", "sync", "--active", external=True)
-#     session.run("uv", "run", "--active", "pytest", *args, external=True)
+@nox.session(python=["3.12"], venv_backend="uv")
+def tests(session: Session) -> None:
+    args = session.posargs
+
+    session.run("uv", "sync", "--active", "--dev")
+    session.run("uv", "sync", "--active", external=True)
+    session.run("uv", "run", "--active", "pytest", *args, external=True)
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
