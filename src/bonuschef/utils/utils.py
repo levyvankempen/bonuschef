@@ -1,5 +1,6 @@
 from datetime import datetime
 
+
 def greeting_based_on_time(current_time: datetime | None = None) -> str:
     """Return a greeting depending on the time of day."""
     if current_time is None:
