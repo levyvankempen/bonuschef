@@ -33,7 +33,7 @@ def github_source(
             "headers": {"User-Agent": "dlt-pipeline"},
         },
         "resource_defaults": {
-            "write_disposition": "merge",
+            "write_disposition": "append",
         },
         "resources": [
             {
