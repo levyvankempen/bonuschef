@@ -22,8 +22,9 @@ readme = "README.md"
 
 [dependency-groups]
 dev = [
-    "dagster-webserver",
-    "dagster-dg-cli",
+    "pytest>=8.4.2, <8.4.3",
+    "ruff>=0.13.1, <0.13.2",
+    "sqlfluff>=3.4.2, <3.4.3"
 ]
 
 [build-system]
