@@ -12,3 +12,7 @@ models:
         description: The price of the product
       - name: amount
         description: The amount of the product
+      - name: snapshot_sha
+        description: The SHA used to retrieve the data
+      - name: snapshot_at
+        description: Timestamp the snapshot data has been made
