@@ -13,10 +13,12 @@ nox.options.sessions = [
 locations_python = "src", "tests", "noxfile.py"
 locations_sql = ["src/bonuschef/sql"]
 
+
 def _maybe_github_format(extra: list[str]) -> list[str]:
     if os.getenv("GITHUB_ACTIONS"):
         return [*extra, "--output-format=github"]
     return extra
+
 
 @nox.session(python=["3.12"], venv_backend="uv")
 def tests(session: Session) -> None:
@@ -43,9 +45,19 @@ def lint_sql(session: Session) -> None:
     session.run("uv", "sync", "--active", "--dev")
     session.run("uv", "run", "--active", "dbt", "deps", "--project-dir", *args)
     session.run(
-        "uv", "run", "--active", "dbt", "parse", "--project-dir", *args, "--profiles-dir", *args
+        "uv",
+        "run",
+        "--active",
+        "dbt",
+        "parse",
+        "--project-dir",
+        *args,
+        "--profiles-dir",
+        *args,
     )
-    session.run("uv", "run", "--active", "sqlfluff", "lint", "--dialect", "postgres", *args)
+    session.run(
+        "uv", "run", "--active", "sqlfluff", "lint", "--dialect", "postgres", *args
+    )
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
@@ -62,7 +74,9 @@ def format_sql(session: Session) -> None:
     """Run SQLfluff fix formatter."""
     args = session.posargs or locations_sql
     session.run("uv", "sync", "--active", "--dev")
-    session.run("uv", "run", "--active", "sqlfluff", "fix", "--dialect", "postgres", *args)
+    session.run(
+        "uv", "run", "--active", "sqlfluff", "fix", "--dialect", "postgres", *args
+    )
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
