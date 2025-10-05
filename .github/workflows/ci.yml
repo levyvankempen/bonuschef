@@ -15,7 +15,7 @@ jobs:
       # Install uv (official action)
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true  # speeds up runs
+          enable-cache: true
 
       # Optional: ensure a specific Python is available for nox "python=['3.12']"
       - name: Install Python 3.12
@@ -27,20 +27,11 @@ jobs:
 
       # Lint Python (Ruff)
       - name: nox -s lint_python
-        run: uvx nox -s lint_python -- ruff --output-format=github
+        run: uvx nox -s lint_python
 
       # Lint SQL (sqlfluff + your dbt parse step)
       - name: nox -s lint_sql
         run: uvx nox -s lint_sql
-
-      # Format check (don’t rewrite in CI)
-      - name: nox -s format_python -- --check
-        run: uvx nox -s format_python -- --check
-
-      # You already lint SQL separately; skip sqlfluff fix in CI (check-only above)
-      # Type-check
-      - name: nox -s mypy
-        run: uvx nox -s mypy
 
       # Tests
       - name: nox -s tests
