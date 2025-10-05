@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_seeds__recipes
+    description: Seed-based file to store defined recipes and its servings.
+    columns:
+      - name: recipe_id
+        description: ID of the recipe.
+      - name: recipe_name
+        description: Name of the recipe.
+      - name: servings
+        description: Amount of people the recipe can serve.
+  - name: stg_seeds__recipe_ingredients
+    description: Seed-based file to store defined recipes and its servings.
+    columns:
+      - name: recipe_id
+        description: ID of the recipe.
+      - name: product_name
+        description: Name of the recipe.
+      - name: product_link
+        description: Link to the webpage of the product.
+      - name: quantity
+        description: Amount needed of the ingredient.

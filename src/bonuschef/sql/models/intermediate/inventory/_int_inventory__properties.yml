@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: int_products
-    description: Copy of staging products
+  - name: int_product_latest_price
+    description: Latest price of the products.
     columns:
       - name: product_name
         description: Name of the product
