@@ -1,33 +1,52 @@
-from typing import List
+"""Backfill supermarket product data from GitHub."""
+
+import os
 import dlt
-from dagster import (
-    AssetExecutionContext,
-    asset,
-    StaticPartitionsDefinition,
-)
+from typing import Optional, Dict, List
+from dagster import AssetExecutionContext, asset, StaticPartitionsDefinition
 
 from ..github import github_source
+from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
 
-HISTORICAL_SHAS: List[str] = [
-    "861e8901fb7f15fe1638a0b0b08bed4ef2948652",
-    "fc2d3b1731f27065e595fb00bd99ebbd61b85f80",
-]
+OWNER = os.getenv("GITHUB_OWNER")
+REPO = os.getenv(
+    "GITHUB_REPO",
+)
+MSG = os.getenv("GITHUB_MESSAGE_FILTER")
+START = os.getenv("GITHUB_START_DATE")
+BRANCH = os.getenv("GITHUB_BRANCH", "main")
+TOKEN = os.getenv("GITHUB_TOKEN")
+MAX_PAGES = int(os.getenv("GITHUB_MAX_PAGES"))
 
-SHA_TO_DT = {
-    "861e8901fb7f15fe1638a0b0b08bed4ef2948652": "2025-09-29T04:36:12Z",
-    "fc2d3b1731f27065e595fb00bd99ebbd61b85f80": "2025-09-22T04:42:07Z",
-}
+_commits = commits_since_date(
+    owner=OWNER,
+    repo=REPO,
+    message_filter=MSG,
+    since_iso_utc=START,
+    branch=BRANCH,
+    token=TOKEN,
+    max_pages=MAX_PAGES,
+)
 
-PARTITIONS = StaticPartitionsDefinition(partition_keys=HISTORICAL_SHAS + ["latest"])
+SHA_TO_DT: Dict[str, str] = {c["sha"]: c["date"] for c in _commits}
+PARTITION_KEYS: List[str] = list(SHA_TO_DT.keys()) + ["latest"]
+
+PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
 
 
-@asset(name="github__products_backfill", group_name="dlt", partitions_def=PARTITIONS)
-def github__products_assets(context: AssetExecutionContext):
+@asset(
+    name="github__products_backfill",
+    group_name="dlt",
+    partitions_def=PARTITIONS,
+)
+def github__products_backfill(context: AssetExecutionContext):
     sha = context.partition_key
-    commit_sha = None if sha == "latest" else sha
-    snapshot_at = (
-        None if sha == "latest" else SHA_TO_DT.get(sha)
-    )
+    if sha == "latest":
+        commit_sha: Optional[str] = None
+        snapshot_at: Optional[str] = None
+    else:
+        commit_sha = sha
+        snapshot_at = SHA_TO_DT.get(sha)
 
     pipeline = dlt.pipeline(
         pipeline_name=f"github_pipeline_{sha}",
@@ -36,6 +55,8 @@ def github__products_assets(context: AssetExecutionContext):
         progress="log",
     )
     load_info = pipeline.run(
-        github_source(commit_sha=commit_sha, branch="main", snapshot_at=snapshot_at)
+        github_source(commit_sha=commit_sha, branch=BRANCH, snapshot_at=snapshot_at)
     )
-    context.log.info(f"Partition={sha} loaded {len(load_info.loads_ids)} package(s).")
+    context.log.info(
+        f"Loaded sha={commit_sha or 'latest'} snapshot_at={snapshot_at} packages={len(load_info.loads_ids)}"
+    )
