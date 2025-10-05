@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: int_recipe_items_resolved
+    description: Join of recipes with their items and servings
+    columns:
+      - name: recipe_id
+        description: ID of the recipe.
+      - name: recipe_name
+        description: Name of the recipe.
+      - name: servings
+        description: Amount of people the recipe can serve.
+      - name: product_name
+        description: Name of the recipe.
+      - name: product_link
+        description: Link to the webpage of the product.
+      - name: quantity
+        description: Amount needed of the ingredient.
+  - name: int_recipe_items_priced
+    description: Join of recipes with latest price of products.
+    columns:
+      - name: recipe_id
+        description: ID of the recipe.
+      - name: servings
+        description: Amount of people the recipe can serve.
+      - name: product_name
+        description: Name of the recipe.
+      - name: product_link
+        description: Link to the webpage of the product.
+      - name: price
+        description: Price of the product.
+      - name: quantity
+        description: Amount needed of the ingredient.
+      - name: item_cost
+        description: Price of the product multiplied by the quantity.
