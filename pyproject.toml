@@ -15,6 +15,7 @@ dependencies = [
     "nox>=2025.5.1",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
+    "streamlit>=1.50.0",
 ]
 
 description = "Add your description here"
