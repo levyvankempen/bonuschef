@@ -21,7 +21,9 @@ def sidebar_controls(_engine):
 
     if default_schema not in schemas:
         default_schema = schemas[0]
-    schema = st.sidebar.selectbox("Schema", schemas, index=schemas.index(default_schema))
+    schema = st.sidebar.selectbox(
+        "Schema", schemas, index=schemas.index(default_schema)
+    )
 
     tables = list_tables(_engine, schema)
     if not tables:
@@ -35,7 +37,6 @@ def sidebar_controls(_engine):
     return schema, table
 
 
-
 def display_table(df: pd.DataFrame):
     """Display dataframe ordered by snapshot_timestamp DESC, hide recipe_id, and wrap in expander."""
     df = df.copy()
@@ -44,15 +45,18 @@ def display_table(df: pd.DataFrame):
         df = df.drop(columns=["recipe_id"])
 
     if "snapshot_timestamp" in df.columns:
-        df["snapshot_timestamp"] = pd.to_datetime(df["snapshot_timestamp"], errors="coerce")
+        df["snapshot_timestamp"] = pd.to_datetime(
+            df["snapshot_timestamp"], errors="coerce"
+        )
         df = df.sort_values("snapshot_timestamp", ascending=False)
 
     with st.expander(f"Show table ({len(df):,} rows)", expanded=False):
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 
-
-def display_total_cost_line(df: pd.DataFrame, date_col: str, value_col: str, recipe_col: str = "recipe_name"):
+def display_total_cost_line(
+    df: pd.DataFrame, date_col: str, value_col: str, recipe_col: str = "recipe_name"
+):
     """Display a multi-recipe line chart with hover tooltip and legend."""
     if date_col not in df.columns or value_col not in df.columns:
         st.info(f"Missing required columns: `{date_col}` or `{value_col}`.")

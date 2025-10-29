@@ -9,7 +9,7 @@ def render_app():
     st.set_page_config(
         page_title="BonusChef • Data Portal",
         layout="wide",
-        initial_sidebar_state="collapsed"
+        initial_sidebar_state="collapsed",
     )
     st.title("BonusChef Data Portal")
     st.write("Simple viewer for dbt-created tables in PostgreSQL.")
@@ -31,8 +31,13 @@ def render_app():
 
     display_table(df)
 
-    st.subheader(f"Total cost per recipe over time")
-    display_total_cost_line(df, date_col="snapshot_timestamp", value_col="total_cost", recipe_col="recipe_name")
+    st.subheader("Total cost per recipe over time")
+    display_total_cost_line(
+        df,
+        date_col="snapshot_timestamp",
+        value_col="total_cost",
+        recipe_col="recipe_name",
+    )
 
 
 def main():
