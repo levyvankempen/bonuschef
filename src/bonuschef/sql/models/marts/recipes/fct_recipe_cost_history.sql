@@ -1,36 +1,48 @@
 WITH
 
-stg_products AS (
-    SELECT * FROM {{ ref('stg_github__products') }}
+stg_products AS (SELECT * FROM {{ ref('stg_github__products') }}),
+
+recipe_items AS (SELECT * FROM {{ ref('int_recipe_items_resolved') }}),
+
+snapshots AS (
+    SELECT DISTINCT snapshot_timestamp
+    FROM stg_products
 ),
 
-recipe_items AS (
-    SELECT * FROM {{ ref('int_recipe_items_resolved') }}
-),
-
-dim_recipe AS (
-    SELECT * FROM {{ ref('dim_recipe') }}
-),
-
-recipe_items_priced_over_time AS (
+basket AS (
     SELECT
         i.recipe_id,
         i.product_link,
         i.quantity,
-        p.snapshot_timestamp,
-        p.price,
-        i.quantity * p.price AS item_cost
+        s.snapshot_timestamp
     FROM recipe_items AS i
-    INNER JOIN stg_products AS p
-        ON i.product_link = p.product_link
+    CROSS JOIN snapshots AS s
+),
+
+priced AS (
+    SELECT
+        b.recipe_id,
+        b.product_link,
+        b.quantity,
+        b.snapshot_timestamp,
+        p.price,
+        (b.quantity * p.price) AS item_cost
+    FROM basket AS b
+    LEFT JOIN stg_products AS p
+        ON
+            b.product_link = p.product_link
+            AND b.snapshot_timestamp = p.snapshot_timestamp
 ),
 
 agg AS (
     SELECT
         recipe_id,
         snapshot_timestamp,
-        round(sum(item_cost)::numeric, 2) AS total_cost
-    FROM recipe_items_priced_over_time
+        ROUND(SUM(item_cost)::numeric, 2) AS total_cost_observed,
+        COUNT(*) AS items_total,
+        COUNT(price) AS items_priced,
+        COUNT(price)::float / COUNT(*)::float AS price_coverage
+    FROM priced
     GROUP BY recipe_id, snapshot_timestamp
 )
 
@@ -39,8 +51,11 @@ SELECT
     d.recipe_name,
     d.servings,
     a.snapshot_timestamp,
-    a.total_cost,
-    round(a.total_cost / nullif(d.servings, 0), 2) AS cost_per_serving
+    a.total_cost_observed,
+    a.price_coverage,
+    CASE
+        WHEN a.items_priced = a.items_total
+            THEN ROUND(a.total_cost_observed / NULLIF(d.servings, 0), 2)
+    END AS cost_per_serving_strict
 FROM agg AS a
-INNER JOIN {{ ref('dim_recipe') }} AS d
-    ON a.recipe_id = d.recipe_id
+INNER JOIN {{ ref('dim_recipe') }} AS d ON a.recipe_id = d.recipe_id
