@@ -6,7 +6,11 @@ from bonuschef.portal.ui import sidebar_controls, display_table, display_total_c
 
 
 def render_app():
-    st.set_page_config(page_title="BonusChef • Data Portal", layout="wide")
+    st.set_page_config(
+        page_title="BonusChef • Data Portal",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     st.title("BonusChef Data Portal")
     st.write("Simple viewer for dbt-created tables in PostgreSQL.")
 
@@ -16,7 +20,7 @@ def render_app():
         st.error(f"Database connection error: {e}")
         st.stop()
 
-    schema, table, date_col, freq, metric_col, agg = sidebar_controls(engine)
+    schema, table = sidebar_controls(engine)
 
     with st.spinner(f"Loading `{schema}.{table}`…"):
         try:
@@ -27,9 +31,12 @@ def render_app():
 
     display_table(df)
 
-    st.subheader(f"Line chart • {metric_col} over time")
+    st.subheader("Total cost per recipe over time")
     display_total_cost_line(
-        df, date_col=date_col, value_col=metric_col, freq=freq, agg=agg
+        df,
+        date_col="snapshot_timestamp",
+        value_col="total_cost",
+        recipe_col="recipe_name",
     )
 
 
