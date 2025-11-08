@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import List, Dict
-from ..assets.dlt.github_backfill.list_github_shas import get_commits_by_message
+from .list_github_shas import get_commits_by_message
 
 
 def commits_since_date(
@@ -14,7 +14,7 @@ def commits_since_date(
     token: str | None = None,
     max_pages: int = 2,
 ) -> List[Dict]:
-    """Return commits (with Monday/message filters) on/after since_iso_utc."""
+    """Return commits (with message filters) on/after since_iso_utc."""
     since_dt = datetime.fromisoformat(since_iso_utc.replace("Z", "+00:00"))
     commits = get_commits_by_message(
         owner=owner,
