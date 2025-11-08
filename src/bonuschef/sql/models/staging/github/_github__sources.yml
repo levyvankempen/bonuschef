@@ -10,4 +10,4 @@ sources:
         description: "Products from the Albert Heijn."
         meta:
           dagster:
-            asset_key: ["dlt_github_products"]
+            asset_key: ["github__products"]

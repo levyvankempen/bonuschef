@@ -1,14 +1,20 @@
 """GitHub Asset with commit SHA support."""
 
+import os
 import dlt
 import requests
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Dict, List
 from datetime import datetime, timezone
-from dagster import AssetExecutionContext
-from dagster_dlt import DagsterDltResource, dlt_assets
+from dagster import (
+    AssetExecutionContext,
+    asset,
+    StaticPartitionsDefinition,
+    RetryPolicy,
+)
+from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
 
-OWNER = "supermarkt"
-REPO = "checkjebon"
+OWNER = os.getenv("GITHUB_OWNER", "supermarkt")
+REPO = os.getenv("GITHUB_REPO", "checkjebon")
 PATH = "data/supermarkets.json"
 
 
@@ -59,22 +65,51 @@ def github_source(
     )
 
 
-dlt_pipeline = dlt.pipeline(
-    pipeline_name="github_pipeline",
-    destination="postgres",
-    dataset_name="public",
-    progress="log",
+# Read environment variables for backfill configuration
+MSG = os.getenv("GITHUB_MESSAGE_FILTER")
+START = os.getenv("GITHUB_START_DATE")
+BRANCH = os.getenv("GITHUB_BRANCH", "main")
+TOKEN = os.getenv("GITHUB_TOKEN")
+MAX_PAGES = int(os.getenv("GITHUB_MAX_PAGES", "2"))
+
+# Get commits since start date
+_commits = commits_since_date(
+    owner=OWNER,
+    repo=REPO,
+    message_filter=MSG,
+    since_iso_utc=START,
+    branch=BRANCH,
+    token=TOKEN,
+    max_pages=MAX_PAGES,
 )
 
+SHA_TO_DT: Dict[str, str] = {c["sha"]: c["date"] for c in _commits}
+PARTITION_KEYS: List[str] = list(SHA_TO_DT.keys())
 
-@dlt_assets(
-    dlt_source=github_source(),
-    dlt_pipeline=dlt_pipeline,
-    name="github__products_assets",
+PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
+
+
+@asset(
+    name="github__products",
     group_name="dlt",
+    partitions_def=PARTITIONS,
+    retry_policy=RetryPolicy(max_retries=2, delay=60),
 )
-def github__products_assets(
-    context: AssetExecutionContext, dlt: DagsterDltResource
-) -> Any:
-    """Asset to retrieve data from GitHub JSON file."""
-    yield from dlt.run(context=context)
+def github__products_assets(context: AssetExecutionContext) -> None:
+    """Asset to backfill GitHub product data for all commit SHAs."""
+    sha = context.partition_key
+    commit_sha = sha
+    snapshot_at = SHA_TO_DT.get(sha)
+
+    pipeline = dlt.pipeline(
+        pipeline_name=f"github_pipeline_{sha}",
+        destination="postgres",
+        dataset_name="public",
+        progress="log",
+    )
+    load_info = pipeline.run(
+        github_source(commit_sha=commit_sha, branch=BRANCH, snapshot_at=snapshot_at)
+    )
+    context.log.info(
+        f"Loaded sha={commit_sha} snapshot_at={snapshot_at} packages={len(load_info.loads_ids)}"
+    )
