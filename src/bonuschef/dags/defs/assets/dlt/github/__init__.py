@@ -13,9 +13,29 @@ from dagster import (
 )
 from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
 
-OWNER = os.getenv("GITHUB_OWNER", "supermarkt")
-REPO = os.getenv("GITHUB_REPO", "checkjebon")
-PATH = "data/supermarkets.json"
+OWNER = os.getenv("GITHUB_OWNER")
+REPO = os.getenv("GITHUB_REPO")
+PATH = os.getenv("GITHUB_PATH")
+MSG = os.getenv("GITHUB_MESSAGE_FILTER")
+START = os.getenv("GITHUB_START_DATE")
+BRANCH = os.getenv("GITHUB_BRANCH")
+TOKEN = os.getenv("GITHUB_TOKEN")
+MAX_PAGES = int(os.getenv("GITHUB_MAX_PAGES"))
+
+_commits = commits_since_date(
+    owner=OWNER,
+    repo=REPO,
+    message_filter=MSG,
+    since_iso_utc=START,
+    branch=BRANCH,
+    token=TOKEN,
+    max_pages=MAX_PAGES,
+)
+
+SHA_TO_DT: Dict[str, str] = {c["sha"]: c["date"] for c in _commits}
+PARTITION_KEYS: List[str] = list(SHA_TO_DT.keys())
+
+PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
 
 
 def _snapshot_str(snapshot_at: Optional[Union[str, datetime]]) -> str:
@@ -63,30 +83,6 @@ def github_source(
         write_disposition="merge",
         primary_key=["l", "snapshot_at"],
     )
-
-
-# Read environment variables for backfill configuration
-MSG = os.getenv("GITHUB_MESSAGE_FILTER")
-START = os.getenv("GITHUB_START_DATE")
-BRANCH = os.getenv("GITHUB_BRANCH", "main")
-TOKEN = os.getenv("GITHUB_TOKEN")
-MAX_PAGES = int(os.getenv("GITHUB_MAX_PAGES", "2"))
-
-# Get commits since start date
-_commits = commits_since_date(
-    owner=OWNER,
-    repo=REPO,
-    message_filter=MSG,
-    since_iso_utc=START,
-    branch=BRANCH,
-    token=TOKEN,
-    max_pages=MAX_PAGES,
-)
-
-SHA_TO_DT: Dict[str, str] = {c["sha"]: c["date"] for c in _commits}
-PARTITION_KEYS: List[str] = list(SHA_TO_DT.keys())
-
-PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
 
 
 @asset(
