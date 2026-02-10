@@ -1,44 +1,33 @@
-"""GitHub Asset with commit SHA support."""
+"""GitHub Asset with dynamic partition discovery via sensor."""
 
-import os
+from datetime import datetime, timezone
+
 import dlt
 import requests
-from typing import Any, Optional, Union, Dict, List
-from datetime import datetime, timezone
 from dagster import (
     AssetExecutionContext,
-    asset,
-    StaticPartitionsDefinition,
+    DynamicPartitionsDefinition,
     RetryPolicy,
-)
-from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
-
-OWNER = os.getenv("GITHUB_OWNER")
-REPO = os.getenv("GITHUB_REPO")
-PATH = os.getenv("GITHUB_PATH")
-MSG = os.getenv("GITHUB_MESSAGE_FILTER")
-START = os.getenv("GITHUB_START_DATE")
-BRANCH = os.getenv("GITHUB_BRANCH")
-TOKEN = os.getenv("GITHUB_TOKEN")
-MAX_PAGES = int(os.getenv("GITHUB_MAX_PAGES"))
-
-_commits = commits_since_date(
-    owner=OWNER,
-    repo=REPO,
-    message_filter=MSG,
-    since_iso_utc=START,
-    branch=BRANCH,
-    token=TOKEN,
-    max_pages=MAX_PAGES,
+    asset,
 )
 
-SHA_TO_DT: Dict[str, str] = {c["sha"]: c["date"] for c in _commits}
-PARTITION_KEYS: List[str] = list(SHA_TO_DT.keys())
+from bonuschef.config import GitHubConfig
 
-PARTITIONS = StaticPartitionsDefinition(partition_keys=PARTITION_KEYS)
+GITHUB_PARTITIONS = DynamicPartitionsDefinition(name="github_commits")
 
 
-def _snapshot_str(snapshot_at: Optional[Union[str, datetime]]) -> str:
+def _get_commit_date(cfg: GitHubConfig, sha: str) -> str:
+    """Fetch the author date for a specific commit SHA."""
+    url = f"https://api.github.com/repos/{cfg.owner}/{cfg.repo}/commits/{sha}"
+    headers = {"Accept": "application/vnd.github+json"}
+    if cfg.token:
+        headers["Authorization"] = f"Bearer {cfg.token}"
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp.json()["commit"]["author"]["date"]
+
+
+def _snapshot_str(snapshot_at: str | datetime | None) -> str:
     if snapshot_at is None:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(snapshot_at, datetime):
@@ -48,14 +37,17 @@ def _snapshot_str(snapshot_at: Optional[Union[str, datetime]]) -> str:
 
 @dlt.source(name="github")
 def github_source(
-    access_token: Optional[str] = dlt.secrets.value,
-    commit_sha: Optional[str] = None,
+    owner: str,
+    repo: str,
+    path: str,
+    access_token: str | None = None,
+    commit_sha: str | None = None,
     branch: str = "main",
-    snapshot_at: Optional[Union[str, datetime]] = None,
-) -> Any:
+    snapshot_at: str | datetime | None = None,
+):
     """DLT source that loads data from GitHub JSON file."""
     ref = commit_sha or branch
-    url = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{ref}/{PATH}"
+    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
     headers = {"User-Agent": "dlt-pipeline"}
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
@@ -88,14 +80,14 @@ def github_source(
 @asset(
     name="github__products",
     group_name="dlt",
-    partitions_def=PARTITIONS,
+    partitions_def=GITHUB_PARTITIONS,
     retry_policy=RetryPolicy(max_retries=2, delay=60),
 )
 def github__products_assets(context: AssetExecutionContext) -> None:
-    """Asset to backfill GitHub product data for all commit SHAs."""
+    """Asset to load GitHub product data for a specific commit SHA."""
+    cfg = GitHubConfig.from_env()
     sha = context.partition_key
-    commit_sha = sha
-    snapshot_at = SHA_TO_DT.get(sha)
+    snapshot_at = _get_commit_date(cfg, sha)
 
     pipeline = dlt.pipeline(
         pipeline_name=f"github_pipeline_{sha}",
@@ -104,8 +96,16 @@ def github__products_assets(context: AssetExecutionContext) -> None:
         progress="log",
     )
     load_info = pipeline.run(
-        github_source(commit_sha=commit_sha, branch=BRANCH, snapshot_at=snapshot_at)
+        github_source(
+            owner=cfg.owner,
+            repo=cfg.repo,
+            path=cfg.path,
+            access_token=cfg.token,
+            commit_sha=sha,
+            branch=cfg.branch,
+            snapshot_at=snapshot_at,
+        )
     )
     context.log.info(
-        f"Loaded sha={commit_sha} snapshot_at={snapshot_at} packages={len(load_info.loads_ids)}"
+        f"Loaded sha={sha} snapshot_at={snapshot_at} packages={len(load_info.loads_ids)}"
     )

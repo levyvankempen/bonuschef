@@ -1,30 +1,58 @@
 version: 2
+
 models:
   - name: dim_recipe
-    description: Recipes with their items and servings
+    description: "Recipe dimension table."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "Unique ID of the recipe."
+        tests:
+          - unique
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
+        tests:
+          - not_null
       - name: servings
-        description: Amount of people the recipe can serve.
-      - name: product_name
-        description: Name of the recipe.
-      - name: product_link
-        description: Link to the webpage of the product.
-      - name: quantity
-        description: Amount needed of the ingredient.
+        description: "Number of people the recipe serves."
+        tests:
+          - not_null
+
   - name: fct_recipe_cost_latest
-    description: Price of the recipes grouped
+    description: "Current total cost per recipe based on latest product prices."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "ID of the recipe."
+        tests:
+          - unique
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
       - name: servings
-        description: Amount of people the recipe can serve.
+        description: "Number of people the recipe serves."
       - name: total_cost
-        description: Total cost of the recipe.
+        description: "Total cost of all ingredients at latest prices."
       - name: cost_per_serving
-        description: Cost of the recipe calculated per serving.
+        description: "Total cost divided by number of servings."
+
+  - name: fct_recipe_cost_history
+    description: "Historical recipe cost per snapshot, with price coverage tracking."
+    columns:
+      - name: recipe_id
+        description: "ID of the recipe."
+        tests:
+          - not_null
+      - name: recipe_name
+        description: "Name of the recipe."
+      - name: servings
+        description: "Number of people the recipe serves."
+      - name: snapshot_timestamp
+        description: "Timestamp of the price snapshot."
+        tests:
+          - not_null
+      - name: total_cost_observed
+        description: "Sum of item costs for ingredients that had a price in this snapshot."
+      - name: price_coverage
+        description: "Fraction of recipe items that had a price (0.0 to 1.0)."
+      - name: cost_per_serving_strict
+        description: "Cost per serving, only calculated when all items have prices."

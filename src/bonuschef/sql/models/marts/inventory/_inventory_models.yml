@@ -1,17 +1,35 @@
 version: 2
+
 models:
-  - name: fct_products
-    description: Fact table of the products
+  - name: dim_product
+    description: "Product dimension with latest known attributes."
     columns:
-      - name: product_name
-        description: Name of the product.
       - name: product_link
-        description: Link of the product.
+        description: "Link slug of the product (natural key)."
+        tests:
+          - unique
+          - not_null
+      - name: product_name
+        description: "Name of the product."
+        tests:
+          - not_null
+      - name: amount
+        description: "The volume or size description of the product."
+
+  - name: fct_products
+    description: "Historical price snapshots for all products across all ingested weeks."
+    columns:
+      - name: product_link
+        description: "Link slug of the product."
+        tests:
+          - not_null
       - name: price
-        description: Price of the product.
-      - name: volume
-        description: Volume of the product.
+        description: "Price of the product at the snapshot moment."
+        tests:
+          - not_null
       - name: snapshot_sha
-        description: The SHA used to retrieve the data.
-      - name: snapshot_at
-        description: Timestamp the snapshot data has been made.
+        description: "The git commit SHA of the snapshot."
+      - name: snapshot_timestamp
+        description: "Timestamp of the price snapshot."
+        tests:
+          - not_null
