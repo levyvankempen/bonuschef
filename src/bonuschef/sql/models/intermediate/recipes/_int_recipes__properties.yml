@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: int_recipe_items_resolved
-    description: "Recipes joined with their ingredient items."
+    description: "Recipes joined with their ingredient items, including SCD2 validity windows."
     columns:
       - name: recipe_id
         description: "ID of the recipe."
@@ -20,9 +20,13 @@ models:
           - not_null
       - name: quantity
         description: "Number of units needed of this ingredient."
+      - name: valid_from
+        description: "Start of validity window for this ingredient (NULL = from the beginning)."
+      - name: valid_to
+        description: "End of validity window for this ingredient (NULL = still active)."
 
   - name: int_recipe_items_priced
-    description: "Recipe items joined with the latest product price."
+    description: "Current recipe items (valid_to IS NULL) joined with the latest product price."
     columns:
       - name: recipe_id
         description: "ID of the recipe."

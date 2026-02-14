@@ -36,7 +36,7 @@ models:
         description: "Total cost divided by number of servings."
 
   - name: fct_recipe_cost_history
-    description: "Historical recipe cost per snapshot, with price coverage tracking."
+    description: "Historical recipe cost per snapshot, with SCD2-aware ingredient selection and price coverage tracking."
     columns:
       - name: recipe_id
         description: "ID of the recipe."
@@ -51,8 +51,32 @@ models:
         tests:
           - not_null
       - name: total_cost_observed
-        description: "Sum of item costs for ingredients that had a price in this snapshot."
+        description: "Sum of item costs for ingredients valid at this snapshot that had a price."
       - name: price_coverage
-        description: "Fraction of recipe items that had a price (0.0 to 1.0)."
+        description: "Fraction of valid recipe items that had a price (0.0 to 1.0)."
       - name: cost_per_serving_strict
-        description: "Cost per serving, only calculated when all items have prices."
+        description: "Cost per serving, only calculated when all valid items have prices."
+
+  - name: fct_recipe_cost_breakdown
+    description: "Current recipe ingredient cost breakdown with percentage of total."
+    columns:
+      - name: recipe_id
+        description: "ID of the recipe."
+        tests:
+          - not_null
+      - name: recipe_name
+        description: "Name of the recipe."
+      - name: product_name
+        description: "Display name of the ingredient product."
+      - name: product_link
+        description: "Link slug of the ingredient product."
+        tests:
+          - not_null
+      - name: quantity
+        description: "Number of units needed."
+      - name: price
+        description: "Latest unit price of the product."
+      - name: item_cost
+        description: "Total cost of this ingredient (price x quantity)."
+      - name: cost_pct
+        description: "Percentage of total recipe cost this ingredient represents."

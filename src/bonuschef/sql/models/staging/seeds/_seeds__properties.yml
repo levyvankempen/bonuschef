@@ -19,7 +19,7 @@ models:
           - not_null
 
   - name: stg_seeds__recipe_ingredients
-    description: "Seed-based file mapping recipe ingredients to products."
+    description: "Seed-based file mapping recipe ingredients to products, with SCD2 validity windows for product succession."
     columns:
       - name: recipe_id
         description: "ID of the recipe this ingredient belongs to."
@@ -37,3 +37,7 @@ models:
         description: "Number of units needed of this ingredient."
         tests:
           - not_null
+      - name: valid_from
+        description: "Start of validity window (NULL means from the beginning)."
+      - name: valid_to
+        description: "End of validity window (NULL means still active)."

@@ -33,3 +33,27 @@ models:
         description: "Timestamp of the price snapshot."
         tests:
           - not_null
+
+  - name: fct_product_price_changes
+    description: "Price changes between consecutive snapshots for each product."
+    columns:
+      - name: product_link
+        description: "Link slug of the product."
+        tests:
+          - not_null
+      - name: product_name
+        description: "Name of the product."
+      - name: prev_snapshot_timestamp
+        description: "Timestamp of the previous price snapshot."
+      - name: snapshot_timestamp
+        description: "Timestamp when the price changed."
+        tests:
+          - not_null
+      - name: prev_price
+        description: "Price before the change."
+      - name: new_price
+        description: "Price after the change."
+      - name: price_change
+        description: "Absolute price difference (new - old)."
+      - name: pct_change
+        description: "Percentage price change."

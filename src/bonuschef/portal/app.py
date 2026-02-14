@@ -3,7 +3,13 @@
 import streamlit as st
 
 from bonuschef.portal.db import get_engine, read_table
-from bonuschef.portal.ui import display_table, display_total_cost_line, sidebar_controls
+from bonuschef.portal.ui import (
+    display_cost_breakdown,
+    display_price_changes,
+    display_table,
+    display_total_cost_line,
+    sidebar_controls,
+)
 
 
 def render_app():
@@ -46,6 +52,14 @@ def render_app():
             value_col=cost_col,
             recipe_col="recipe_name",
         )
+
+    if "cost_pct" in df.columns and "item_cost" in df.columns:
+        st.subheader("Ingredient cost breakdown")
+        display_cost_breakdown(df)
+
+    if "price_change" in df.columns and "pct_change" in df.columns:
+        st.subheader("Price history")
+        display_price_changes(df, engine=engine, schema=schema)
 
 
 def main():

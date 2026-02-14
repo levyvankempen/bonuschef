@@ -23,6 +23,7 @@ priced_recipes AS (
     FROM int_recipe_items_resolved AS t1
     INNER JOIN int_product_latest_price AS t2
         ON t1.product_link = t2.product_link
+    WHERE t1.valid_to IS NULL
 )
 
 SELECT *

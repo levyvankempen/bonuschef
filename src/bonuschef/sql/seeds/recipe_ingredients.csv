@@ -1,9 +1,13 @@
-﻿recipe_id,product_name,product_link,quantity
-1,"AH Tortilla wraps volkoren large",wi453733/ah-tortilla-wraps-volkoren-large,1
-1,"AH Avocado eetrijp",wi129400/ah-avocado-eetrijp,1
-1,"AH Peen julienne",wi104817/ah-peen-julienne,1
-1,"AH Biologisch Rode kool",wi160648/ah-biologisch-rode-kool,1
-1,"AH Aioli",wi497585/ah-aioli,1
-1,"AH Koriander",wi238968/ah-koriander,1
-1,"AH Limoen",wi231211/ah-limoen,1
-1,"Iglo Kibbeling",wi582316/iglo-kibbeling,2
+recipe_id,product_name,product_link,quantity,valid_from,valid_to
+1,"AH Tortilla naturel wraps",wi136836/ah-tortilla-naturel-wraps,1,,2025-02-17
+1,"AH Tortilla wraps volkoren large",wi453733/ah-tortilla-wraps-volkoren-large,1,2025-02-17,
+1,"AH Avocado eetrijp",wi129400/ah-avocado-eetrijp,1,,
+1,"AH Peen julienne",wi104817/ah-peen-julienne,1,,
+1,"AH Biologisch Rode kool",wi160648/ah-biologisch-rode-kool,1,,
+1,"AH Aioli",wi497585/ah-aioli,1,,
+1,"AH Koriander",wi238968/ah-koriander,1,,
+1,"AH Limoen los",wi231211/ah-limoen-los,1,,2025-02-17
+1,"AH Limoen",wi231211/ah-limoen,1,2025-02-17,
+1,"Iglo Kibbeling traditioneel",wi371592/iglo-kibbeling-traditioneel,2,,2025-02-17
+1,"Iglo Kibbeling",wi582316/iglo-kibbeling,2,2025-02-17,2025-11-17
+1,"Iglo Viskraam Kibbeling",wi582316/iglo-viskraam-kibbeling,2,2025-11-17,
