@@ -1,28 +1,16 @@
-"""Database file with helper functions"""
+"""Database file with helper functions."""
 
-import os
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
 
+from bonuschef.config import DatabaseConfig
+
 
 @st.cache_resource
 def get_engine():
-    host = os.getenv("PG_HOST")
-    port = os.getenv("PG_PORT")
-    db = os.getenv("PG_DB")
-    user = os.getenv("PG_USER")
-    pwd = os.getenv("PG_PASSWORD")
-    sslmode = os.getenv("PG_SSLMODE", "prefer")
-
-    if not all([host, port, db, user, pwd]):
-        raise RuntimeError(
-            "Missing one or more PG_* environment variables: "
-            "PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD"
-        )
-
-    url = f"postgresql+psycopg2://{user}:{pwd}@{host}:{port}/{db}?sslmode={sslmode}"
-    return create_engine(url, pool_pre_ping=True, pool_size=3, max_overflow=2)
+    cfg = DatabaseConfig.from_env()
+    return create_engine(cfg.url, pool_pre_ping=True, pool_size=3, max_overflow=2)
 
 
 @st.cache_data(ttl=60)
@@ -47,6 +35,23 @@ def list_tables(_engine, schema: str) -> list[str]:
     """)
     with _engine.begin() as conn:
         return [r[0] for r in conn.execute(q, {"schema": schema})]
+
+
+@st.cache_data(ttl=60)
+def read_product_prices(
+    _engine, schema: str, product_names: tuple[str, ...]
+) -> pd.DataFrame:
+    """Fetch full price history from fct_products for specific products."""
+    sql = text(f"""
+        SELECT d.product_name, p.snapshot_timestamp, p.price
+        FROM "{schema}"."fct_products" AS p
+        INNER JOIN "{schema}"."dim_product" AS d
+            ON p.product_link = d.product_link
+        WHERE d.product_name IN :names
+        ORDER BY d.product_name, p.snapshot_timestamp
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"names": product_names})
 
 
 @st.cache_data(ttl=60)

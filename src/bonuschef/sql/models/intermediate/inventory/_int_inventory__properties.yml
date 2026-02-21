@@ -2,17 +2,24 @@ version: 2
 
 models:
   - name: int_product_latest_price
-    description: Latest price of the products.
+    description: "Latest price snapshot per product."
     columns:
       - name: product_name
-        description: Name of the product
+        description: "Name of the product."
       - name: product_link
-        description: The link of the product
+        description: "The link slug of the product."
+        tests:
+          - unique
+          - not_null
       - name: price
-        description: The price of the product
+        description: "The latest known price of the product."
+        tests:
+          - not_null
       - name: amount
-        description: The amount of the product
-      - name: snapshot_sha
-        description: The SHA used to retrieve the data
-      - name: snapshot_at
-        description: Timestamp the snapshot data has been made
+        description: "The volume or size description of the product."
+      - name: sha
+        description: "The git commit SHA of the latest snapshot."
+      - name: snapshot_timestamp
+        description: "Timestamp of the latest snapshot."
+        tests:
+          - not_null

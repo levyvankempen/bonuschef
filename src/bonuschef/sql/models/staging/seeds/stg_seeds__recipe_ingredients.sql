@@ -13,7 +13,9 @@ recipe_ingredients AS (
         recipe_id,
         product_name,
         product_link,
-        quantity
+        quantity,
+        valid_from::timestamp AS valid_from,
+        valid_to::timestamp AS valid_to
 
     FROM source
 )

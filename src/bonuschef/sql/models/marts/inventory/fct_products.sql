@@ -1,15 +1,14 @@
 WITH
 
-int_products AS (
+stg_products AS (
 
-    SELECT * FROM {{ ref("int_product_latest_price") }}
+    SELECT * FROM {{ ref('stg_github__products') }}
 
-),
-
-products AS (
-    SELECT *
-    FROM int_products
 )
 
-SELECT *
-FROM products
+SELECT
+    product_link,
+    price,
+    sha AS snapshot_sha,
+    snapshot_timestamp
+FROM stg_products

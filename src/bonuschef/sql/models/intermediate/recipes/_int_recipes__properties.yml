@@ -2,34 +2,45 @@ version: 2
 
 models:
   - name: int_recipe_items_resolved
-    description: Join of recipes with their items and servings
+    description: "Recipes joined with their ingredient items, including SCD2 validity windows."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "ID of the recipe."
+        tests:
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
       - name: servings
-        description: Amount of people the recipe can serve.
+        description: "Number of people the recipe serves."
       - name: product_name
-        description: Name of the recipe.
+        description: "Display name of the ingredient product."
       - name: product_link
-        description: Link to the webpage of the product.
+        description: "Link slug of the ingredient product."
+        tests:
+          - not_null
       - name: quantity
-        description: Amount needed of the ingredient.
+        description: "Number of units needed of this ingredient."
+      - name: valid_from
+        description: "Start of validity window for this ingredient (NULL = from the beginning)."
+      - name: valid_to
+        description: "End of validity window for this ingredient (NULL = still active)."
+
   - name: int_recipe_items_priced
-    description: Join of recipes with latest price of products.
+    description: "Current recipe items (valid_to IS NULL) joined with the latest product price."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
-      - name: servings
-        description: Amount of people the recipe can serve.
-      - name: product_name
-        description: Name of the recipe.
+        description: "ID of the recipe."
+        tests:
+          - not_null
       - name: product_link
-        description: Link to the webpage of the product.
-      - name: price
-        description: Price of the product.
+        description: "Link slug of the ingredient product."
+        tests:
+          - not_null
       - name: quantity
-        description: Amount needed of the ingredient.
+        description: "Number of units needed of this ingredient."
+      - name: product_name
+        description: "Display name of the ingredient product."
+      - name: price
+        description: "Latest price of the product."
       - name: item_cost
-        description: Price of the product multiplied by the quantity.
+        description: "Price of the product multiplied by the quantity needed."

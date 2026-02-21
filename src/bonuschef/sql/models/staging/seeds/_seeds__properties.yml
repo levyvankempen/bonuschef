@@ -2,22 +2,42 @@ version: 2
 
 models:
   - name: stg_seeds__recipes
-    description: Seed-based file to store defined recipes and its servings.
+    description: "Seed-based file to store defined recipes and their servings."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "Unique ID of the recipe."
+        tests:
+          - unique
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
+        tests:
+          - not_null
       - name: servings
-        description: Amount of people the recipe can serve.
+        description: "Number of people the recipe serves."
+        tests:
+          - not_null
+
   - name: stg_seeds__recipe_ingredients
-    description: Seed-based file to store defined recipes and its servings.
+    description: "Seed-based file mapping recipe ingredients to products, with SCD2 validity windows for product succession."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "ID of the recipe this ingredient belongs to."
+        tests:
+          - not_null
       - name: product_name
-        description: Name of the recipe.
+        description: "Display name of the product ingredient."
+        tests:
+          - not_null
       - name: product_link
-        description: Link to the webpage of the product.
+        description: "Link slug to the product on the Albert Heijn website."
+        tests:
+          - not_null
       - name: quantity
-        description: Amount needed of the ingredient.
+        description: "Number of units needed of this ingredient."
+        tests:
+          - not_null
+      - name: valid_from
+        description: "Start of validity window (NULL means from the beginning)."
+      - name: valid_to
+        description: "End of validity window (NULL means still active)."

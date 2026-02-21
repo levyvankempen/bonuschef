@@ -1,30 +1,82 @@
 version: 2
+
 models:
   - name: dim_recipe
-    description: Recipes with their items and servings
+    description: "Recipe dimension table."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "Unique ID of the recipe."
+        tests:
+          - unique
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
+        tests:
+          - not_null
       - name: servings
-        description: Amount of people the recipe can serve.
-      - name: product_name
-        description: Name of the recipe.
-      - name: product_link
-        description: Link to the webpage of the product.
-      - name: quantity
-        description: Amount needed of the ingredient.
+        description: "Number of people the recipe serves."
+        tests:
+          - not_null
+
   - name: fct_recipe_cost_latest
-    description: Price of the recipes grouped
+    description: "Current total cost per recipe based on latest product prices."
     columns:
       - name: recipe_id
-        description: ID of the recipe.
+        description: "ID of the recipe."
+        tests:
+          - unique
+          - not_null
       - name: recipe_name
-        description: Name of the recipe.
+        description: "Name of the recipe."
       - name: servings
-        description: Amount of people the recipe can serve.
+        description: "Number of people the recipe serves."
       - name: total_cost
-        description: Total cost of the recipe.
+        description: "Total cost of all ingredients at latest prices."
       - name: cost_per_serving
-        description: Cost of the recipe calculated per serving.
+        description: "Total cost divided by number of servings."
+
+  - name: fct_recipe_cost_history
+    description: "Historical recipe cost per snapshot, with SCD2-aware ingredient selection and price coverage tracking."
+    columns:
+      - name: recipe_id
+        description: "ID of the recipe."
+        tests:
+          - not_null
+      - name: recipe_name
+        description: "Name of the recipe."
+      - name: servings
+        description: "Number of people the recipe serves."
+      - name: snapshot_timestamp
+        description: "Timestamp of the price snapshot."
+        tests:
+          - not_null
+      - name: total_cost_observed
+        description: "Sum of item costs for ingredients valid at this snapshot that had a price."
+      - name: price_coverage
+        description: "Fraction of valid recipe items that had a price (0.0 to 1.0)."
+      - name: cost_per_serving_strict
+        description: "Cost per serving, only calculated when all valid items have prices."
+
+  - name: fct_recipe_cost_breakdown
+    description: "Current recipe ingredient cost breakdown with percentage of total."
+    columns:
+      - name: recipe_id
+        description: "ID of the recipe."
+        tests:
+          - not_null
+      - name: recipe_name
+        description: "Name of the recipe."
+      - name: product_name
+        description: "Display name of the ingredient product."
+      - name: product_link
+        description: "Link slug of the ingredient product."
+        tests:
+          - not_null
+      - name: quantity
+        description: "Number of units needed."
+      - name: price
+        description: "Latest unit price of the product."
+      - name: item_cost
+        description: "Total cost of this ingredient (price x quantity)."
+      - name: cost_pct
+        description: "Percentage of total recipe cost this ingredient represents."
