@@ -17,8 +17,9 @@ basket AS (
         s.snapshot_timestamp
     FROM recipe_items AS i
     CROSS JOIN snapshots AS s
-    WHERE s.snapshot_timestamp >= COALESCE(i.valid_from, '1900-01-01'::timestamp)
-      AND s.snapshot_timestamp < COALESCE(i.valid_to, '9999-12-31'::timestamp)
+    WHERE
+        s.snapshot_timestamp >= COALESCE(i.valid_from, '1900-01-01'::timestamp)
+        AND s.snapshot_timestamp < COALESCE(i.valid_to, '9999-12-31'::timestamp)
 ),
 
 priced AS (

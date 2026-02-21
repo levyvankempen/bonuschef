@@ -32,8 +32,9 @@ changes AS (
             ((price - prev_price) / NULLIF(prev_price, 0) * 100)::numeric, 1
         ) AS pct_change
     FROM with_prev
-    WHERE prev_price IS NOT NULL
-      AND price != prev_price
+    WHERE
+        prev_price IS NOT NULL
+        AND price != prev_price
 )
 
 SELECT * FROM changes
