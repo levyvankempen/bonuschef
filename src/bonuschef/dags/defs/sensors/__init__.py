@@ -48,7 +48,5 @@ def github_commit_sensor(context: SensorEvaluationContext) -> SensorResult:
         dynamic_partitions_requests=[
             GITHUB_PARTITIONS.build_add_request(new_shas),
         ],
-        run_requests=[
-            RunRequest(partition_key=sha) for sha in new_shas
-        ],
+        run_requests=[RunRequest(partition_key=sha) for sha in new_shas],
     )

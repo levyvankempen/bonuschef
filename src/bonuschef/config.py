@@ -18,7 +18,14 @@ class GitHubConfig:
     max_pages: int
 
     def __post_init__(self) -> None:
-        for field in ("owner", "repo", "path", "message_filter", "start_date", "branch"):
+        for field in (
+            "owner",
+            "repo",
+            "path",
+            "message_filter",
+            "start_date",
+            "branch",
+        ):
             if not getattr(self, field):
                 raise ValueError(f"GITHUB_{field.upper()} is required")
         if self.max_pages < 1:

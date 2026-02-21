@@ -38,7 +38,9 @@ def list_tables(_engine, schema: str) -> list[str]:
 
 
 @st.cache_data(ttl=60)
-def read_product_prices(_engine, schema: str, product_names: tuple[str, ...]) -> pd.DataFrame:
+def read_product_prices(
+    _engine, schema: str, product_names: tuple[str, ...]
+) -> pd.DataFrame:
     """Fetch full price history from fct_products for specific products."""
     sql = text(f"""
         SELECT d.product_name, p.snapshot_timestamp, p.price

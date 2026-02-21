@@ -173,7 +173,9 @@ def display_price_changes(df: pd.DataFrame, engine=None, schema: str | None = No
         st.info("No price history found for the selected products.")
         return
 
-    history["snapshot_timestamp"] = pd.to_datetime(history["snapshot_timestamp"], errors="coerce")
+    history["snapshot_timestamp"] = pd.to_datetime(
+        history["snapshot_timestamp"], errors="coerce"
+    )
     history["price"] = pd.to_numeric(history["price"], errors="coerce")
     history = history.dropna().sort_values(["product_name", "snapshot_timestamp"])
 
