@@ -11,6 +11,8 @@ models:
         tests:
           - unique
           - not_null
+      - name: product_url
+        description: "Full Albert Heijn product URL."
       - name: price
         description: "The latest known price of the product."
         tests:

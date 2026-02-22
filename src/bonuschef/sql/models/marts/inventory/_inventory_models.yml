@@ -9,12 +9,18 @@ models:
         tests:
           - unique
           - not_null
+      - name: product_url
+        description: "Full Albert Heijn product URL."
+        tests:
+          - not_null
       - name: product_name
         description: "Name of the product."
         tests:
           - not_null
       - name: amount
         description: "The volume or size description of the product."
+      - name: image_url
+        description: "URL of the product image scraped from Albert Heijn (NULL if not yet scraped)."
 
   - name: fct_products
     description: "Historical price snapshots for all products across all ingested weeks."

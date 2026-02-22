@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: "portal"
+    description: "Portal-managed recipe data."
+    schema: "public"
+    tables:
+      - name: recipes
+        description: "User-defined recipes with name and servings."
+      - name: recipe_ingredients
+        description: "Recipe ingredient mappings with SCD2 validity windows."
+      - name: product_images
+        description: "Scraped product image URLs keyed by product_link."

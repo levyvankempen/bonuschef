@@ -12,6 +12,10 @@ models:
         description: "The link slug of the product (e.g. wi453733/ah-tortilla-wraps)."
         tests:
           - not_null
+      - name: product_url
+        description: "Full Albert Heijn product URL."
+        tests:
+          - not_null
       - name: price
         description: "The price of the product in euros."
         tests:

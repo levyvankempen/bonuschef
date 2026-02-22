@@ -1,57 +1,8 @@
 """Streamlit UI helper functions."""
 
-import os
 import pandas as pd
 import streamlit as st
 import altair as alt
-
-from bonuschef.portal.db import list_schemas, list_tables
-
-
-def sidebar_controls(_engine):
-    """Sidebar with only schema and table selection (no chart options)."""
-    st.sidebar.header("Data source")
-    default_schema = os.getenv("TARGET_SCHEMA") or "public_marts"
-    default_table = os.getenv("PORTAL_DEFAULT_TABLE") or "fct_recipe_cost_history"
-
-    schemas = list_schemas(_engine)
-    if not schemas:
-        st.sidebar.error("No schemas found.")
-        st.stop()
-
-    if default_schema not in schemas:
-        default_schema = schemas[0]
-    schema = st.sidebar.selectbox(
-        "Schema", schemas, index=schemas.index(default_schema)
-    )
-
-    tables = list_tables(_engine, schema)
-    if not tables:
-        st.sidebar.error("No tables found in schema.")
-        st.stop()
-
-    if default_table not in tables:
-        default_table = tables[0]
-    table = st.sidebar.selectbox("Table", tables, index=tables.index(default_table))
-
-    return schema, table
-
-
-def display_table(df: pd.DataFrame):
-    """Display dataframe ordered by snapshot_timestamp DESC, hide recipe_id, and wrap in expander."""
-    df = df.copy()
-
-    if "recipe_id" in df.columns:
-        df = df.drop(columns=["recipe_id"])
-
-    if "snapshot_timestamp" in df.columns:
-        df["snapshot_timestamp"] = pd.to_datetime(
-            df["snapshot_timestamp"], errors="coerce"
-        )
-        df = df.sort_values("snapshot_timestamp", ascending=False)
-
-    with st.expander(f"Show table ({len(df):,} rows)", expanded=False):
-        st.dataframe(df, use_container_width=True, hide_index=True)
 
 
 def display_total_cost_line(
@@ -102,7 +53,15 @@ def display_cost_breakdown(df: pd.DataFrame):
     if not required.issubset(df.columns):
         return
 
-    data = df[["product_name", "item_cost", "cost_pct"]].copy()
+    data = df.copy()
+
+    if "recipe_name" in data.columns:
+        recipes = sorted(data["recipe_name"].dropna().unique())
+        if len(recipes) > 1:
+            selected = st.selectbox("Recipe", recipes)
+            data = data[data["recipe_name"] == selected]
+
+    data = data[["product_name", "item_cost", "cost_pct"]].copy()
     data["item_cost"] = pd.to_numeric(data["item_cost"], errors="coerce")
     data["cost_pct"] = pd.to_numeric(data["cost_pct"], errors="coerce")
     data = data.dropna()
@@ -114,7 +73,7 @@ def display_cost_breakdown(df: pd.DataFrame):
         alt.Chart(data)
         .mark_bar()
         .encode(
-            x=alt.X("item_cost:Q", title="Cost (\u20ac)"),
+            x=alt.X("item_cost:Q", title="Cost (€)"),
             y=alt.Y("product_name:N", title="Ingredient", sort="-x"),
             color=alt.Color("product_name:N", legend=None),
             tooltip=["product_name", "item_cost", "cost_pct"],
@@ -135,7 +94,7 @@ def _top_movers(data: pd.DataFrame, n: int = 10) -> list[str]:
     return movers.head(n).index.tolist()
 
 
-def display_price_changes(df: pd.DataFrame, engine=None, schema: str | None = None):
+def display_price_changes(df: pd.DataFrame, engine=None):
     """Display top movers with full price history from fct_products."""
     from bonuschef.portal.db import read_product_prices
 
@@ -163,11 +122,11 @@ def display_price_changes(df: pd.DataFrame, engine=None, schema: str | None = No
         st.info("Select at least one product to display the chart.")
         return
 
-    if engine is None or schema is None:
+    if engine is None:
         st.warning("Cannot load full price history without database connection.")
         return
 
-    history = read_product_prices(engine, schema, tuple(selected))
+    history = read_product_prices(engine, tuple(selected))
 
     if history.empty:
         st.info("No price history found for the selected products.")
@@ -184,7 +143,7 @@ def display_price_changes(df: pd.DataFrame, engine=None, schema: str | None = No
         .mark_line(point=True)
         .encode(
             x=alt.X("snapshot_timestamp:T", title="Date"),
-            y=alt.Y("price:Q", title="Price (\u20ac)"),
+            y=alt.Y("price:Q", title="Price (€)"),
             color=alt.Color("product_name:N", title="Product"),
             tooltip=["product_name", "snapshot_timestamp", "price"],
         )

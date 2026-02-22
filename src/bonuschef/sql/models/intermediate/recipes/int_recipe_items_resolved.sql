@@ -2,13 +2,13 @@ WITH
 
 stg_recipes AS (
 
-    SELECT * FROM {{ ref('stg_seeds__recipes') }}
+    SELECT * FROM {{ ref('stg_portal__recipes') }}
 
 ),
 
 stg_recipe_ingredients AS (
 
-    SELECT * FROM {{ ref('stg_seeds__recipe_ingredients') }}
+    SELECT * FROM {{ ref('stg_portal__recipe_ingredients') }}
 
 ),
 

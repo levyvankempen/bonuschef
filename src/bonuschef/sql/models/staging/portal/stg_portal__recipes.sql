@@ -2,7 +2,7 @@ WITH
 
 source AS (
 
-    SELECT * FROM {{ ref('recipes') }}
+    SELECT * FROM {{ source('portal', 'recipes') }}
 
 ),
 
