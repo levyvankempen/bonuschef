@@ -80,3 +80,43 @@ models:
         description: "Total cost of this ingredient (price x quantity)."
       - name: cost_pct
         description: "Percentage of total recipe cost this ingredient represents."
+
+  - name: fct_recipe_cost_breakdown_bonus
+    description: "Recipe ingredient cost breakdown enriched with current AH bonus data."
+    columns:
+      - name: recipe_id
+        description: "ID of the recipe."
+        tests:
+          - not_null
+      - name: recipe_name
+        description: "Name of the recipe."
+      - name: product_name
+        description: "Display name of the ingredient product."
+      - name: product_link
+        description: "Link slug of the ingredient product."
+        tests:
+          - not_null
+      - name: quantity
+        description: "Number of units needed."
+      - name: price
+        description: "Latest unit price of the product."
+      - name: item_cost
+        description: "Total cost of this ingredient (price x quantity)."
+      - name: cost_pct
+        description: "Percentage of total recipe cost this ingredient represents."
+      - name: is_on_bonus
+        description: "Whether this ingredient is currently on bonus at Albert Heijn."
+      - name: bonus_mechanism
+        description: "The bonus type (e.g., '25% korting', '2 VOOR 5.50')."
+      - name: bonus_start_date
+        description: "Start date of the bonus period."
+      - name: bonus_end_date
+        description: "End date of the bonus period."
+      - name: price_before_bonus
+        description: "Regular price before the bonus."
+      - name: bonus_price
+        description: "Current discounted price."
+      - name: advertised_savings
+        description: "Savings AH claims: (price_before_bonus - bonus_price) * quantity. May be inflated."
+      - name: real_savings
+        description: "Actual savings vs tracked price: (price - bonus_price) * quantity."
