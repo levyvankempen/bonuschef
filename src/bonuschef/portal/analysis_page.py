@@ -4,7 +4,11 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from bonuschef.portal.db import get_engine, read_bonus_price_comparison, read_price_changes
+from bonuschef.portal.db import (
+    get_engine,
+    read_bonus_price_comparison,
+    read_price_changes,
+)
 from bonuschef.portal.ui import display_price_changes
 
 
@@ -61,13 +65,15 @@ def _render_bonus_price_check(engine):
     st.subheader("Bonus Price Check")
     st.caption(
         "Compares AH's claimed regular price with the actual tracked price "
-        "to detect inflated \"before\" prices."
+        'to detect inflated "before" prices.'
     )
 
     total = len(bonus_df)
     inflated = bonus_df["is_inflated"].sum()
     inflated_df = bonus_df[bonus_df["is_inflated"]].copy()
-    avg_inflation = inflated_df["price_inflation"].mean() if not inflated_df.empty else 0
+    avg_inflation = (
+        inflated_df["price_inflation"].mean() if not inflated_df.empty else 0
+    )
 
     col1, col2, col3 = st.columns(3)
     with col1:

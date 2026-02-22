@@ -23,40 +23,44 @@ enriched AS (
         b.price,
         b.item_cost,
         b.cost_pct,
-        bp.webshop_id IS NOT NULL AS is_on_bonus,
         bp.bonus_mechanism,
         bp.bonus_start_date,
         bp.bonus_end_date,
         bp.price_before_bonus,
         bp.bonus_price,
+        bp.webshop_id IS NOT NULL AS is_on_bonus,
         CASE
-            WHEN bp.webshop_id IS NOT NULL
+            WHEN
+                bp.webshop_id IS NOT NULL
                 AND bp.price_before_bonus IS NOT NULL
                 AND bp.bonus_price IS NOT NULL
                 THEN ROUND(
-                    ((bp.price_before_bonus - bp.bonus_price)
-                     * COALESCE(b.quantity, 1))::numeric,
+                    (
+                        (bp.price_before_bonus - bp.bonus_price)
+                        * COALESCE(b.quantity, 1)
+                    )::numeric,
                     2
                 )
         END AS advertised_savings,
         CASE
-            WHEN bp.webshop_id IS NOT NULL
+            WHEN
+                bp.webshop_id IS NOT NULL
                 AND b.price IS NOT NULL
                 AND bp.bonus_price IS NOT NULL
                 THEN ROUND(
-                    ((b.price - bp.bonus_price)
-                     * COALESCE(b.quantity, 1))::numeric,
+                    (
+                        (b.price - bp.bonus_price)
+                        * COALESCE(b.quantity, 1)
+                    )::numeric,
                     2
                 )
         END AS real_savings
     FROM breakdown AS b
     LEFT JOIN bonus_products AS bp
-        ON CAST(
-            REGEXP_REPLACE(
-                SPLIT_PART(b.product_link, '/', 1),
-                '[^0-9]', '', 'g'
-            ) AS INTEGER
-        ) = bp.webshop_id
+        ON (REGEXP_REPLACE(
+            SPLIT_PART(b.product_link, '/', 1),
+            '[^0-9]', '', 'g'
+        ))::integer = bp.webshop_id
 )
 
 SELECT * FROM enriched

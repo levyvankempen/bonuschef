@@ -151,9 +151,7 @@ def _render_recipe_detail(engine, summary_df):
                     if ah_price is not None and ah_price != tracked_price:
                         # Flag inflated AH price in orange
                         if tracked_price is not None and ah_price > tracked_price:
-                            price_parts.append(
-                                f":orange[\u20ac{ah_price:.2f} AH]"
-                            )
+                            price_parts.append(f":orange[\u20ac{ah_price:.2f} AH]")
                         else:
                             price_parts.append(f"\u20ac{ah_price:.2f} AH")
                     st.caption(" | ".join(price_parts))

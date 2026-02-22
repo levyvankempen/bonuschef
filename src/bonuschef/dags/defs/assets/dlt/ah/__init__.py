@@ -62,9 +62,7 @@ def _iter_search_bonus_products(connector: AHConnector):
     """
     for page in range(_MAX_PAGES):
         try:
-            response = connector.search_products(
-                query=None, page=page, size=_PAGE_SIZE
-            )
+            response = connector.search_products(query=None, page=page, size=_PAGE_SIZE)
         except Exception:
             break
 
