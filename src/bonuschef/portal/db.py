@@ -102,9 +102,7 @@ def read_price_changes(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
-def read_product_prices(
-    _engine, product_names: tuple[str, ...]
-) -> pd.DataFrame:
+def read_product_prices(_engine, product_names: tuple[str, ...]) -> pd.DataFrame:
     """Fetch full price history from fct_products for specific products."""
     schema = _get_schema()
     sql = text(f"""
@@ -145,14 +143,17 @@ def list_products(_engine) -> pd.DataFrame:
 def ensure_recipe_tables(_engine) -> None:
     """Create recipe tables in public schema if they don't exist (fresh environments)."""
     with _engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS public.recipes (
                 recipe_id INTEGER NOT NULL,
                 recipe_name TEXT NOT NULL,
                 servings INTEGER NOT NULL
             )
-        """))
-        conn.execute(text("""
+        """)
+        )
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
                 recipe_id INTEGER NOT NULL,
                 product_name TEXT NOT NULL,
@@ -161,13 +162,16 @@ def ensure_recipe_tables(_engine) -> None:
                 valid_from TIMESTAMP,
                 valid_to TIMESTAMP
             )
-        """))
+        """)
+        )
 
 
 def next_recipe_id(_engine) -> int:
     """Return the next available recipe_id."""
     with _engine.begin() as conn:
-        result = conn.execute(text("SELECT COALESCE(MAX(recipe_id), 0) FROM public.recipes"))
+        result = conn.execute(
+            text("SELECT COALESCE(MAX(recipe_id), 0) FROM public.recipes")
+        )
         return result.scalar() + 1
 
 
@@ -182,7 +186,9 @@ def insert_recipe(_engine, recipe_id: int, recipe_name: str, servings: int) -> N
     """Insert a new recipe row."""
     with _engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO public.recipes (recipe_id, recipe_name, servings) VALUES (:id, :name, :servings)"),
+            text(
+                "INSERT INTO public.recipes (recipe_id, recipe_name, servings) VALUES (:id, :name, :servings)"
+            ),
             {"id": recipe_id, "name": recipe_name, "servings": servings},
         )
 
@@ -199,19 +205,26 @@ def insert_ingredients(
                         (recipe_id, product_name, product_link, quantity, valid_from, valid_to)
                     VALUES (:rid, :pname, :plink, :qty, NULL, NULL)
                 """),
-                {"rid": recipe_id, "pname": product_name, "plink": product_link, "qty": quantity},
+                {
+                    "rid": recipe_id,
+                    "pname": product_name,
+                    "plink": product_link,
+                    "qty": quantity,
+                },
             )
 
 
 def ensure_product_images_table(_engine) -> None:
     """Create product_images table if it doesn't exist (fresh environments)."""
     with _engine.begin() as conn:
-        conn.execute(text("""
+        conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS public.product_images (
                 product_link TEXT PRIMARY KEY,
                 image_url TEXT NOT NULL
             )
-        """))
+        """)
+        )
 
 
 def upsert_product_image(_engine, product_link: str, image_url: str) -> None:

@@ -10,18 +10,26 @@ def _render_price_changes_table(changes_df):
     """Display recent price changes in a formatted table."""
     st.subheader("Recent Price Changes")
 
-    display_df = changes_df[[
-        "product_name", "snapshot_timestamp",
-        "prev_price", "new_price", "price_change", "pct_change",
-    ]].copy()
-    display_df = display_df.rename(columns={
-        "product_name": "Product",
-        "snapshot_timestamp": "Date",
-        "prev_price": "Previous (€)",
-        "new_price": "New (€)",
-        "price_change": "Change (€)",
-        "pct_change": "Change (%)",
-    })
+    display_df = changes_df[
+        [
+            "product_name",
+            "snapshot_timestamp",
+            "prev_price",
+            "new_price",
+            "price_change",
+            "pct_change",
+        ]
+    ].copy()
+    display_df = display_df.rename(
+        columns={
+            "product_name": "Product",
+            "snapshot_timestamp": "Date",
+            "prev_price": "Previous (€)",
+            "new_price": "New (€)",
+            "price_change": "Change (€)",
+            "pct_change": "Change (%)",
+        }
+    )
 
     st.dataframe(
         display_df,

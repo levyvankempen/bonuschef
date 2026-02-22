@@ -111,7 +111,9 @@ def render_add_recipe():
 
     # --- Step 1: Search and add products ---
     st.markdown("**Step 1: Search and add products**")
-    search = st.text_input("Search for a product", placeholder="e.g. eieren, melk, kibbeling")
+    search = st.text_input(
+        "Search for a product", placeholder="e.g. eieren, melk, kibbeling"
+    )
 
     if search.strip():
         words = search.strip().split()
@@ -126,11 +128,13 @@ def render_add_recipe():
             st.info(f"No products match '{search.strip()}'.")
         else:
             display = matches[["product_name", "product_url", "price"]].copy()
-            display = display.rename(columns={
-                "product_name": "Product",
-                "product_url": "AH",
-                "price": "Price (€)",
-            })
+            display = display.rename(
+                columns={
+                    "product_name": "Product",
+                    "product_url": "AH",
+                    "price": "Price (€)",
+                }
+            )
             st.dataframe(
                 display,
                 hide_index=True,
@@ -139,7 +143,8 @@ def render_add_recipe():
             )
 
             available = [
-                n for n in matches["product_name"]
+                n
+                for n in matches["product_name"]
                 if n not in st.session_state.recipe_ingredients
             ]
             if available:
@@ -209,7 +214,12 @@ def render_add_recipe():
         else:
             try:
                 recipe_id = _save_recipe(
-                    engine, recipe_name.strip(), int(servings), quantities, link_by_name, url_by_name
+                    engine,
+                    recipe_name.strip(),
+                    int(servings),
+                    quantities,
+                    link_by_name,
+                    url_by_name,
                 )
                 st.success(
                     f"Recipe **{recipe_name.strip()}** saved (ID {recipe_id}). "

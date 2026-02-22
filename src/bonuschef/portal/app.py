@@ -12,9 +12,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-pg = st.navigation([
-    st.Page(render_recipes, title="Recipes"),
-    st.Page(render_analysis, title="Analysis"),
-    st.Page(render_add_recipe, title="Add Recipe"),
-])
+pg = st.navigation(
+    [
+        st.Page(render_recipes, title="Recipes"),
+        st.Page(render_analysis, title="Analysis"),
+        st.Page(render_add_recipe, title="Add Recipe"),
+    ]
+)
 pg.run()

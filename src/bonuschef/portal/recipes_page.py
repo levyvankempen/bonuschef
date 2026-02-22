@@ -15,13 +15,17 @@ def _render_recipe_summary(summary_df):
     """Display recipe overview table."""
     st.subheader("Recipe Overview")
 
-    display_df = summary_df[["recipe_name", "servings", "total_cost", "cost_per_serving"]].copy()
-    display_df = display_df.rename(columns={
-        "recipe_name": "Recipe",
-        "servings": "Servings",
-        "total_cost": "Total Cost (€)",
-        "cost_per_serving": "Per Serving (€)",
-    })
+    display_df = summary_df[
+        ["recipe_name", "servings", "total_cost", "cost_per_serving"]
+    ].copy()
+    display_df = display_df.rename(
+        columns={
+            "recipe_name": "Recipe",
+            "servings": "Servings",
+            "total_cost": "Total Cost (€)",
+            "cost_per_serving": "Per Serving (€)",
+        }
+    )
 
     st.dataframe(
         display_df,
