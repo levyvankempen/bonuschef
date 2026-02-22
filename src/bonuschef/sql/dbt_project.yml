@@ -3,6 +3,29 @@ version: '0.1.0'
 config-version: 2
 profile: 'dbt_bonuschef'
 
+on-run-start:
+  - >
+    CREATE TABLE IF NOT EXISTS public.recipes (
+      recipe_id INTEGER NOT NULL,
+      recipe_name TEXT NOT NULL,
+      servings INTEGER NOT NULL
+    )
+  - >
+    CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
+      recipe_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      product_link TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      valid_from TIMESTAMP,
+      valid_to TIMESTAMP
+    )
+  - >
+    CREATE TABLE IF NOT EXISTS public.product_images (
+      product_link TEXT PRIMARY KEY,
+      image_url TEXT NOT NULL
+    )
+  - "{{ seed_default_recipes() }}"
+
 models:
   bonuschef:
     staging:

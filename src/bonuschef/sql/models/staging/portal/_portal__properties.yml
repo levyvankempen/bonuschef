@@ -1,8 +1,8 @@
 version: 2
 
 models:
-  - name: stg_seeds__recipes
-    description: "Seed-based file to store defined recipes and their servings."
+  - name: stg_portal__recipes
+    description: "Staging model for portal-managed recipes."
     columns:
       - name: recipe_id
         description: "Unique ID of the recipe."
@@ -18,8 +18,8 @@ models:
         tests:
           - not_null
 
-  - name: stg_seeds__recipe_ingredients
-    description: "Seed-based file mapping recipe ingredients to products, with SCD2 validity windows for product succession."
+  - name: stg_portal__recipe_ingredients
+    description: "Staging model for recipe ingredients with SCD2 validity windows for product succession."
     columns:
       - name: recipe_id
         description: "ID of the recipe this ingredient belongs to."
@@ -41,3 +41,16 @@ models:
         description: "Start of validity window (NULL means from the beginning)."
       - name: valid_to
         description: "End of validity window (NULL means still active)."
+
+  - name: stg_portal__product_images
+    description: "Staging model for scraped product image URLs."
+    columns:
+      - name: product_link
+        description: "Link slug of the product (natural key)."
+        tests:
+          - unique
+          - not_null
+      - name: image_url
+        description: "URL of the product image scraped from Albert Heijn."
+        tests:
+          - not_null
