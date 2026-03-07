@@ -1,0 +1,7 @@
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+
+sensors:
+  use_threads: true
+  num_workers: 4

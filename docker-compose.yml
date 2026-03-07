@@ -10,6 +10,86 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  dagster-webserver:
+    build: .
+    container_name: dagster_webserver
+    command:
+      - uv
+      - run
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -m
+      - bonuschef.dags.definitions
+    ports:
+      - "3000:3000"
+    env_file: .env
+    environment:
+      DAGSTER_HOME: /app/dagster_home
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
+      DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+    volumes:
+      - dagster_home:/app/dagster_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dagster-daemon:
+    build: .
+    container_name: dagster_daemon
+    command:
+      - uv
+      - run
+      - dagster-daemon
+      - run
+      - -m
+      - bonuschef.dags.definitions
+    env_file: .env
+    environment:
+      DAGSTER_HOME: /app/dagster_home
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
+      DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+    volumes:
+      - dagster_home:/app/dagster_home
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  streamlit:
+    build: .
+    container_name: streamlit_portal
+    command:
+      - uv
+      - run
+      - streamlit
+      - run
+      - src/bonuschef/portal/app.py
+      - --server.address
+      - "0.0.0.0"
+      - --server.port
+      - "8501"
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      PG_HOST: postgres
+      PG_PORT: "5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pg_data:
+  dagster_home:

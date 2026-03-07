@@ -1,19 +1,23 @@
 """Dagster sensors for discovering new data partitions."""
 
 from dagster import (
+    DagsterRunStatus,
+    DefaultSensorStatus,
     RunRequest,
+    RunStatusSensorContext,
     SensorEvaluationContext,
     SensorResult,
+    run_status_sensor,
     sensor,
 )
 
 from bonuschef.config import GitHubConfig
 from bonuschef.dags.defs.assets.dlt.github import GITHUB_PARTITIONS
-from bonuschef.dags.defs.jobs import backfill_job
+from bonuschef.dags.defs.jobs import backfill_job, dbt_job
 from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
 
 
-@sensor(minimum_interval_seconds=3600, job=backfill_job)
+@sensor(minimum_interval_seconds=3600, job=backfill_job, default_status=DefaultSensorStatus.RUNNING)
 def github_commit_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover new GitHub commits and add them as dynamic partitions.
 
@@ -50,3 +54,14 @@ def github_commit_sensor(context: SensorEvaluationContext) -> SensorResult:
         ],
         run_requests=[RunRequest(partition_key=sha) for sha in new_shas],
     )
+
+
+@run_status_sensor(
+    run_status=DagsterRunStatus.SUCCESS,
+    monitored_jobs=[backfill_job],
+    request_job=dbt_job,
+    default_status=DefaultSensorStatus.RUNNING,
+)
+def dbt_after_backfill_sensor(context: RunStatusSensorContext):
+    """Trigger dbt models after GitHub backfill job succeeds."""
+    return RunRequest()
