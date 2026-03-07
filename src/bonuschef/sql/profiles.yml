@@ -3,12 +3,12 @@ dbt_bonuschef:
 
     default:
       type: "postgres"
-      host: "localhost"
-      user: "postgres"
-      password: "postgres"
-      port: 5455
-      dbname: "postgres"
+      host: "{{ env_var('PG_HOST', 'localhost') }}"
+      user: "{{ env_var('PG_USER', 'postgres') }}"
+      password: "{{ env_var('PG_PASSWORD', 'postgres') }}"
+      port: "{{ env_var('PG_PORT', '5455') | int }}"
+      dbname: "{{ env_var('PG_DB', 'postgres') }}"
       schema: "public"
       threads: 1
 
-  target: "{{ env_var('ENVIRONMENT', 'default')}}"
+  target: "{{ env_var('ENVIRONMENT', 'default') }}"

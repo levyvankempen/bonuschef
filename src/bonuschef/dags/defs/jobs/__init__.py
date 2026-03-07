@@ -16,4 +16,10 @@ dbt_job = define_asset_job(
     selection=AssetSelection.all() - AssetSelection.groups("dlt"),
 )
 
-__all__ = ["all_assets_job", "backfill_job", "dbt_job"]
+daily_refresh_job = define_asset_job(
+    name="daily_refresh",
+    selection=AssetSelection.assets("ah__bonus_products")
+    | (AssetSelection.all() - AssetSelection.groups("dlt")),
+)
+
+__all__ = ["all_assets_job", "backfill_job", "dbt_job", "daily_refresh_job"]
