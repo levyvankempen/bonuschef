@@ -63,3 +63,33 @@ models:
         description: "Absolute price difference (new - old)."
       - name: pct_change
         description: "Percentage price change."
+
+  - name: fct_bonus_price_comparison
+    description: "Comparison of tracked product prices with AH bonus prices to detect price inflation."
+    columns:
+      - name: product_link
+        description: "Link slug of the product."
+        tests:
+          - not_null
+      - name: product_name
+        description: "Name of the product."
+      - name: tracked_price
+        description: "Latest tracked price from the GitHub source."
+      - name: ah_price
+        description: "AH's claimed regular price before the bonus (price_before_bonus)."
+      - name: bonus_price
+        description: "Current discounted bonus price."
+      - name: bonus_mechanism
+        description: "The bonus type (e.g., '25% korting', '2 VOOR 5.50')."
+      - name: bonus_start_date
+        description: "Start date of the bonus period."
+      - name: bonus_end_date
+        description: "End date of the bonus period."
+      - name: price_inflation
+        description: "How much AH inflated the before price above tracked price (ah_price - tracked_price)."
+      - name: real_savings
+        description: "Actual savings vs tracked price (tracked_price - bonus_price)."
+      - name: advertised_savings
+        description: "Savings AH claims (ah_price - bonus_price)."
+      - name: is_inflated
+        description: "Whether AH's before price exceeds the tracked price."

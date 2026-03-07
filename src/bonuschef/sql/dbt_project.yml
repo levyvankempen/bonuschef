@@ -24,6 +24,18 @@ on-run-start:
       product_link TEXT PRIMARY KEY,
       image_url TEXT NOT NULL
     )
+  - >
+    CREATE TABLE IF NOT EXISTS public.ah__bonus_products (
+      webshop_id INTEGER,
+      title TEXT,
+      bonus_mechanism TEXT,
+      bonus_start_date TEXT,
+      bonus_end_date TEXT,
+      price_before_bonus DOUBLE PRECISION,
+      bonus_price DOUBLE PRECISION,
+      is_bonus BOOLEAN,
+      loaded_at TEXT
+    )
   - "{{ seed_default_recipes() }}"
 
 models:

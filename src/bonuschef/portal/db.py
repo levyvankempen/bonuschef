@@ -80,9 +80,79 @@ def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
 
 
+@st.cache_data(ttl=60)
+def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
+    """Fetch ingredient breakdown with bonus info for a recipe."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            b.recipe_id,
+            b.recipe_name,
+            b.product_name,
+            b.product_link,
+            b.quantity,
+            b.price,
+            b.item_cost,
+            b.cost_pct,
+            b.is_on_bonus,
+            b.bonus_mechanism,
+            b.price_before_bonus,
+            b.bonus_price,
+            b.advertised_savings,
+            b.real_savings,
+            d.product_url,
+            d.image_url
+        FROM "{schema}"."fct_recipe_cost_breakdown_bonus" AS b
+        LEFT JOIN "{schema}"."dim_product" AS d
+            ON b.product_link = d.product_link
+        WHERE b.recipe_id = :recipe_id
+        ORDER BY b.item_cost DESC
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
+
+
+@st.cache_data(ttl=60)
+def read_recipe_bonus_summary(_engine) -> pd.DataFrame:
+    """Fetch bonus summary per recipe: how many ingredients on bonus, total savings."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            recipe_id,
+            recipe_name,
+            COUNT(*) FILTER (WHERE is_on_bonus) AS bonus_count,
+            COUNT(*) AS total_ingredients,
+            COALESCE(SUM(real_savings), 0) AS total_real_savings,
+            COALESCE(SUM(advertised_savings), 0) AS total_advertised_savings
+        FROM "{schema}"."fct_recipe_cost_breakdown_bonus"
+        GROUP BY recipe_id, recipe_name
+        ORDER BY total_real_savings DESC
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn)
+
+
 # ---------------------------------------------------------------------------
 # Mart queries — analysis pages
 # ---------------------------------------------------------------------------
+
+
+@st.cache_data(ttl=60)
+def read_bonus_price_comparison(_engine) -> pd.DataFrame:
+    """Fetch bonus vs tracked price comparison for all matched products."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            product_link, product_name,
+            tracked_price, ah_price, bonus_price,
+            bonus_mechanism, bonus_start_date, bonus_end_date,
+            price_inflation, real_savings, advertised_savings,
+            is_inflated
+        FROM "{schema}"."fct_bonus_price_comparison"
+        ORDER BY price_inflation DESC NULLS LAST
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn)
 
 
 @st.cache_data(ttl=60)

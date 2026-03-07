@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_ah__bonus_products
+    description: "Staging model for AH bonus products, renaming and typing raw columns."
+    columns:
+      - name: webshop_id
+        description: "The Albert Heijn webshop ID of the product."
+        tests:
+          - unique
+          - not_null
+      - name: product_name
+        description: "Name of the bonus product."
+        tests:
+          - not_null
+      - name: bonus_mechanism
+        description: "The type of bonus (e.g., '25% korting', '2 VOOR 5.50')."
+      - name: bonus_start_date
+        description: "Date when the bonus period starts."
+      - name: bonus_end_date
+        description: "Date when the bonus period ends."
+      - name: price_before_bonus
+        description: "Regular price before the discount (euros)."
+      - name: bonus_price
+        description: "Current discounted price (euros). Calculated from discount labels for multi-item promotions."
+      - name: loaded_at
+        description: "Timestamp when the bonus data was loaded."
+        tests:
+          - not_null

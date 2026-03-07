@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: "ah"
+    description: "Albert Heijn bonus product data via SupermarktConnector API."
+    schema: "public"
+    tables:
+      - name: bonus_products
+        identifier: ah__bonus_products
+        description: "Currently discounted products from Albert Heijn."
+        meta:
+          dagster:
+            asset_key: ["ah__bonus_products"]
