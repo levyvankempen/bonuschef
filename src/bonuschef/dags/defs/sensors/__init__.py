@@ -17,7 +17,11 @@ from bonuschef.dags.defs.jobs import backfill_job, dbt_job
 from bonuschef.dags.defs.utils.github_commit_helper import commits_since_date
 
 
-@sensor(minimum_interval_seconds=3600, job=backfill_job, default_status=DefaultSensorStatus.RUNNING)
+@sensor(
+    minimum_interval_seconds=3600,
+    job=backfill_job,
+    default_status=DefaultSensorStatus.RUNNING,
+)
 def github_commit_sensor(context: SensorEvaluationContext) -> SensorResult:
     """Discover new GitHub commits and add them as dynamic partitions.
 
