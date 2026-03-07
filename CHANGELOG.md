@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-03-07)
+
+### Features
+
+- Containerize full stack with docker compose
+  ([#41](https://github.com/levyvankempen/bonuschef/pull/41),
+  [`a69a4c3`](https://github.com/levyvankempen/bonuschef/commit/a69a4c3f22ab6df89398af653619de6aac5721f4))
+
+
 ## v1.0.1 (2026-03-07)
 
 ### Bug Fixes
