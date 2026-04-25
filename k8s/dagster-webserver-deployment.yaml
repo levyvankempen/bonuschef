@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dagster-webserver
+  namespace: bonuschef
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dagster-webserver
+  template:
+    metadata:
+      labels:
+        app: dagster-webserver
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U postgres; do echo "waiting for postgres..."; sleep 2; done
+      containers:
+        - name: dagster-webserver
+          image: bonuschef:latest
+          imagePullPolicy: Never
+          command: [uv, run, dagster-webserver, -h, "0.0.0.0", -p, "3000", -m, bonuschef.dags.definitions]
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: bonuschef-config
+            - secretRef:
+                name: bonuschef-secrets
+          volumeMounts:
+            - name: dagster-home
+              mountPath: /app/dagster_home
+          readinessProbe:
+            httpGet:
+              path: /server_info
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /server_info
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 200m
+            limits:
+              memory: 1Gi
+              cpu: "1"
+      volumes:
+        - name: dagster-home
+          persistentVolumeClaim:
+            claimName: dagster-home
