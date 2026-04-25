@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bonuschef-config
+  namespace: bonuschef
+data:
+  # Dagster
+  DAGSTER_HOME: /app/dagster_home
+  ENVIRONMENT: default
+
+  # Postgres connection (K8s service DNS)
+  PG_HOST: postgres
+  PG_PORT: "5432"
+  PG_DB: postgres
+  PG_USER: postgres
+  POSTGRES_USER: postgres
+  POSTGRES_DB: postgres
+
+  # dlt destination (points to same Postgres)
+  DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
+  DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+  DESTINATION__POSTGRES__CREDENTIALS__USERNAME: postgres
+  DESTINATION__POSTGRES__CREDENTIALS__DATABASE: postgres
+
+  # GitHub sensor config
+  GITHUB_OWNER: supermarkt
+  GITHUB_REPO: checkjebon
+  GITHUB_MESSAGE_FILTER: Update supermarkets.json
+  GITHUB_START_DATE: "2025-01-01T00:00:00Z"
+  GITHUB_BRANCH: main
+  GITHUB_MAX_PAGES: "2"
+  GITHUB_PATH: data/supermarkets.json
+
+  # dbt
+  TARGET_SCHEMA: public_marts

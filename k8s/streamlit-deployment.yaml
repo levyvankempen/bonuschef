@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit
+  namespace: bonuschef
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit
+  template:
+    metadata:
+      labels:
+        app: streamlit
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U postgres; do echo "waiting for postgres..."; sleep 2; done
+      containers:
+        - name: streamlit
+          image: bonuschef:latest
+          imagePullPolicy: Never
+          command: [uv, run, streamlit, run, src/bonuschef/portal/app.py, --server.address, "0.0.0.0", --server.port, "8501"]
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: bonuschef-config
+            - secretRef:
+                name: bonuschef-secrets
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
