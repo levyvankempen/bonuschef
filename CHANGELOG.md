@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-04-25)
+
+### Features
+
+- Add Kubernetes manifests for bonuschef deployment
+  ([#42](https://github.com/levyvankempen/bonuschef/pull/42),
+  [`a9dab17`](https://github.com/levyvankempen/bonuschef/commit/a9dab175f8b6c79970ceb6f9b3e04c37ed620571))
+
+
 ## v1.1.0 (2026-03-07)
 
 ### Features
