@@ -205,6 +205,23 @@ def list_products(_engine) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)
 
 
+@st.cache_data(ttl=60)
+def read_store_clearance(_engine) -> pd.DataFrame:
+    """Fetch current store clearance ("laatste kans koopjes")."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            product_name, brand, sales_unit_size, category_title,
+            markdown_type, markdown_percentage, markdown_expiration_date,
+            stock, price_was, price_now, markdown_amount,
+            tracked_price, real_savings_vs_tracked, image_url, scraped_at
+        FROM "{schema}"."fct_store_clearance"
+        ORDER BY markdown_percentage DESC NULLS LAST, markdown_amount DESC NULLS LAST
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn)
+
+
 # ---------------------------------------------------------------------------
 # Recipe table management (portal writes to public schema)
 # ---------------------------------------------------------------------------

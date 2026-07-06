@@ -51,6 +51,44 @@ class GitHubConfig:
 
 
 @dataclass(frozen=True)
+class AHMarkdownConfig:
+    """Configuration for Albert Heijn store markdown ("laatste kans") access.
+
+    The markdown/clearance feed is store-specific and requires a *member*
+    token (the anonymous SupermarktConnector token is not authorised for it).
+    A one-time browser login yields a refresh token (see ``utils/ah_login.py``);
+    that refresh token is the only secret the pipeline needs at runtime.
+    """
+
+    store_id: int
+    refresh_token: str
+    client_id: str = "appie"
+
+    def __post_init__(self) -> None:
+        if self.store_id < 1:
+            raise ValueError("AH_STORE_ID must be a positive integer")
+        if not self.refresh_token:
+            raise ValueError(
+                "AH_REFRESH_TOKEN is required — run "
+                "`python -m bonuschef.utils.ah_login` once to obtain it, "
+                "then add it to your .env"
+            )
+
+    @classmethod
+    def from_env(cls) -> "AHMarkdownConfig":
+        store_raw = os.getenv("AH_STORE_ID", "1876")
+        if not store_raw.isdigit():
+            raise ValueError(
+                f"AH_STORE_ID must be a positive integer, got: {store_raw!r}"
+            )
+        return cls(
+            store_id=int(store_raw),
+            refresh_token=os.getenv("AH_REFRESH_TOKEN", ""),
+            client_id=os.getenv("AH_CLIENT_ID", "appie"),
+        )
+
+
+@dataclass(frozen=True)
 class DatabaseConfig:
     """Configuration for PostgreSQL database connection."""
 

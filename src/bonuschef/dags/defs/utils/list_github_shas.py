@@ -42,7 +42,7 @@ def get_commits_by_message(
 
     for page in range(1, max_pages + 1):
         url = f"https://api.github.com/repos/{owner}/{repo}/commits"
-        params = {"sha": branch, "per_page": 100, "page": page}
+        params: dict[str, str | int] = {"sha": branch, "per_page": 100, "page": page}
         resp = requests.get(url, headers=headers, params=params)
         resp.raise_for_status()
 

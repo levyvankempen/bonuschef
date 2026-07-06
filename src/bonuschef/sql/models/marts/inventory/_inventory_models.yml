@@ -64,6 +64,82 @@ models:
       - name: pct_change
         description: "Percentage price change."
 
+  - name: fct_store_clearance
+    description: >
+      Current store clearance ("laatste kans koopjes") — the latest snapshot per
+      item at each tracked store, with real savings versus the tracked base price.
+    columns:
+      - name: store_id
+        description: "AH store id."
+        tests:
+          - not_null
+      - name: webshop_id
+        description: "AH webshop/product id (one row per item; single-store grain)."
+        tests:
+          - not_null
+          - unique
+      - name: product_name
+        description: "Product title."
+        tests:
+          - not_null
+      - name: markdown_type
+        description: "Reason for markdown (EXPIRATION, OUT_OF_ASSORTMENT)."
+      - name: markdown_percentage
+        description: "Current discount percentage off shelf price."
+      - name: markdown_expiration_date
+        description: "Date the markdown/product expires."
+      - name: stock
+        description: "Units remaining at the latest scrape."
+      - name: price_was
+        description: "Shelf price before markdown (euros)."
+      - name: price_now
+        description: "Current marked-down price (euros)."
+      - name: markdown_amount
+        description: "Absolute euro reduction (price_was - price_now)."
+      - name: product_link
+        description: "Matched tracked product link slug (NULL if unmatched)."
+      - name: image_url
+        description: "Product image (NULL if not scraped/unmatched)."
+      - name: tracked_price
+        description: "Latest tracked base price from the GitHub source (NULL if unmatched)."
+      - name: real_savings_vs_tracked
+        description: "Savings against the tracked base price (tracked_price - price_now)."
+      - name: scraped_at
+        description: "UTC timestamp of the latest snapshot for this item."
+        tests:
+          - not_null
+
+  - name: fct_store_clearance_history
+    description: >
+      Append-only time-series of store markdowns across all scrapes, with each
+      item's markdown curve (first/max percentage, first/last seen) so the
+      intraday deepening of discounts can be analysed.
+    columns:
+      - name: store_id
+        description: "AH store id."
+        tests:
+          - not_null
+      - name: webshop_id
+        description: "AH webshop/product id."
+        tests:
+          - not_null
+      - name: markdown_percentage
+        description: "Discount percentage observed at this scrape."
+      - name: first_markdown_pct
+        description: "Lowest markdown percentage seen for this item."
+      - name: max_markdown_pct
+        description: "Highest markdown percentage seen for this item."
+      - name: first_seen_at
+        description: "First scrape this item appeared in clearance."
+      - name: last_seen_at
+        description: "Most recent scrape this item appeared in clearance."
+      - name: is_latest
+        description: "Whether this row is the most recent scrape for the item."
+      - name: scraped_at
+        description: "UTC timestamp of this snapshot."
+        tests:
+          - not_null
+
   - name: fct_bonus_price_comparison
     description: "Comparison of tracked product prices with AH bonus prices to detect price inflation."
     columns:

@@ -22,4 +22,19 @@ daily_refresh_job = define_asset_job(
     | (AssetSelection.all() - AssetSelection.groups("dlt")),
 )
 
-__all__ = ["all_assets_job", "backfill_job", "dbt_job", "daily_refresh_job"]
+# Clearance ("laatste kans koopjes") deepens through the day and sells out fast,
+# so it runs on its own intraday cadence: scrape the store markdowns, then
+# rebuild only the downstream clearance dbt models.
+markdowns_refresh_job = define_asset_job(
+    name="markdowns_refresh",
+    selection=AssetSelection.assets("ah__store_markdowns").downstream(),
+    op_retry_policy=RetryPolicy(max_retries=2, delay=60),
+)
+
+__all__ = [
+    "all_assets_job",
+    "backfill_job",
+    "dbt_job",
+    "daily_refresh_job",
+    "markdowns_refresh_job",
+]
