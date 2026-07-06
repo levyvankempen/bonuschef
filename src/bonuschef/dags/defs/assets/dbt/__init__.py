@@ -8,7 +8,7 @@ from dagster_dbt import DbtCliResource, dbt_assets
 from bonuschef.dags.defs.assets.dbt.dbt_project import project
 
 
-@dbt_assets(manifest=project.manifest_path)
+@dbt_assets(manifest=project.manifest_path)  # type: ignore[no-redef]
 def dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource) -> Iterator:
     """All dbt assets."""
     yield from dbt.cli(

@@ -49,7 +49,7 @@ latest_price AS (
 
 -- Map each AH webshop_id to a single tracked product. The product_link's
 -- leading segment carries the numeric id; a webshop_id can match more than one
--- link, so we keep one deterministically to preserve the one-row-per-item grain.
+-- link, so keep one deterministically to preserve the one-row-per-item grain.
 product_crosswalk AS (
 
     SELECT DISTINCT ON (webshop_id)

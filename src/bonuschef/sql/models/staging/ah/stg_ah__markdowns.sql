@@ -21,8 +21,8 @@ renamed AS (
         stock,
         price_was,
         price_now,
-        ROUND((price_was - price_now)::numeric, 2) AS markdown_amount,
-        scraped_at::timestamp AS scraped_at
+        scraped_at::timestamp AS scraped_at,
+        ROUND((price_was - price_now)::numeric, 2) AS markdown_amount
 
     FROM source
     WHERE webshop_id IS NOT NULL
