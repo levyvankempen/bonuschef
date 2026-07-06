@@ -11,3 +11,12 @@ sources:
         meta:
           dagster:
             asset_key: ["ah__bonus_products"]
+      - name: store_markdowns
+        identifier: ah__store_markdowns
+        description: >
+          Append-only snapshots of store-specific markdowns ("laatste kans
+          koopjes") — reduced-to-clear and discontinued stock. One row per
+          item per scrape; the discount deepens intraday.
+        meta:
+          dagster:
+            asset_key: ["ah__store_markdowns"]

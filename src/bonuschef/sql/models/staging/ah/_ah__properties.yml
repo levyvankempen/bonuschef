@@ -1,6 +1,48 @@
 version: 2
 
 models:
+  - name: stg_ah__markdowns
+    description: >
+      Staging model for store-specific AH markdowns ("laatste kans koopjes").
+      Append-only time-series; grain is one row per item per scrape.
+    columns:
+      - name: store_id
+        description: "AH store id the markdown was observed at."
+        tests:
+          - not_null
+      - name: webshop_id
+        description: "AH webshop/product id."
+        tests:
+          - not_null
+      - name: product_name
+        description: "Product title."
+        tests:
+          - not_null
+      - name: brand
+        description: "Product brand."
+      - name: sales_unit_size
+        description: "Unit size description (e.g. '450 g')."
+      - name: category_title
+        description: "AH category the item belongs to."
+      - name: markdown_type
+        description: "Reason for markdown (EXPIRATION, OUT_OF_ASSORTMENT)."
+      - name: markdown_percentage
+        description: "Discount percentage off the shelf price at scrape time."
+      - name: markdown_expiration_date
+        description: "Date the markdown/product expires."
+      - name: stock
+        description: "Units remaining at scrape time."
+      - name: price_was
+        description: "Shelf price before markdown (euros)."
+      - name: price_now
+        description: "Marked-down price (euros)."
+      - name: markdown_amount
+        description: "Absolute euro reduction (price_was - price_now)."
+      - name: scraped_at
+        description: "UTC timestamp of the snapshot."
+        tests:
+          - not_null
+
   - name: stg_ah__bonus_products
     description: "Staging model for AH bonus products, renaming and typing raw columns."
     columns:

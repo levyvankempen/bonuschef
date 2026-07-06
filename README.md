@@ -30,7 +30,7 @@ GitHub (JSON snapshots)
 |---|---|
 | **Staging** | `stg_github__products`, `stg_seeds__recipes`, `stg_seeds__recipe_ingredients` |
 | **Intermediate** | `int_product_latest_price`, `int_recipe_items_resolved`, `int_recipe_items_priced` |
-| **Marts** | `dim_product`, `dim_recipe`, `fct_products`, `fct_recipe_cost_history`, `fct_recipe_cost_latest`, `fct_recipe_cost_breakdown`, `fct_product_price_changes` |
+| **Marts** | `dim_product`, `dim_recipe`, `fct_products`, `fct_recipe_cost_history`, `fct_recipe_cost_latest`, `fct_recipe_cost_breakdown`, `fct_product_price_changes`, `fct_store_clearance`, `fct_store_clearance_history` |
 
 Recipe ingredients use **SCD Type 2** (`valid_from` / `valid_to`) to track product renames and succession over time.
 
@@ -86,7 +86,34 @@ GITHUB_MESSAGE_FILTER="Update supermarkets.json"
 GITHUB_START_DATE="2025-01-01T00:00:00Z"
 GITHUB_BRANCH="main"
 GITHUB_MAX_PAGES="2"
+
+# Albert Heijn store markdowns ("laatste kans koopjes")
+AH_STORE_ID="1876"        # defaults to Eindhoven Torenallee
+AH_REFRESH_TOKEN=""       # from `python -m bonuschef.utils.ah_login` (see below)
 ```
+
+### 3a. Enable store markdowns (optional — "laatste kans koopjes")
+
+Store-specific clearance data (reduced-to-clear stickers) lives behind Albert
+Heijn's **member** GraphQL API, so it needs a one-time browser login:
+
+```bash
+# 1. Print the login URL + instructions
+python -m bonuschef.utils.ah_login
+
+# 2. Log in; capture the blocked appie://login-exit?code=... from the browser
+#    console, then exchange it:
+python -m bonuschef.utils.ah_login "appie://login-exit?code=PASTE_HERE"
+```
+
+Copy the printed `AH_REFRESH_TOKEN` into your `.env`. The pipeline refreshes the
+access token automatically (~7-day lifetime); you only re-run this if AH expires
+the refresh token. Find your `AH_STORE_ID` by postal code via
+`storesSearch` (the default `1876` is Eindhoven Torenallee).
+
+Because clearance discounts deepen through the day and sell out quickly, the
+`markdowns_refresh` job runs hourly (11:00–20:00 UTC) and **appends** each
+snapshot, so `fct_store_clearance_history` captures the intraday markdown curve.
 
 ### 4. Start PostgreSQL
 

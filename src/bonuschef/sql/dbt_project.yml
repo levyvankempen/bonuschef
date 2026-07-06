@@ -36,6 +36,22 @@ on-run-start:
       is_bonus BOOLEAN,
       loaded_at TEXT
     )
+  - >
+    CREATE TABLE IF NOT EXISTS public.ah__store_markdowns (
+      store_id BIGINT,
+      webshop_id BIGINT,
+      title TEXT,
+      brand TEXT,
+      sales_unit_size TEXT,
+      category_title TEXT,
+      markdown_type TEXT,
+      markdown_percentage DOUBLE PRECISION,
+      markdown_expiration_date TEXT,
+      stock BIGINT,
+      price_was DOUBLE PRECISION,
+      price_now DOUBLE PRECISION,
+      scraped_at TEXT
+    )
   - "{{ seed_default_recipes() }}"
 
 models:
