@@ -66,8 +66,10 @@ models:
 
   - name: fct_store_clearance
     description: >
-      Current store clearance ("laatste kans koopjes") — the latest snapshot per
-      item at each tracked store, with real savings versus the tracked base price.
+      Current store clearance ("laatste kans koopjes") — every item present in
+      the most recent scrape of each tracked store, with real savings versus the
+      tracked base price. Items missing from the latest scrape (sold out) drop
+      off; their curve lives on in fct_store_clearance_history.
     columns:
       - name: store_id
         description: "AH store id."

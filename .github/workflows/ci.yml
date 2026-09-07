@@ -33,6 +33,10 @@ jobs:
       - name: nox -s lint_sql
         run: uvx nox -s lint_sql
 
+      # Type check
+      - name: nox -s mypy
+        run: uvx nox -s mypy
+
       # Tests
       - name: nox -s tests
         run: uvx nox -s tests

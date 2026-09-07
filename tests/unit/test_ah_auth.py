@@ -1,0 +1,337 @@
+"""Tests for AH member auth: raw calls, token persistence, auto-refresh."""
+
+from __future__ import annotations
+
+import json
+import os
+import stat
+from pathlib import Path
+
+import pytest
+
+from bonuschef.utils import ah_auth
+from bonuschef.utils.ah_auth import (
+    AUTH_BASE,
+    EXPIRY_MARGIN_S,
+    GRAPHQL_URL,
+    MAX_ACCESS_TOKEN_AGE_S,
+    AHAuthError,
+    AHTokenManager,
+    TokenBundle,
+    TokenStore,
+    default_token_file,
+    exchange_code,
+    graphql,
+    refresh_access_token,
+    refresh_tokens,
+)
+from tests.conftest import FakeResponse
+
+NOW = 1_800_000_000.0
+
+
+# ---------------------------------------------------------------------------
+# Raw HTTP helpers
+# ---------------------------------------------------------------------------
+
+
+class TestExchangeCode:
+    def test_posts_code_and_returns_body(self, http_post):
+        http_post.queue(FakeResponse(200, {"access_token": "a", "refresh_token": "r"}))
+        body = exchange_code("the-code", client_id="appie")
+        assert body["refresh_token"] == "r"
+        url, kwargs = http_post.last
+        assert url == f"{AUTH_BASE}/token"
+        assert kwargs["json"] == {"clientId": "appie", "code": "the-code"}
+        assert kwargs["headers"]["x-application"] == "AHWEBSHOP"
+
+    def test_failure_raises_with_status(self, http_post):
+        http_post.queue(FakeResponse(400, text="bad code"))
+        with pytest.raises(AHAuthError, match="HTTP 400") as exc:
+            exchange_code("x")
+        assert exc.value.status == 400
+
+
+class TestRefreshTokens:
+    def test_success_returns_full_body(self, http_post):
+        http_post.queue(
+            FakeResponse(
+                200, {"access_token": "a", "refresh_token": "r2", "expires_in": 5}
+            )
+        )
+        body = refresh_tokens("r1")
+        assert body["refresh_token"] == "r2"
+        assert http_post.last[1]["json"] == {"clientId": "appie", "refreshToken": "r1"}
+
+    def test_refresh_access_token_returns_only_access(self, http_post):
+        http_post.queue(FakeResponse(200, {"access_token": "a"}))
+        assert refresh_access_token("r1") == "a"
+
+    def test_http_error_mentions_login(self, http_post):
+        http_post.queue(FakeResponse(401, text='{"reason":"INVALID_TOKEN"}'))
+        with pytest.raises(AHAuthError, match="ah_login") as exc:
+            refresh_tokens("dead")
+        assert exc.value.status == 401
+
+    def test_missing_access_token_raises(self, http_post):
+        http_post.queue(FakeResponse(200, {"refresh_token": "r"}))
+        with pytest.raises(AHAuthError, match="no access_token"):
+            refresh_tokens("r")
+
+
+class TestGraphql:
+    def test_returns_data_block_with_bearer(self, http_post):
+        http_post.queue(FakeResponse(200, {"data": {"bargainItems": []}}))
+        data = graphql("tok", "query", {"storeId": "1"})
+        assert data == {"bargainItems": []}
+        url, kwargs = http_post.last
+        assert url == GRAPHQL_URL
+        assert kwargs["headers"]["Authorization"] == "Bearer tok"
+        assert kwargs["json"] == {"query": "query", "variables": {"storeId": "1"}}
+
+    def test_http_error_carries_status(self, http_post):
+        http_post.queue(FakeResponse(401, text="nope"))
+        with pytest.raises(AHAuthError) as exc:
+            graphql("tok", "q", {})
+        assert exc.value.status == 401
+
+    def test_graphql_level_errors_raise(self, http_post):
+        http_post.queue(FakeResponse(200, {"errors": [{"message": "redacted"}]}))
+        with pytest.raises(AHAuthError, match="GraphQL errors") as exc:
+            graphql("tok", "q", {})
+        assert exc.value.status is None
+
+    def test_missing_data_is_empty_dict(self, http_post):
+        http_post.queue(FakeResponse(200, {}))
+        assert graphql("tok", "q", {}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Token bundle / file / default path
+# ---------------------------------------------------------------------------
+
+
+class TestTokenBundle:
+    def test_is_fresh_respects_margin(self):
+        bundle = TokenBundle("a", "r", access_expires_at=NOW + 1000, refreshed_at=NOW)
+        assert bundle.is_fresh(NOW)
+        assert not bundle.is_fresh(NOW + 1000 - EXPIRY_MARGIN_S)
+        assert not bundle.is_fresh(NOW + 5000)
+
+
+class TestDefaultTokenFile:
+    def test_env_override_wins(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AH_TOKEN_FILE", str(tmp_path / "custom.json"))
+        monkeypatch.setenv("DAGSTER_HOME", str(tmp_path / "dh"))
+        assert default_token_file() == tmp_path / "custom.json"
+
+    def test_dagster_home_when_set(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("AH_TOKEN_FILE")
+        monkeypatch.setenv("DAGSTER_HOME", str(tmp_path / "dh"))
+        assert default_token_file() == tmp_path / "dh" / "ah_tokens.json"
+
+    def test_home_fallback(self, monkeypatch):
+        monkeypatch.delenv("AH_TOKEN_FILE")
+        monkeypatch.delenv("DAGSTER_HOME", raising=False)
+        assert default_token_file() == Path.home() / ".bonuschef" / "ah_tokens.json"
+
+
+class TestTokenStore:
+    def test_round_trip_and_private_permissions(self, tmp_path):
+        store = TokenStore(tmp_path / "nested" / "tokens.json")
+        bundle = TokenBundle("a", "r", NOW + 10, NOW)
+        store.save(bundle)
+        assert store.load() == bundle
+        mode = stat.S_IMODE(os.stat(store.path).st_mode)
+        assert mode == 0o600
+        assert not list((tmp_path / "nested").glob(".ah_tokens-*")), "temp file left"
+
+    def test_missing_file_is_none(self, tmp_path):
+        assert TokenStore(tmp_path / "missing.json").load() is None
+
+    @pytest.mark.parametrize("content", ["not json", "{}", '{"access_token": 1}'])
+    def test_corrupt_file_is_none(self, tmp_path, content):
+        path = tmp_path / "tokens.json"
+        path.write_text(content)
+        assert TokenStore(path).load() is None
+
+    def test_legacy_file_without_refreshed_at(self, tmp_path):
+        path = tmp_path / "tokens.json"
+        path.write_text(
+            json.dumps(
+                {"access_token": "a", "refresh_token": "r", "access_expires_at": 5}
+            )
+        )
+        loaded = TokenStore(path).load()
+        assert loaded is not None
+        assert loaded.refreshed_at == 0
+
+
+# ---------------------------------------------------------------------------
+# Token manager (auto refresh)
+# ---------------------------------------------------------------------------
+
+
+class FakeRefresher:
+    """Scripted refresh endpoint: maps refresh token -> response or error."""
+
+    def __init__(self, **outcomes):
+        self.outcomes = outcomes
+        self.calls: list[str] = []
+
+    def __call__(self, refresh_token: str, client_id: str):
+        self.calls.append(refresh_token)
+        outcome = self.outcomes.get(refresh_token)
+        if outcome is None:
+            raise AHAuthError(f"rejected {refresh_token}", status=401)
+        return dict(outcome)
+
+
+def _manager(tmp_path, refresher, bootstrap="", now=NOW):
+    return AHTokenManager(
+        TokenStore(tmp_path / "tokens.json"),
+        bootstrap_refresh_token=bootstrap,
+        refresh=refresher,
+        now=lambda: now,
+    )
+
+
+class TestAHTokenManager:
+    def test_uses_cached_access_token_without_refreshing(self, tmp_path):
+        refresher = FakeRefresher()
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("cached", "r", NOW + 3600, NOW))
+        assert mgr.get_access_token() == "cached"
+        assert refresher.calls == []
+
+    def test_refreshes_when_expired_and_persists(self, tmp_path):
+        refresher = FakeRefresher(r1={"access_token": "new", "expires_in": 604800})
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("old", "r1", NOW - 1, NOW - 10))
+        assert mgr.get_access_token() == "new"
+        saved = mgr.store.load()
+        assert saved is not None
+        assert saved.access_token == "new"
+        assert saved.refresh_token == "r1", "no rotation → keep the token we used"
+        # AH says 7 days, we cap at a day so the refresh token stays in use.
+        assert saved.access_expires_at == NOW + MAX_ACCESS_TOKEN_AGE_S
+        assert saved.refreshed_at == NOW
+
+    def test_short_expires_in_is_kept(self, tmp_path):
+        refresher = FakeRefresher(r1={"access_token": "new", "expires_in": 120})
+        mgr = _manager(tmp_path, refresher, bootstrap="r1")
+        mgr.get_access_token()
+        assert mgr.store.load().access_expires_at == NOW + 120
+
+    def test_rotated_refresh_token_is_persisted(self, tmp_path):
+        refresher = FakeRefresher(
+            r1={"access_token": "new", "refresh_token": "r2", "expires_in": 100}
+        )
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("old", "r1", NOW - 1, NOW - 10))
+        mgr.get_access_token()
+        assert mgr.store.load().refresh_token == "r2"
+
+    def test_bootstrap_used_when_no_file(self, tmp_path):
+        refresher = FakeRefresher(env={"access_token": "a", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher, bootstrap="env")
+        assert mgr.get_access_token() == "a"
+        assert refresher.calls == ["env"]
+        assert mgr.store.load().refresh_token == "env"
+
+    def test_falls_back_to_bootstrap_when_stored_token_dead(self, tmp_path):
+        refresher = FakeRefresher(fresh={"access_token": "a", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher, bootstrap="fresh")
+        mgr.store.save(TokenBundle("old", "dead", NOW - 1, NOW - 10))
+        assert mgr.get_access_token() == "a"
+        assert refresher.calls == ["dead", "fresh"]
+        assert mgr.store.load().refresh_token == "fresh"
+
+    def test_picks_up_token_rotated_by_another_process(self, tmp_path):
+        """Loaded token A, but a concurrent run already rotated the file to B."""
+        refresher = FakeRefresher(B={"access_token": "a", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher, bootstrap="env")
+        stale = TokenBundle("old", "A", NOW - 1, NOW - 10)
+        mgr.store.save(TokenBundle("other", "B", NOW - 1, NOW - 5))
+        assert mgr._refresh_and_store(stale).access_token == "a"
+        assert refresher.calls == ["A", "B"], "on-disk token tried before env"
+
+    def test_all_tokens_rejected_raises_login_hint(self, tmp_path):
+        refresher = FakeRefresher()
+        mgr = _manager(tmp_path, refresher, bootstrap="env")
+        mgr.store.save(TokenBundle("old", "dead", NOW - 1, NOW - 10))
+        with pytest.raises(AHAuthError, match="ah_login") as exc:
+            mgr.get_access_token()
+        assert exc.value.status == 401
+        assert refresher.calls == ["dead", "env"]
+
+    def test_no_tokens_anywhere_raises_clear_error(self, tmp_path):
+        mgr = _manager(tmp_path, FakeRefresher())
+        with pytest.raises(AHAuthError, match="AH_REFRESH_TOKEN"):
+            mgr.get_access_token()
+
+    def test_force_refresh_bypasses_cache(self, tmp_path):
+        refresher = FakeRefresher(r={"access_token": "forced", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("cached", "r", NOW + 3600, NOW))
+        assert mgr.get_access_token(force_refresh=True) == "forced"
+
+    def test_adopt_requires_a_refresh_token(self, tmp_path):
+        mgr = _manager(tmp_path, FakeRefresher())
+        with pytest.raises(AHAuthError, match="no refresh token"):
+            mgr.adopt({"access_token": "a"})
+
+    def test_adopt_defaults_expiry_when_missing(self, tmp_path):
+        mgr = _manager(tmp_path, FakeRefresher())
+        bundle = mgr.adopt({"access_token": "a", "refresh_token": "r"})
+        assert bundle.access_expires_at == NOW + MAX_ACCESS_TOKEN_AGE_S
+
+
+class TestManagerGraphql:
+    def _mgr(self, tmp_path, monkeypatch, responses):
+        calls: list[str] = []
+
+        def fake_graphql(token, query, variables):
+            calls.append(token)
+            outcome = responses.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(ah_auth, "graphql", fake_graphql)
+        refresher = FakeRefresher(r={"access_token": "fresh", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("cached", "r", NOW + 3600, NOW))
+        return mgr, calls, refresher
+
+    def test_happy_path_uses_cached_token(self, tmp_path, monkeypatch):
+        mgr, calls, refresher = self._mgr(tmp_path, monkeypatch, [{"ok": 1}])
+        assert mgr.graphql("q", {}) == {"ok": 1}
+        assert calls == ["cached"]
+        assert refresher.calls == []
+
+    def test_retries_once_with_forced_refresh_on_401(self, tmp_path, monkeypatch):
+        mgr, calls, refresher = self._mgr(
+            tmp_path, monkeypatch, [AHAuthError("expired", status=401), {"ok": 1}]
+        )
+        assert mgr.graphql("q", {}) == {"ok": 1}
+        assert calls == ["cached", "fresh"]
+        assert refresher.calls == ["r"]
+
+    def test_non_auth_error_is_not_retried(self, tmp_path, monkeypatch):
+        mgr, calls, _ = self._mgr(
+            tmp_path, monkeypatch, [AHAuthError("GraphQL errors: redacted")]
+        )
+        with pytest.raises(AHAuthError, match="redacted"):
+            mgr.graphql("q", {})
+        assert calls == ["cached"]
+
+    def test_second_401_propagates(self, tmp_path, monkeypatch):
+        mgr, calls, _ = self._mgr(
+            tmp_path,
+            monkeypatch,
+            [AHAuthError("expired", status=401), AHAuthError("still", status=401)],
+        )
+        with pytest.raises(AHAuthError, match="still"):
+            mgr.graphql("q", {})
+        assert calls == ["cached", "fresh"]

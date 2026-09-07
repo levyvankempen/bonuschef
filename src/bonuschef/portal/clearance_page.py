@@ -1,22 +1,96 @@
 """Laatste kans page — store-specific clearance (reduced-to-clear) items."""
 
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import streamlit as st
+from dagster import DagsterRunStatus
+from sqlalchemy.exc import ProgrammingError
 
+from bonuschef.portal.dagster_client import (
+    MARKDOWNS_REFRESH_JOB,
+    DagsterTriggerError,
+    trigger_job,
+    wait_for_run,
+)
 from bonuschef.portal.db import get_engine, read_store_clearance
 
 _MARKDOWN_LABELS = {
     "EXPIRATION": "Expiring soon",
     "OUT_OF_ASSORTMENT": "Discontinued",
 }
+_LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
+_REFRESH_TIMEOUT_S = 180
+_REFRESHED_KEY = "clearance_refreshed_at"
 
 
 def _load(engine) -> pd.DataFrame | None:
     """Read clearance data, returning None if the mart isn't built yet."""
     try:
         return read_store_clearance(engine)
-    except Exception:
+    except ProgrammingError:  # relation does not exist → job never ran
         return None
+
+
+def _latest_snapshot(df: pd.DataFrame) -> pd.Timestamp:
+    """Most recent scrape time, converted to Dutch local time."""
+    return pd.to_datetime(df["scraped_at"], utc=True).max().tz_convert(_LOCAL_TZ)
+
+
+def _run_refresh() -> None:
+    """Trigger the markdowns job in Dagster and block until it finishes."""
+    try:
+        run_id = trigger_job(MARKDOWNS_REFRESH_JOB)
+    except DagsterTriggerError as exc:
+        st.error(f"{exc}\n\nIs the Dagster webserver running and reachable?")
+        return
+
+    with st.spinner("Scraping the store and rebuilding clearance tables…"):
+        try:
+            status = wait_for_run(run_id, timeout_s=_REFRESH_TIMEOUT_S)
+        except DagsterTriggerError as exc:
+            st.error(str(exc))
+            return
+
+    if status == DagsterRunStatus.SUCCESS:
+        read_store_clearance.clear()
+        st.session_state[_REFRESHED_KEY] = pd.Timestamp.now(tz=_LOCAL_TZ)
+        st.rerun()
+    elif status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        st.error(
+            f"Refresh run {run_id[:8]} ended with status {status.value}. "
+            "Check the run in the Dagster UI (an expired AH_REFRESH_TOKEN is the "
+            "usual cause)."
+        )
+    else:
+        st.warning(
+            f"Refresh run {run_id[:8]} is still {status.value} after "
+            f"{_REFRESH_TIMEOUT_S // 60} minutes. Reload the page in a bit."
+        )
+
+
+def _render_refresh_control(latest: pd.Timestamp | None) -> None:
+    """Snapshot age caption plus a button to re-scrape on demand."""
+    col_caption, col_button = st.columns([4, 1])
+    with col_caption:
+        if latest is not None:
+            st.caption(f"Latest snapshot: {latest:%Y-%m-%d %H:%M} (local time)")
+        else:
+            st.caption("No snapshot yet.")
+        refreshed = st.session_state.pop(_REFRESHED_KEY, None)
+        if refreshed is not None:
+            st.success(f"Refreshed at {refreshed:%H:%M}.")
+    with col_button:
+        clicked = st.button(
+            "Refresh now",
+            help=(
+                "Scrape the store's current clearance items and rebuild the "
+                "tables. Takes about a minute."
+            ),
+            use_container_width=True,
+        )
+    if clicked:
+        _run_refresh()
 
 
 def _render_metrics(df: pd.DataFrame) -> None:
@@ -81,21 +155,27 @@ def render_clearance() -> None:
         "through the day and stock sells out fast."
     )
 
-    engine = get_engine()
-    df = _load(engine)
+    try:
+        engine = get_engine()
+        df = _load(engine)
+    except Exception as exc:
+        st.error(f"Database connection error: {exc}")
+        return
 
     if df is None:
         st.info(
-            "No clearance data yet. Run the `markdowns_refresh` job in Dagster "
-            "(needs a member `AH_REFRESH_TOKEN` — see `bonuschef.utils.ah_login`)."
+            "No clearance data yet. Press **Refresh now** or run the "
+            "`markdowns_refresh` job in Dagster (needs a member "
+            "`AH_REFRESH_TOKEN` — see `bonuschef.utils.ah_login`)."
         )
+        _render_refresh_control(None)
         return
+
+    _render_refresh_control(_latest_snapshot(df) if not df.empty else None)
+
     if df.empty:
         st.info("No clearance items in the latest snapshot.")
         return
-
-    scraped = pd.to_datetime(df["scraped_at"]).max()
-    st.caption(f"Latest snapshot: {scraped:%Y-%m-%d %H:%M} UTC")
 
     _render_metrics(df)
 

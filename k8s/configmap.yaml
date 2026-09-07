@@ -7,6 +7,12 @@ data:
   # Dagster
   DAGSTER_HOME: /app/dagster_home
   ENVIRONMENT: default
+  # Webserver address the portal uses to launch jobs on demand (K8s service DNS)
+  DAGSTER_HOST: dagster-webserver
+  DAGSTER_PORT: "3000"
+
+  # Albert Heijn store markdowns ("laatste kans koopjes"); token lives in the Secret
+  AH_STORE_ID: "1876"
 
   # Postgres connection (K8s service DNS)
   PG_HOST: postgres

@@ -24,7 +24,8 @@ daily_refresh_job = define_asset_job(
 
 # Clearance ("laatste kans koopjes") deepens through the day and sells out fast,
 # so it runs on its own intraday cadence: scrape the store markdowns, then
-# rebuild only the downstream clearance dbt models.
+# rebuild only the downstream clearance dbt models. The portal's "Refresh now"
+# button triggers this same job by name (see portal/dagster_client.py).
 markdowns_refresh_job = define_asset_job(
     name="markdowns_refresh",
     selection=AssetSelection.assets("ah__store_markdowns").downstream(),

@@ -1,7 +1,8 @@
 """Configuration dataclasses with validation."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -18,7 +19,7 @@ class GitHubConfig:
     max_pages: int
 
     def __post_init__(self) -> None:
-        for field in (
+        for name in (
             "owner",
             "repo",
             "path",
@@ -26,8 +27,8 @@ class GitHubConfig:
             "start_date",
             "branch",
         ):
-            if not getattr(self, field):
-                raise ValueError(f"GITHUB_{field.upper()} is required")
+            if not getattr(self, name):
+                raise ValueError(f"GITHUB_{name.upper()} is required")
         if self.max_pages < 1:
             raise ValueError("GITHUB_MAX_PAGES must be >= 1")
 
@@ -56,26 +57,27 @@ class AHMarkdownConfig:
 
     The markdown/clearance feed is store-specific and requires a *member*
     token (the anonymous SupermarktConnector token is not authorised for it).
-    A one-time browser login yields a refresh token (see ``utils/ah_login.py``);
-    that refresh token is the only secret the pipeline needs at runtime.
+    A one-time browser login yields a refresh token (see ``utils/ah_login.py``).
+    At runtime the tokens live in ``token_file`` and are refreshed automatically
+    (see ``utils/ah_auth.AHTokenManager``); ``refresh_token`` from the
+    environment is only the bootstrap/fallback, so it may be empty once the
+    token file exists.
     """
 
     store_id: int
-    refresh_token: str
+    refresh_token: str = ""
     client_id: str = "appie"
+    token_file: Path = field(default_factory=lambda: Path("ah_tokens.json"))
 
     def __post_init__(self) -> None:
         if self.store_id < 1:
             raise ValueError("AH_STORE_ID must be a positive integer")
-        if not self.refresh_token:
-            raise ValueError(
-                "AH_REFRESH_TOKEN is required — run "
-                "`python -m bonuschef.utils.ah_login` once to obtain it, "
-                "then add it to your .env"
-            )
 
     @classmethod
     def from_env(cls) -> "AHMarkdownConfig":
+        # Imported lazily: config.py must stay import-light for the portal.
+        from bonuschef.utils.ah_auth import default_token_file
+
         store_raw = os.getenv("AH_STORE_ID", "1876")
         if not store_raw.isdigit():
             raise ValueError(
@@ -85,7 +87,37 @@ class AHMarkdownConfig:
             store_id=int(store_raw),
             refresh_token=os.getenv("AH_REFRESH_TOKEN", ""),
             client_id=os.getenv("AH_CLIENT_ID", "appie"),
+            token_file=default_token_file(),
         )
+
+
+@dataclass(frozen=True)
+class DagsterConfig:
+    """Where the portal can reach the Dagster webserver (GraphQL API).
+
+    Used by the Streamlit portal to trigger jobs on demand (e.g. refreshing
+    the store clearance snapshot). Defaults suit ``dagster dev`` on the same
+    machine; docker compose / k8s override ``DAGSTER_HOST`` with the service
+    name.
+    """
+
+    host: str = "localhost"
+    port: int = 3000
+
+    def __post_init__(self) -> None:
+        if not self.host:
+            raise ValueError("DAGSTER_HOST is required")
+        if not 0 < self.port < 65536:
+            raise ValueError("DAGSTER_PORT must be a valid TCP port")
+
+    @classmethod
+    def from_env(cls) -> "DagsterConfig":
+        port_raw = os.getenv("DAGSTER_PORT", "3000")
+        if not port_raw.isdigit():
+            raise ValueError(
+                f"DAGSTER_PORT must be a positive integer, got: {port_raw!r}"
+            )
+        return cls(host=os.getenv("DAGSTER_HOST", "localhost"), port=int(port_raw))
 
 
 @dataclass(frozen=True)

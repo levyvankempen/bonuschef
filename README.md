@@ -28,9 +28,9 @@ GitHub (JSON snapshots)
 
 | Layer | Models |
 |---|---|
-| **Staging** | `stg_github__products`, `stg_seeds__recipes`, `stg_seeds__recipe_ingredients` |
+| **Staging** | `stg_github__products`, `stg_ah__bonus_products`, `stg_ah__markdowns`, `stg_portal__recipes`, `stg_portal__recipe_ingredients`, `stg_portal__product_images` |
 | **Intermediate** | `int_product_latest_price`, `int_recipe_items_resolved`, `int_recipe_items_priced` |
-| **Marts** | `dim_product`, `dim_recipe`, `fct_products`, `fct_recipe_cost_history`, `fct_recipe_cost_latest`, `fct_recipe_cost_breakdown`, `fct_product_price_changes`, `fct_store_clearance`, `fct_store_clearance_history` |
+| **Marts** | `dim_product`, `dim_recipe`, `fct_products`, `fct_recipe_cost_history`, `fct_recipe_cost_latest`, `fct_recipe_cost_breakdown`, `fct_recipe_cost_breakdown_bonus`, `fct_product_price_changes`, `fct_bonus_price_comparison`, `fct_store_clearance`, `fct_store_clearance_history` |
 
 Recipe ingredients use **SCD Type 2** (`valid_from` / `valid_to`) to track product renames and succession over time.
 
@@ -89,7 +89,12 @@ GITHUB_MAX_PAGES="2"
 
 # Albert Heijn store markdowns ("laatste kans koopjes")
 AH_STORE_ID="1876"        # defaults to Eindhoven Torenallee
-AH_REFRESH_TOKEN=""       # from `python -m bonuschef.utils.ah_login` (see below)
+AH_REFRESH_TOKEN=""       # fallback only; `python -m bonuschef.utils.ah_login` (see below)
+# AH_TOKEN_FILE=""        # optional; defaults to $DAGSTER_HOME/ah_tokens.json
+
+# Dagster webserver, used by the portal's "Refresh now" button (defaults shown)
+DAGSTER_HOST="localhost"
+DAGSTER_PORT=3000
 ```
 
 ### 3a. Enable store markdowns (optional — "laatste kans koopjes")
@@ -106,14 +111,34 @@ python -m bonuschef.utils.ah_login
 python -m bonuschef.utils.ah_login "appie://login-exit?code=PASTE_HERE"
 ```
 
-Copy the printed `AH_REFRESH_TOKEN` into your `.env`. The pipeline refreshes the
-access token automatically (~7-day lifetime); you only re-run this if AH expires
-the refresh token. Find your `AH_STORE_ID` by postal code via
-`storesSearch` (the default `1876` is Eindhoven Torenallee).
+This writes the access + refresh token to the **token file** (default
+`$DAGSTER_HOME/ah_tokens.json`, or `~/.bonuschef/ah_tokens.json` when
+`DAGSTER_HOME` is unset; override with `AH_TOKEN_FILE`) and prints an
+`AH_REFRESH_TOKEN=` line to keep in `.env` as a fallback for fresh hosts.
+
+From then on the pipeline manages tokens itself (`utils/ah_auth.AHTokenManager`):
+the access token is cached and refreshed at most once a day, a rotated refresh
+token is persisted, a 401 triggers one forced refresh and retry, and the `.env`
+token is tried when the stored one is rejected. AH does expire refresh tokens
+that sit **unused for weeks**, so keep the hourly job running; if every token is
+rejected, re-run the login above. On docker compose run it inside the daemon
+container so it lands on the shared volume:
+
+```bash
+docker compose exec dagster-daemon uv run python -m bonuschef.utils.ah_login "appie://login-exit?code=..."
+```
+
+Find your `AH_STORE_ID` by postal code via `storesSearch` (the default `1876`
+is Eindhoven Torenallee).
 
 Because clearance discounts deepen through the day and sell out quickly, the
-`markdowns_refresh` job runs hourly (11:00–20:00 UTC) and **appends** each
-snapshot, so `fct_store_clearance_history` captures the intraday markdown curve.
+`markdowns_refresh` job runs hourly (11:00–20:00 **Amsterdam time**) and
+**appends** each snapshot, so `fct_store_clearance_history` captures the
+intraday markdown curve. `fct_store_clearance` shows only the items present in
+the latest scrape, so sold-out items disappear as soon as a newer snapshot
+lands. The portal's **Laatste kans** page has a **Refresh now** button that
+launches the same job through the Dagster webserver (`DAGSTER_HOST`/`DAGSTER_PORT`)
+and reloads the page when it finishes.
 
 ### 4. Start PostgreSQL
 
@@ -159,6 +184,7 @@ The portal provides:
 - **Recipe cost over time** &mdash; line chart of total recipe cost per snapshot
 - **Ingredient cost breakdown** &mdash; horizontal bar chart showing each ingredient's cost and percentage
 - **Product price history** &mdash; line chart with top movers pre-selected and a product multi-select
+- **Laatste kans** &mdash; current store clearance items with a **Refresh now** button (needs the Dagster webserver running)
 
 ## Development
 
@@ -177,14 +203,35 @@ uv run nox -rs mypy             # type checking
 ### Tests
 
 ```bash
-uv run nox -rs tests
+uv run nox -rs tests            # pytest with coverage
 # or directly
-pytest tests/
+uv run pytest                   # fast, no coverage
+uv run pytest --cov             # with coverage report
 ```
+
+The suite runs without a database or network. It covers:
+
+- **config** — env parsing and validation for every config dataclass
+- **AH auth** — token exchange/refresh/GraphQL calls, the token file, and the
+  auto-refresh manager (caching, rotation, fallback to `.env`, 401 retry)
+- **dlt sources** — bonus pricing rules, pagination, dedupe, and the markdown
+  feed mapping, iterated in-process with stubbed HTTP
+- **GitHub helpers** — weekly commit selection (Monday-first fallback) and the
+  snapshot source
+- **Dagster** — the commit sensor against an ephemeral instance, plus a smoke
+  test that the code location loads and each job selects the intended assets
+  (`markdowns_refresh` touches only the clearance lineage) and schedules run in
+  Amsterdam time
+- **portal** — every page through Streamlit's `AppTest` with stubbed queries,
+  including the Refresh-now flow (success, trigger error, failed run, timeout),
+  plus the db helpers and chart guards
+
+dbt models keep their schema tests in the `*.yml` files (`dbt test`, needs a
+database).
 
 ### CI
 
-GitHub Actions runs `lint_python`, `lint_sql`, and `tests` on pull requests to `main` and `develop`.
+GitHub Actions runs `lint_python`, `lint_sql`, `mypy`, and `tests` on pull requests to `main` and `develop`.
 
 ## Project structure
 
@@ -193,7 +240,7 @@ bonuschef/
 ├── src/bonuschef/
 │   ├── config.py                      # GitHubConfig & DatabaseConfig dataclasses
 │   ├── dags/
-│   │   ├── definitions.py             # Dagster entry point
+│   │   ├── definitions.py             # Dagster entry point (jobs, schedules in Europe/Amsterdam)
 │   │   ├── constants.py
 │   │   └── defs/
 │   │       ├── assets/
@@ -205,7 +252,11 @@ bonuschef/
 │   ├── portal/
 │   │   ├── app.py                     # Streamlit entry point
 │   │   ├── db.py                      # Database queries
+│   │   ├── dagster_client.py          # Trigger/poll Dagster jobs (Refresh now)
 │   │   └── ui.py                      # Charts and UI components
+│   ├── utils/
+│   │   ├── ah_auth.py                 # AH member auth + auto-refreshing token store
+│   │   └── ah_login.py                # One-time AH login bootstrap CLI
 │   └── sql/
 │       ├── dbt_project.yml
 │       ├── seeds/                     # recipes.csv, recipe_ingredients.csv
@@ -213,7 +264,7 @@ bonuschef/
 │           ├── staging/               # stg_ models
 │           ├── intermediate/          # int_ models
 │           └── marts/                 # dim_ and fct_ models
-├── tests/unit/                        # pytest unit tests
+├── tests/                             # pytest suite (conftest + unit/)
 ├── docker-compose.yml                 # PostgreSQL 16
 ├── noxfile.py                         # lint, format, test sessions
 ├── pyproject.toml                     # dependencies & tool config

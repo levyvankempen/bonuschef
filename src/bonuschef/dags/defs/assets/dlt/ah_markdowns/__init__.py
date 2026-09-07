@@ -19,7 +19,7 @@ import dlt
 from dagster import AssetExecutionContext, RetryPolicy, asset
 
 from bonuschef.config import AHMarkdownConfig
-from bonuschef.utils.ah_auth import graphql, refresh_access_token
+from bonuschef.utils.ah_auth import AHTokenManager, TokenStore
 
 _BARGAIN_ITEMS_QUERY = """query BargainItems($storeId: String!) {
   bargainItems(storeId: $storeId) {
@@ -42,9 +42,19 @@ def _to_float(value) -> float | None:
         return None
 
 
+def token_manager(cfg: AHMarkdownConfig) -> AHTokenManager:
+    """Token manager backed by the configured token file (auto-refreshing)."""
+    return AHTokenManager(
+        TokenStore(cfg.token_file),
+        bootstrap_refresh_token=cfg.refresh_token,
+        client_id=cfg.client_id,
+    )
+
+
 def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
-    access_token = refresh_access_token(cfg.refresh_token, client_id=cfg.client_id)
-    data = graphql(access_token, _BARGAIN_ITEMS_QUERY, {"storeId": str(cfg.store_id)})
+    data = token_manager(cfg).graphql(
+        _BARGAIN_ITEMS_QUERY, {"storeId": str(cfg.store_id)}
+    )
 
     for item in data.get("bargainItems") or []:
         product = item.get("product") or {}

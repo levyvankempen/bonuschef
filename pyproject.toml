@@ -8,13 +8,11 @@ dependencies = [
     "dagster-dbt>=0.27.11",
     "dagster-dg-cli>=1.11.11",
     "dagster-dlt>=0.27.11",
+    "dagster-graphql>=1.11.11",
     "dagster-webserver>=1.11.11",
     "dbt-core>=1.10.13",
     "dbt-postgres>=1.9.1",
     "dotenv>=0.9.9",
-    "nox>=2025.5.1",
-    "pytest>=8.4.2",
-    "pytest-cov>=7.0.0",
     "streamlit>=1.50.0",
     "supermarktconnector>=0.8.1",
 ]
@@ -25,7 +23,9 @@ readme = "README.md"
 [dependency-groups]
 dev = [
     "mypy>=1.11",
+    "nox>=2025.5.1",
     "pytest>=8.4.2, <8.4.3",
+    "pytest-cov>=7.0.0",
     "ruff>=0.13.1, <0.13.2",
     "sqlfluff>=3.4.2, <3.4.3",
     "types-requests>=2.32.0",
@@ -37,6 +37,24 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 force-include = { "pyproject.toml" = "pyproject.toml" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # Third-party noise we cannot fix here.
+    "ignore::DeprecationWarning:pydantic._internal",
+    "ignore::DeprecationWarning:dagster_shared",
+    "ignore::DeprecationWarning:streamlit",
+]
+
+[tool.coverage.run]
+source = ["bonuschef"]
+branch = true
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
 
 [tool.mypy]
 python_version = "3.12"

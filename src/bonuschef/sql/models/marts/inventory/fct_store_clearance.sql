@@ -6,14 +6,16 @@ markdowns AS (
 
 ),
 
+-- "Current" means "present in the most recent scrape of the store". Taking the
+-- latest row per *item* instead would keep sold-out items on the page forever,
+-- since an item that sold out simply stops appearing in later scrapes.
 latest_scrape AS (
 
     SELECT
         store_id,
-        webshop_id,
         MAX(scraped_at) AS latest_scraped_at
     FROM markdowns
-    GROUP BY store_id, webshop_id
+    GROUP BY store_id
 
 ),
 
@@ -24,7 +26,6 @@ current_markdowns AS (
     INNER JOIN latest_scrape AS ls
         ON
             m.store_id = ls.store_id
-            AND m.webshop_id = ls.webshop_id
             AND m.scraped_at = ls.latest_scraped_at
 
 ),

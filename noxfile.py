@@ -26,7 +26,16 @@ def tests(session: Session) -> None:
 
     session.run("uv", "sync", "--active", "--dev")
     session.run("uv", "sync", "--active", external=True)
-    session.run("uv", "run", "--active", "pytest", *args, external=True)
+    session.run(
+        "uv",
+        "run",
+        "--active",
+        "pytest",
+        "--cov",
+        "--cov-report=term-missing",
+        *args,
+        external=True,
+    )
 
 
 @nox.session(python=["3.12"], venv_backend="uv")

@@ -86,6 +86,9 @@ services:
     environment:
       PG_HOST: postgres
       PG_PORT: "5432"
+      # "Refresh now" on the Laatste kans page launches a job via this webserver.
+      DAGSTER_HOST: dagster-webserver
+      DAGSTER_PORT: "3000"
     depends_on:
       postgres:
         condition: service_healthy

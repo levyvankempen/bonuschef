@@ -18,3 +18,8 @@ dist/
 wheels/
 *.egg-info
 .DS_Store
+# AH member tokens written by bonuschef.utils.ah_login / AHTokenManager
+ah_tokens.json
+.coverage
+coverage.xml
+htmlcov/

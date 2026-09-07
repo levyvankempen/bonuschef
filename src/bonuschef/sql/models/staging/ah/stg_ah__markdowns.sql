@@ -21,7 +21,7 @@ renamed AS (
         stock,
         price_was,
         price_now,
-        scraped_at::timestamp AS scraped_at,
+        scraped_at::timestamptz AS scraped_at,
         ROUND((price_was - price_now)::numeric, 2) AS markdown_amount
 
     FROM source
