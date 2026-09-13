@@ -1,7 +1,7 @@
 ## 1. Capacity
 
 - [ ] 1.1 Confirm the measured position on the node: free memory against the stack's 1.60 GB resident idle footprint; verify by reading the node's current memory and the stack's `docker stats`, and record both figures rather than estimating
-- [ ] 1.2 Resolve the shortfall by an explicit decision — add RAM, reclaim from Home Assistant, or run degraded with a tuned Postgres — and record which was chosen and why. Do not proceed past this task with the gap unresolved; a Postgres that swaps under a build is worse than a stack still on the laptop
+- [x] 1.2 **Resolved without buying capacity.** The stack measured 1.74 GB against 1.4 GB free. Removing the `uv run` wrapper from each service (177-189 MB each, purely a parent process) and sizing Dagster's workers to the instigators that exist brought it to 798 MB, leaving ~400 MB spare. No RAM purchase, no reclaim from Home Assistant
 - [ ] 1.3 Verify `local-lvm` has room for the 1.73 GB image plus the database and its growth, and `local` has room for nightly guest backups alongside the existing guest's
 
 ## 2. The guest

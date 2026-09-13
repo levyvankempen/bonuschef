@@ -13,7 +13,7 @@ See `proposal.md` — Why. Measured on the node and on the running stack, not as
 | Next free VMID | 101 |
 | Repos | no-subscription |
 
-Stack footprint, measured at idle: **1.60 GB** resident — `dagster_daemon` 823 MB, `dagster_webserver` 321 MB, `pg_bonuschef` 247 MB, `streamlit_portal` 207 MB. The image is 1.73 GB, shared across all three application services. A full `dbt build` spills ~2.8 GB to Postgres temp files (disk, not RAM) and pushes Postgres RSS to roughly 611 MB.
+Stack footprint, measured after exercising: **798 MB** resident — `dagster_daemon` 328 MB, `pg_bonuschef` 251 MB, `dagster_webserver` 151 MB, `streamlit_portal` 46 MB (understated; budget ~200 MB with a live browser session, so ~950 MB realistic). This is down from 1.74 GB: each service was started through `uv run`, which resolves the environment and then lingers as a parent process costing 177-189 MB per container. The image is 1.73 GB, shared across all three application services. A full `dbt build` spills ~2.8 GB to Postgres temp files (disk, not RAM) and pushes Postgres RSS to roughly 611 MB.
 
 ## Goals / Non-Goals
 
@@ -35,17 +35,17 @@ Stack footprint, measured at idle: **1.60 GB** resident — `dagster_daemon` 823
 **LXC, not a VM — which reverses my earlier advice, because the measurements changed it.**
 I previously recommended a Debian VM over an LXC container, on the grounds that Docker-in-LXC needs `nesting=1` and `keyctl=1` and that learning one thing at a time was worth the overhead. At 1.4 GB free that trade no longer holds: a VM carries its own kernel and page cache, costing roughly 400–500 MB that an LXC does not, and that is a third of the entire remaining headroom. The nesting flags are two checkboxes set once at creation. When memory is the binding constraint, the simpler-to-explain option is the wrong one.
 
-**The capacity shortfall blocks deployment rather than being absorbed.**
-1.60 GB measured against 1.4 GB free is not a rounding error, and the gap widens during a dbt build. Deploying anyway means either Postgres swapping — on a box whose entire value is an always-on database — or the kernel reclaiming from Home Assistant, which is using every megabyte it holds. There are three honest paths and each has a stated cost:
+**The shortfall was closed by removing waste, not by buying capacity.**
+The original 1.74 GB against 1.4 GB free was a genuine blocker. But a third of that footprint was three `uv run` wrapper processes doing nothing after startup; calling the venv binaries directly costs nothing and returns ~550 MB. Sizing Dagster's sensor and schedule workers to the instigators that actually exist returns more. At 798 MB the stack fits with roughly 400 MB spare, so no RAM purchase is needed — though the margin is thin enough that an LXC remains the right guest and the numbers below stay tied to measurements. For the record, had it not fit, the paths were: Deploying anyway means either Postgres swapping — on a box whose entire value is an always-on database — or the kernel reclaiming from Home Assistant, which is using every megabyte it holds. There are three honest paths and each has a stated cost:
 
 1. **Add RAM.** The i5-7500T platform takes two DDR4 SODIMMs, commonly to 32 GB. This ends the constraint permanently for the price of one module and is the only option with headroom for growth.
 2. **Reclaim from Home Assistant.** Enabling ballooning with a floor below 4 GB lets the host take back what HA is not actively using — but it is actively using 3.95 GB of its 4 GB, so this degrades it rather than finding slack.
 3. **Run degraded.** LXC plus a tuned-down Postgres `shared_buffers`, accepting swap during builds. Workable, and the dbt work now takes 10 s rather than 17 s, but it puts the database on swap precisely when it is busiest.
 
-The specification requires the decision to be explicit. This design recommends (1) and will not choose (2) on the operator's behalf, because Home Assistant is not this project's to degrade.
+None was needed. The specification still requires capacity to be checked against measurement before provisioning, because the next thing added to this host will face the same question.
 
-**Sizing, once capacity exists: 2 cores, 3 GB, 24 GB disk.**
-Two cores because the node has four and Home Assistant holds two; dbt's measured ceiling is CPU and `DBT_THREADS` already defaults to 2 for exactly this host. 3 GB is the measured 1.60 GB plus room for a build and the page cache Postgres wants. 24 GB covers the 1.73 GB image, the database — currently 1.19 M rows in `fct_products` at 157 MB plus indexes — and years of markdown history, against 39.7 GB free on `local-lvm`.
+**Sizing: 2 cores, 1.5 GB, 24 GB disk.**
+Two cores because the node has four and Home Assistant holds two; dbt's measured ceiling is CPU and `DBT_THREADS` already defaults to 2 for exactly this host. 1.5 GB is the measured 798 MB plus a live browser session and the page cache Postgres wants, inside the 1.4 GB free with the LXC's own overhead counted. 24 GB covers the 1.73 GB image, the database — currently 1.19 M rows in `fct_products` at 157 MB plus indexes — and years of markdown history, against 39.7 GB free on `local-lvm`.
 
 **Access over Tailscale, with SSH port-forwarding as the fallback.**
 Every published port binds to loopback by decision of the `container-runtime` capability, so reaching the portal from a phone needs an overlay network or a tunnel, not a firewall hole. Tailscale on the host gives the phone a route without exposing anything; `ssh -L` needs nothing installed and is the fallback while Tailscale is being set up. Rejected: publishing on the LAN, which the container-runtime spec forbids for good reason; and a reverse proxy with authentication, which is real work to protect a service only one person wants to reach.

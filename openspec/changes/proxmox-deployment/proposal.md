@@ -2,9 +2,9 @@
 
 Everything the stack needed to survive unattended now exists in the repo — restart policies, bounded logs, loopback-only ports, healthchecks, a credential heartbeat, failure alerting, correct data. None of it is doing anything, because the stack still only runs on a laptop. The AH refresh credential has already died twice for exactly that reason: nothing was running to exercise it.
 
-The target is a Proxmox 9.2.2 node at 192.168.1.240, and it is smaller than the earlier plan assumed. Measured on the host: **4 cores, 8.2 GB RAM, of which 6.2 GB is already in use and 1.4 GB is free.** A Home Assistant OS VM holds 4 GB with ballooning disabled and is genuinely using 3.95 GB of it. Measured on the stack: **1.60 GB resident at idle** across its four containers, before a dbt build.
+The target is a Proxmox 9.2.2 node at 192.168.1.240, and it is smaller than the earlier plan assumed. Measured on the host: **4 cores, 8.2 GB RAM, of which 6.2 GB is already in use and 1.4 GB is free.** A Home Assistant OS VM holds 4 GB with ballooning disabled and is genuinely using 3.95 GB of it. Measured on the stack: **798 MB resident** across its four containers, and roughly 950 MB with someone actually browsing the portal. That is after removing a `uv run` wrapper process from each service, which was costing 177-189 MB apiece purely to exist as a parent — a third of the original 1.74 GB footprint.
 
-So the honest position is that bonuschef does not currently fit on this machine with any headroom, and the deployment has to say so rather than provision something that will swap under load or push Home Assistant into reclaim.
+At 1.74 GB the stack did not fit. At 798 MB it does, with roughly 400 MB of headroom — so the deployment proceeds, but the margin is thin enough that sizing has to come from measurement and the guest has to be an LXC rather than a VM.
 
 ## What Changes
 
@@ -26,4 +26,4 @@ So the honest position is that bonuschef does not currently fit on this machine 
 
 - New deployment documentation in the repository; no application code changes.
 - The Proxmox node gains one guest and a backup schedule.
-- **A resource decision is required before this can be completed**: 1.4 GB free against a 1.60 GB measured need. The spec covers the paths, but choosing between adding RAM, reclaiming it from Home Assistant, or running degraded is the operator's call and is not something this change makes on its own.
+- No RAM purchase is required. The shortfall was closed by removing waste rather than by buying capacity: 1.4 GB free against a 798 MB measured need. Headroom remains thin, so the guest is an LXC and the sizing constants stay tied to measurements.

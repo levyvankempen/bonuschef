@@ -45,4 +45,10 @@ storage:
 
 sensors:
   use_threads: true
-  num_workers: 4
+  # Two sensors exist. Four workers reserved threads for work that never
+  # arrives, on a host where memory is the binding constraint.
+  num_workers: 2
+
+schedules:
+  use_threads: true
+  num_workers: 2

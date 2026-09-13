@@ -40,9 +40,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command:
-      - uv
-      - run
-      - dagster-webserver
+      # Not `uv run`: it lingers as a parent process costing ~180MB, and the
+      # venv path is fixed by the Dockerfile.
+      - /app/.venv/bin/dagster-webserver
       - -h
       - "0.0.0.0"
       - -p
@@ -87,9 +87,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command:
-      - uv
-      - run
-      - dagster-daemon
+      - /app/.venv/bin/dagster-daemon
       - run
       - -m
       - bonuschef.dags.definitions
@@ -113,9 +111,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command:
-      - uv
-      - run
-      - streamlit
+      - /app/.venv/bin/streamlit
       - run
       - src/bonuschef/portal/app.py
       - --server.address

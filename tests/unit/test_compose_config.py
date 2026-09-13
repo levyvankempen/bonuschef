@@ -251,3 +251,22 @@ def test_the_theme_is_a_complete_palette():
     ):
         assert theme.get(key), f"{key} not set; Streamlit would use its default"
     assert theme["chartCategoricalColors"], "charts would render Vega default blue"
+
+
+def test_services_do_not_run_through_uv():
+    """`uv run` resolves the environment and then stays alive as a parent
+    process, measured at 177-189MB per container - roughly a third of the whole
+    stack's footprint, for nothing. The venv path is fixed by the Dockerfile."""
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    for name, svc in compose["services"].items():
+        command = svc.get("command")
+        if not command:
+            continue
+        assert command[0] != "uv", f"{name} still starts through uv run"
+
+
+def test_dagster_workers_match_the_instigator_count():
+    """Reserved threads are reserved memory. There are two sensors and three
+    schedules, not four of anything."""
+    instance = yaml.safe_load((REPO_ROOT / "dagster.yaml").read_text())
+    assert instance["sensors"]["num_workers"] <= 2
