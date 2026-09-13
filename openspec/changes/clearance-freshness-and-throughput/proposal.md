@@ -10,7 +10,7 @@ Separately, `src/bonuschef/sql/profiles.yml` sets `threads: 1`, so dbt builds al
 
 - The clearance page treats staleness as structural rather than cosmetic: past a freshness threshold it stops presenting items as current, and says plainly that the data is stale and how old it is.
 - The freshness threshold is expressed in terms of the trading day, because a snapshot from yesterday evening is worthless regardless of whether it is 14 or 20 hours old.
-- dbt's thread count rises from 1 to 4, so independent models build concurrently within a run.
+- dbt's thread count stops being 1, so independent models build concurrently within a run. It is read from the environment with a default of 2, measured against the 2 vCPU target rather than guessed.
 
 ## Capabilities
 

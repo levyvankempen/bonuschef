@@ -222,6 +222,22 @@ def read_store_clearance(_engine) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)
 
 
+@st.cache_data(ttl=60)
+def read_last_scrape_time(_engine) -> pd.Timestamp | None:
+    """When the store was last scraped, whether or not it found any items.
+
+    Sourced from the append-only history rather than the current-items mart, so
+    a scrape that succeeded and found nothing is still dated. Without this, an
+    empty mart is indistinguishable from one whose pipeline died months ago —
+    and an expired member token is the documented way that happens.
+    """
+    schema = _get_schema()
+    sql = text(f'SELECT MAX(scraped_at) FROM "{schema}"."fct_store_clearance_history"')
+    with _engine.begin() as conn:
+        value = conn.execute(sql).scalar()
+    return None if value is None else pd.to_datetime(value, utc=True)
+
+
 # ---------------------------------------------------------------------------
 # Recipe table management (portal writes to public schema)
 # ---------------------------------------------------------------------------
