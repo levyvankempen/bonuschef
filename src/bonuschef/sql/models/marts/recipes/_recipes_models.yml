@@ -19,6 +19,13 @@ models:
           - not_null
 
   - name: fct_recipe_cost_latest
+    tests:
+      # The guarantee fct_recipe_cost_history has always had and this mart did
+      # not: a partial basket is never published as a total.
+      - dbt_utils.expression_is_true:
+          expression: "total_cost IS NULL OR price_coverage = 1"
+      - dbt_utils.expression_is_true:
+          expression: "(total_cost IS NULL) = (cost_per_serving IS NULL)"
     description: "Current total cost per recipe based on latest product prices."
     columns:
       - name: recipe_id

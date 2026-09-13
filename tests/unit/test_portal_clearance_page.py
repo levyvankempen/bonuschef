@@ -123,7 +123,7 @@ def test_renders_items_as_cards_with_a_local_caption(stubs):
     assert not at.exception
     assert at.title[0].value == "Laatste kans koopjes"
     captions = [c.value for c in at.caption]
-    assert any("2026-09-07 14:00 (local time)" in c for c in captions)
+    assert any("2026-09-07 14:00" in c for c in captions)
 
     # A shopping list read on a phone: cards, not a ten-column grid.
     assert not at.dataframe, "items should not render as a spreadsheet widget"
@@ -135,8 +135,8 @@ def test_renders_items_as_cards_with_a_local_caption(stubs):
     # coverage statistic about the pipeline.
     assert not at.metric
     assert any("2 koopjes" in m.value for m in at.markdown)
-    assert any("Expiring soon" in c for c in captions)
-    assert at.button[0].label == "Refresh now"
+    assert any("Bijna over datum" in c for c in captions)
+    assert at.button[0].label == "Nu ophalen"
 
 
 def test_urgency_is_visible_on_the_item(stubs):
@@ -166,23 +166,23 @@ def test_missing_mart_shows_hint_and_button(stubs):
     stubs["read"].outcome = ProgrammingError("SELECT", {}, Exception("no relation"))
     at = _run()
     assert not at.exception
-    assert "No clearance data yet" in at.info[0].value
-    assert at.button[0].label == "Refresh now"
+    assert "Nog geen koopjes" in at.info[0].value
+    assert at.button[0].label == "Nu ophalen"
     assert not at.metric
 
 
 def test_database_error_is_reported_not_hidden(stubs):
     stubs["read"].outcome = RuntimeError("connection refused")
     at = _run()
-    assert "Database connection error" in at.error[0].value
+    assert "Geen verbinding met de database" in at.error[0].value
     assert not at.button
 
 
 def test_empty_snapshot_message(stubs):
     stubs["read"].outcome = _df(0)
     at = _run()
-    assert "No clearance items" in at.info[0].value
-    assert at.button[0].label == "Refresh now"
+    assert "Geen koopjes" in at.info[0].value
+    assert at.button[0].label == "Nu ophalen"
 
 
 def test_refresh_success_reruns_and_clears_cache(stubs):
@@ -193,7 +193,7 @@ def test_refresh_success_reruns_and_clears_cache(stubs):
     assert not at.exception
     assert stubs["triggered"] == ["markdowns_refresh"]
     assert stubs["read"].cleared == 1
-    assert any(s.value.startswith("Refreshed at") for s in at.success)
+    assert any(s.value.startswith("Opgehaald om") for s in at.success)
     # Banner is one-shot: a plain rerun must not show it again.
     at.run()
     assert not at.success
@@ -207,7 +207,7 @@ def test_a_refresh_that_finds_nothing_new_does_not_claim_freshness(stubs):
     assert not at.exception
     assert stubs["triggered"] == ["markdowns_refresh"]
     assert not at.success, "claimed a refresh that did not happen"
-    assert any("nothing newer" in w.value for w in at.warning)
+    assert any("niets nieuwers" in w.value for w in at.warning)
 
 
 def test_refresh_trigger_failure_shows_error(stubs):
@@ -225,7 +225,7 @@ def test_refresh_run_failure_mentions_run_and_token(stubs):
     at.button[0].click().run()
     message = at.error[0].value
     assert "run-1234" in message
-    assert "AH_REFRESH_TOKEN" in message
+    assert "AH-token" in message
     assert stubs["read"].cleared == 0
 
 
@@ -233,7 +233,7 @@ def test_refresh_timeout_warns(stubs):
     stubs["status"] = DagsterRunStatus.STARTED
     at = _run()
     at.button[0].click().run()
-    assert "still" in at.warning[0].value
+    assert "loopt nog" in at.warning[0].value
     assert stubs["read"].cleared == 0
 
 
@@ -304,11 +304,11 @@ class TestDescribeAge:
     @pytest.mark.parametrize(
         ("hours", "expected"),
         [
-            (0.5, "under an hour old"),
-            (1, "1 hour old"),
-            (13, "13 hours old"),
-            (72, "3 days old"),
-            (69 * 24, "2 months old"),
+            (0.5, "minder dan een uur oud"),
+            (1, "1 uur oud"),
+            (13, "13 uur oud"),
+            (72, "3 dagen oud"),
+            (69 * 24, "2 maanden oud"),
         ],
     )
     def test_wording(self, hours, expected):
@@ -326,13 +326,13 @@ class TestStaleRendering:
         assert not at.exception
         assert not at.dataframe, "stale items were rendered"
         assert not at.metric, "stale metrics were rendered"
-        assert any("not from today" in w.value for w in at.warning)
-        assert at.button[0].label == "Refresh now"
+        assert any("niet van vandaag" in w.value for w in at.warning)
+        assert at.button[0].label == "Nu ophalen"
 
     def test_stale_still_states_the_capture_time_in_local_time(self, stubs):
         stubs["now"] = pd.Timestamp("2026-09-09 14:00", tz=page._LOCAL_TZ)
         at = _run()
-        assert any("2026-09-07 14:00 (local time)" in c.value for c in at.caption)
+        assert any("2026-09-07 14:00" in c.value for c in at.caption)
 
     def test_before_the_first_scrape_reads_as_not_yet_not_broken(self, stubs):
         """With a trading-day rule the page is stale every morning until 11:00.
@@ -341,7 +341,7 @@ class TestStaleRendering:
         at = _run()
         assert not at.dataframe
         assert not at.warning, "normal morning state must not warn"
-        assert any("isn't in yet" in i.value for i in at.info)
+        assert any("nog niet" in i.value for i in at.info)
 
     def test_an_empty_but_fresh_snapshot_is_not_called_stale(self, stubs):
         """A scrape that succeeded and found nothing has no rows to date, so
@@ -351,7 +351,7 @@ class TestStaleRendering:
         at = _run()
         assert not at.exception
         assert not at.warning
-        assert any("No clearance items" in i.value for i in at.info)
+        assert any("Geen koopjes" in i.value for i in at.info)
 
     def test_all_null_scrape_times_do_not_crash_the_page(self, stubs):
         """pd.NaT cannot be strftime'd; the caption used to raise ValueError."""

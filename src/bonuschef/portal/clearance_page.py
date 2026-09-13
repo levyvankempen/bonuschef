@@ -16,8 +16,8 @@ from bonuschef.portal.dagster_client import (
 from bonuschef.portal.db import get_engine, read_last_scrape_time, read_store_clearance
 
 _MARKDOWN_LABELS = {
-    "EXPIRATION": "Expiring soon",
-    "OUT_OF_ASSORTMENT": "Discontinued",
+    "EXPIRATION": "Bijna over datum",
+    "OUT_OF_ASSORTMENT": "Uit het assortiment",
 }
 _LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
 _REFRESH_TIMEOUT_S = 180
@@ -69,20 +69,20 @@ def _describe_age(snapshot: pd.Timestamp, now: pd.Timestamp) -> str:
     """Coarse, glanceable age. Precision below the decision is noise."""
     hours = (now - snapshot).total_seconds() / 3600
     if hours < 1:
-        return "under an hour old"
+        return "minder dan een uur oud"
     if hours < 48:
         count = round(hours)
-        return f"{count} hour{'s' * (count != 1)} old"
+        return f"{count} uur oud" if count == 1 else f"{count} uur oud"
     days = round(hours / 24)
     if days < 60:
-        return f"{days} day{'s' * (days != 1)} old"
-    return f"{round(days / 30)} months old"
+        return "1 dag oud" if days == 1 else f"{days} dagen oud"
+    return f"{round(days / 30)} maanden oud"
 
 
 def _format_local(snapshot: pd.Timestamp | None) -> str:
     """Timestamp for the caption, or a word when there is none."""
     if snapshot is None:
-        return "an unknown time"
+        return "een onbekend moment"
     return f"{snapshot.tz_convert(_LOCAL_TZ):%Y-%m-%d %H:%M}"
 
 
@@ -107,7 +107,7 @@ def _run_refresh(before: pd.Timestamp | None = None) -> None:
         st.error(f"{exc}\n\nIs the Dagster webserver running and reachable?")
         return
 
-    with st.spinner("Scraping the store and rebuilding clearance tables…"):
+    with st.spinner("De winkel wordt gescand…"):
         try:
             status = wait_for_run(run_id, timeout_s=_REFRESH_TIMEOUT_S)
         except DagsterTriggerError as exc:
@@ -124,14 +124,13 @@ def _run_refresh(before: pd.Timestamp | None = None) -> None:
         st.rerun()
     elif status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
         st.error(
-            f"Refresh run {run_id[:8]} ended with status {status.value}. "
-            "Check the run in the Dagster UI (an expired AH_REFRESH_TOKEN is the "
-            "usual cause)."
+            f"Het ophalen is mislukt (run {run_id[:8]}, status {status.value}). "
+            "Kijk in Dagster; meestal is het een verlopen AH-token."
         )
     else:
         st.warning(
-            f"Refresh run {run_id[:8]} is still {status.value} after "
-            f"{_REFRESH_TIMEOUT_S // 60} minutes. Reload the page in a bit."
+            f"Het ophalen loopt nog ({run_id[:8]}) na "
+            f"{_REFRESH_TIMEOUT_S // 60} minuten. Laad de pagina zo opnieuw."
         )
 
 
@@ -149,11 +148,11 @@ def _render_refresh_banner(latest: pd.Timestamp | None) -> None:
         return
     moved = before is None or (latest is not None and latest > before)
     if moved:
-        st.success(f"Refreshed at {refreshed:%H:%M}.")
+        st.success(f"Opgehaald om {refreshed:%H:%M}.")
     else:
         st.warning(
-            f"The refresh ran at {refreshed:%H:%M}, but the snapshot is still "
-            f"from {_format_local(before)} — the scrape returned nothing newer."
+            f"Om {refreshed:%H:%M} is er opgehaald, maar de scan is nog steeds die van "
+            f"{_format_local(before)} — er was niets nieuwers."
         )
 
 
@@ -165,11 +164,8 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
         _render_refresh_banner(latest)
     with col_button:
         clicked = st.button(
-            "Refresh now",
-            help=(
-                "Scrape the store's current clearance items and rebuild the "
-                "tables. Takes about a minute."
-            ),
+            "Nu ophalen",
+            help=("Haal de koopjes van dit moment op. Duurt ongeveer een minuut."),
             width="stretch",
         )
     if clicked:
@@ -185,19 +181,18 @@ def _render_stale(
     by construction every single morning — that is "not yet", not "broken", and
     a user at 09:00 can tell those apart only if the page does.
     """
-    age = "of unknown age" if latest is None else _describe_age(latest, now)
+    age = "van onbekende ouderdom" if latest is None else _describe_age(latest, now)
     if now.hour < _FIRST_SCRAPE_HOUR:
         st.info(
-            f"Today's clearance list isn't in yet — the first scrape of the day "
-            f"runs at {_FIRST_SCRAPE_HOUR}:00. Showing nothing rather than the "
-            f"previous day's {item_count} item(s), which are {age}."
+            f"De koopjes van vandaag zijn er nog niet — de eerste scan is om "
+            f"{_FIRST_SCRAPE_HOUR}:00 uur. We tonen liever niets dan de "
+            f"{item_count} artikelen van gisteren, die {age}."
         )
         return
     st.warning(
-        f"This snapshot is {age} and is not from today. It held "
-        f"{item_count} item(s), not shown: clearance prices and stock change "
-        f"within hours, so they would send you to the store for something that "
-        f"is gone. Press **Refresh now** for today's."
+        f"Deze scan is {age} en niet van vandaag. Er stonden {item_count} "
+        "artikelen in, die we niet tonen: prijzen en voorraad veranderen per uur, "
+        "dus je zou voor niets naar de winkel gaan. Druk op **Nu ophalen**."
     )
 
 
@@ -275,8 +270,8 @@ def render_clearance() -> None:
     """Render the Laatste kans (store clearance) page."""
     st.title("Laatste kans koopjes")
     st.caption(
-        "Reduced-to-clear items at your Albert Heijn store. Discounts deepen "
-        "through the day and stock sells out fast."
+        "Afgeprijsde artikelen in jouw Albert Heijn. Kortingen lopen door de dag "
+        "op en de voorraad is snel weg."
     )
 
     try:
@@ -284,42 +279,35 @@ def render_clearance() -> None:
         df = _load(engine)
         last_scrape = read_last_scrape_time(engine) if df is not None else None
     except Exception as exc:
-        st.error(f"Database connection error: {exc}")
+        st.error(f"Geen verbinding met de database: {exc}")
         return
 
     if df is None:
-        st.info(
-            "No clearance data yet. Press **Refresh now** or run the "
-            "`markdowns_refresh` job in Dagster (needs a member "
-            "`AH_REFRESH_TOKEN` — see `bonuschef.utils.ah_login`)."
-        )
-        _render_refresh_control("No snapshot has ever been taken.", None)
+        st.info("Nog geen koopjes opgehaald. Druk op **Nu ophalen**.")
+        _render_refresh_control("Er is nog nooit een scan gedaan.", None)
         return
 
     now = _now()
     latest = _resolve_snapshot(last_scrape, df)
 
     if latest is None or not _is_current(latest, now):
-        _render_refresh_control(
-            f"Captured {_format_local(latest)} (local time).", latest
-        )
+        _render_refresh_control(f"Gescand om {_format_local(latest)}.", latest)
         _render_stale(len(df), latest, now)
         return
 
     _render_refresh_control(
-        f"Captured {_format_local(latest)} (local time) · "
-        f"{_describe_age(latest, now)}.",
+        f"Gescand om {_format_local(latest)} · {_describe_age(latest, now)}.",
         latest,
     )
 
     if df.empty:
-        st.info("No clearance items in the latest snapshot.")
+        st.info("Geen koopjes in de laatste scan.")
         return
 
     _render_summary(df)
 
     categories = sorted(c for c in df["category_title"].dropna().unique())
-    chosen = st.multiselect("Filter by category", categories, default=[])
+    chosen = st.multiselect("Filter op categorie", categories, default=[])
     if chosen:
         df = df[df["category_title"].isin(chosen)]
 

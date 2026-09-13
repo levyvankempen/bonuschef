@@ -1,5 +1,6 @@
 """Recipes page — recipe overview, cost history, and ingredient breakdown."""
 
+import pandas as pd
 import streamlit as st
 
 from bonuschef.portal.db import (
@@ -11,29 +12,44 @@ from bonuschef.portal.db import (
 
 
 def _render_recipe_summary(summary_df):
-    """Display recipe overview table."""
-    st.subheader("Recipe Overview")
+    """One card per recipe.
 
-    display_df = summary_df[
-        ["recipe_name", "servings", "total_cost", "cost_per_serving"]
-    ].copy()
-    display_df = display_df.rename(
-        columns={
-            "recipe_name": "Recipe",
-            "servings": "Servings",
-            "total_cost": "Total Cost (\u20ac)",
-            "cost_per_serving": "Per Serving (\u20ac)",
-        }
-    )
-
-    st.dataframe(
-        display_df,
-        hide_index=True,
-        column_config={
-            "Total Cost (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "Per Serving (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-        },
-    )
+    A recipe whose ingredients are not all priced shows what is known with a
+    trailing "+", never a total. Silently publishing the sum of a partial
+    basket is how a recipe missing its rookworst wins a "cheapest tonight"
+    comparison against a complete one.
+    """
+    st.subheader("Mijn recepten")
+    for _, row in summary_df.iterrows():
+        with st.container(border=True, horizontal=True, vertical_alignment="center"):
+            with st.container():
+                st.markdown(f"**{row['recipe_name']}**")
+                st.caption(f"{int(row['servings'])} personen")
+                unresolved = int(row.get("items_unresolved") or 0)
+                unpriced = int(row.get("items_total") or 0) - int(
+                    row.get("items_priced") or 0
+                )
+                if unpriced:
+                    st.badge(
+                        f"{unpriced} van {int(row['items_total'])} zonder prijs",
+                        color="orange",
+                        icon=":material/help:",
+                    )
+                    if unresolved:
+                        st.caption(
+                            f"{unresolved} ingrediënt(en) zijn nog niet aan een "
+                            "product gekoppeld."
+                        )
+            with st.container(horizontal_alignment="right"):
+                if pd.notna(row["total_cost"]):
+                    st.markdown(f"**€{row['total_cost']:.2f}**")
+                    st.caption(f"€{row['cost_per_serving']:.2f} p.p.")
+                elif pd.notna(row.get("partial_cost_observed")):
+                    # The "+" is the whole honesty mechanism, in one character.
+                    st.markdown(f"**€{row['partial_cost_observed']:.2f}+**")
+                    st.caption("nog niet compleet")
+                else:
+                    st.caption("nog geen prijs")
 
 
 def _render_bonus_highlights(engine):
@@ -42,7 +58,7 @@ def _render_bonus_highlights(engine):
     if bonus_df.empty or bonus_df["bonus_count"].sum() == 0:
         return
 
-    st.subheader("Current Bonus Deals")
+    st.subheader("Deze week in de bonus")
     has_bonus = bonus_df[bonus_df["bonus_count"] > 0].copy()
     if has_bonus.empty:
         return
@@ -65,10 +81,10 @@ def _render_bonus_highlights(engine):
 
 def _render_recipe_detail(engine, summary_df):
     """Drill-down into a specific recipe's ingredients."""
-    st.subheader("Recipe Details")
+    st.subheader("Recept")
 
     recipe_options = dict(zip(summary_df["recipe_name"], summary_df["recipe_id"]))
-    selected_name = st.selectbox("Select a recipe", options=list(recipe_options.keys()))
+    selected_name = st.selectbox("Kies een recept", options=list(recipe_options.keys()))
 
     if not selected_name:
         return
@@ -77,13 +93,13 @@ def _render_recipe_detail(engine, summary_df):
     breakdown_df = read_recipe_breakdown_bonus(engine, recipe_id)
 
     if breakdown_df.empty:
-        st.warning("No ingredient data available for this recipe.")
+        st.warning("Voor dit recept zijn geen ingrediënten bekend.")
         return
 
     real_total = breakdown_df["real_savings"].sum()
     adv_total = breakdown_df["advertised_savings"].sum()
     if real_total > 0:
-        msg = f"Ingredients on bonus! Real savings: \u20ac{real_total:.2f}"
+        msg = f"Ingrediënten in de bonus — je bespaart €{real_total:.2f}"
         if adv_total > 0 and adv_total != real_total:
             msg += f" (AH advertises \u20ac{adv_total:.2f})"
         st.success(msg)
@@ -126,18 +142,18 @@ def _render_recipe_detail(engine, summary_df):
 
 
 def render_recipes():
-    st.title("Recipes")
+    st.title("Recepten")
 
     try:
         engine = get_engine()
     except Exception as e:
-        st.error(f"Database connection error: {e}")
+        st.error(f"Geen verbinding met de database: {e}")
         return
 
     summary_df = read_recipe_summary(engine)
 
     if summary_df.empty:
-        st.info("No recipes found. Add a recipe first.")
+        st.info("Nog geen recepten. Voeg er eerst een toe.")
         return
 
     _render_recipe_summary(summary_df)

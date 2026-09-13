@@ -39,7 +39,10 @@ def read_recipe_summary(_engine) -> pd.DataFrame:
     """Fetch current recipe costs from fct_recipe_cost_latest."""
     schema = _get_schema()
     sql = text(f"""
-        SELECT recipe_id, recipe_name, servings, total_cost, cost_per_serving
+        SELECT
+            recipe_id, recipe_name, servings,
+            total_cost, cost_per_serving, partial_cost_observed,
+            items_total, items_priced, items_unresolved, price_coverage
         FROM "{schema}"."fct_recipe_cost_latest"
         ORDER BY recipe_name
     """)
@@ -289,6 +292,174 @@ def ensure_recipe_tables(_engine) -> None:
             )
         """)
         )
+
+
+def ensure_catalogue_tables(_engine) -> None:
+    """Create the tables an adopted recipe needs.
+
+    Separate from ``public.recipes`` because that table cannot hold one:
+    ``quantity`` is INTEGER and an AH recipe asks for 1.5 courgettes, and
+    ``product_link NOT NULL`` makes an unresolved ingredient unrepresentable —
+    the very state the specification requires us to record rather than drop.
+
+    Owned by the portal. dbt reads these as sources and creates none of them:
+    two owners for one schema is the defect that removing dbt's dlt DDL fixed,
+    and a user's confirmed resolution survives ``--full-refresh`` precisely
+    because dbt cannot touch it.
+    """
+    with _engine.begin() as conn:
+        conn.execute(
+            text("""
+            CREATE TABLE IF NOT EXISTS public.ah_recipes (
+                recipe_id      BIGINT PRIMARY KEY,
+                title          TEXT    NOT NULL,
+                servings       INTEGER NOT NULL,
+                url            TEXT,
+                image_url      TEXT,
+                cook_time_min  INTEGER,
+                adopted_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        )
+        conn.execute(
+            text("""
+            CREATE TABLE IF NOT EXISTS public.ah_recipe_ingredients (
+                recipe_id    BIGINT  NOT NULL
+                    REFERENCES public.ah_recipes(recipe_id) ON DELETE CASCADE,
+                line_no      INTEGER NOT NULL,
+                concept_id   BIGINT  NOT NULL,
+                concept_name TEXT    NOT NULL,
+                quantity     NUMERIC NOT NULL,
+                unit         TEXT    NOT NULL DEFAULT '',
+                raw_text     TEXT    NOT NULL DEFAULT '',
+                PRIMARY KEY (recipe_id, line_no)
+            )
+        """)
+        )
+        conn.execute(
+            text("""
+            CREATE TABLE IF NOT EXISTS public.ah_ingredient_products (
+                concept_id    BIGINT NOT NULL,
+                product_link  TEXT   NOT NULL,
+                product_name  TEXT   NOT NULL,
+                -- NULL means the matcher proposed it and nobody has looked.
+                -- A confirmed row must never be overwritten by a re-run.
+                confirmed_at  TIMESTAMPTZ,
+                proposed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                PRIMARY KEY (concept_id, product_link)
+            )
+        """)
+        )
+        conn.execute(
+            text("""
+            -- 6 of 467 sampled ingredient names carry two concept ids
+            -- (courgette is both 1853 and 219282). Without this, resolving an
+            -- ingredient once fails to serve both for about one in seventy-eight.
+            CREATE TABLE IF NOT EXISTS public.ah_ingredient_aliases (
+                concept_id           BIGINT PRIMARY KEY,
+                canonical_concept_id BIGINT NOT NULL
+            )
+        """)
+        )
+
+
+def adopted_recipe_rows(recipe) -> tuple[dict, list[dict]]:
+    """Split a Recipe into its header and ingredient rows.
+
+    Pure, so the interesting half is testable without a database.
+    """
+    header = {
+        "recipe_id": recipe.recipe_id,
+        "title": recipe.title,
+        "servings": recipe.servings,
+        "url": recipe.url,
+        "image_url": recipe.image_url,
+        "cook_time_min": recipe.cook_time_min,
+    }
+    lines = [
+        {
+            "recipe_id": recipe.recipe_id,
+            "line_no": n,
+            "concept_id": ing.concept_id,
+            "concept_name": ing.name,
+            "quantity": ing.quantity,
+            "unit": ing.unit,
+            "raw_text": ing.raw_text,
+        }
+        for n, ing in enumerate(recipe.ingredients)
+    ]
+    return header, lines
+
+
+def save_adopted_recipe(_engine, recipe) -> bool:
+    """Store an adopted recipe. Returns False if it was already there.
+
+    Idempotence is a database guarantee rather than a UI check: AH has four
+    recipes called "Zuurkoolstamppot" and they are genuinely different, so the
+    key is AH's id and not the title.
+    """
+    header, lines = adopted_recipe_rows(recipe)
+    with _engine.begin() as conn:
+        inserted = conn.execute(
+            text("""
+                INSERT INTO public.ah_recipes
+                    (recipe_id, title, servings, url, image_url, cook_time_min)
+                VALUES (:recipe_id, :title, :servings, :url, :image_url, :cook_time_min)
+                ON CONFLICT (recipe_id) DO NOTHING
+                RETURNING recipe_id
+            """),
+            header,
+        ).scalar()
+        if inserted is None:
+            return False
+        for line in lines:
+            conn.execute(
+                text("""
+                    INSERT INTO public.ah_recipe_ingredients
+                        (recipe_id, line_no, concept_id, concept_name,
+                         quantity, unit, raw_text)
+                    VALUES (:recipe_id, :line_no, :concept_id, :concept_name,
+                            :quantity, :unit, :raw_text)
+                    ON CONFLICT (recipe_id, line_no) DO NOTHING
+                """),
+                line,
+            )
+    return True
+
+
+def is_adopted(_engine, ah_recipe_id: int) -> bool:
+    with _engine.begin() as conn:
+        return (
+            conn.execute(
+                text("SELECT 1 FROM public.ah_recipes WHERE recipe_id = :id"),
+                {"id": ah_recipe_id},
+            ).scalar()
+            is not None
+        )
+
+
+def propose_products(_engine, proposals: list[dict]) -> None:
+    """Record matcher proposals, never overwriting a person's decision.
+
+    The WHERE on the DO UPDATE is the whole guarantee: without it, re-running
+    the matcher after a catalogue refresh would silently revert every
+    correction ever made.
+    """
+    if not proposals:
+        return
+    with _engine.begin() as conn:
+        for row in proposals:
+            conn.execute(
+                text("""
+                    INSERT INTO public.ah_ingredient_products AS p
+                        (concept_id, product_link, product_name)
+                    VALUES (:concept_id, :product_link, :product_name)
+                    ON CONFLICT (concept_id, product_link) DO UPDATE
+                    SET product_name = EXCLUDED.product_name
+                    WHERE p.confirmed_at IS NULL
+                """),
+                row,
+            )
 
 
 def next_recipe_id(_engine) -> int:

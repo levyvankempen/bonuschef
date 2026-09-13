@@ -12,12 +12,19 @@ snapshots AS (
 basket AS (
     SELECT
         i.recipe_id,
-        i.product_link,
+        i.pinned_product_link AS product_link,
         i.quantity,
         s.snapshot_timestamp
     FROM recipe_items AS i
     CROSS JOIN snapshots AS s
     WHERE
+        -- Hand-entered items only. An adopted ingredient names a concept, not
+        -- a product, and its concept was resolved today - pricing last
+        -- November's snapshot through today's resolution would retroactively
+        -- rewrite the chart every time someone corrected a match. An adopted
+        -- recipe therefore has no cost history until it accumulates one.
+        i.pinned_product_link IS NOT NULL
+        AND
         -- valid_from/valid_to are naive timestamps; snapshot_timestamp is
         -- tz-aware. Without an explicit zone Postgres resolves the naive side
         -- against the session TimeZone, so a dbt run from a laptop in

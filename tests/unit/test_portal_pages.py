@@ -53,7 +53,7 @@ class TestRecipesPage:
     def test_empty_summary_shows_hint(self, monkeypatch):
         self._wire(monkeypatch, pd.DataFrame())
         at = run_app(recipes_page.render_recipes).run()
-        assert "No recipes found" in at.info[0].value
+        assert "Nog geen recepten" in at.info[0].value
 
     def test_full_page_renders(self, monkeypatch):
         summary = pd.DataFrame(
@@ -71,12 +71,12 @@ class TestRecipesPage:
         # "Recipe Cost History" is gone: it plotted weekly totals for two
         # recipes, which changed no decision.
         assert [s.value for s in at.subheader] == [
-            "Recipe Overview",
-            "Current Bonus Deals",
-            "Recipe Details",
+            "Mijn recepten",
+            "Deze week in de bonus",
+            "Recept",
         ]
         assert at.selectbox[0].value == "Pasta"
-        assert "Real savings" in at.success[0].value
+        assert "bespaart" in at.success[0].value
         # The bonus marker is a badge now, which renders into the markdown
         # stream as :green-badge[...].
         assert any("green-badge" in m.value for m in at.markdown)
@@ -87,7 +87,7 @@ class TestRecipesPage:
 
         monkeypatch.setattr(recipes_page, "get_engine", boom)
         at = run_app(recipes_page.render_recipes).run()
-        assert "Database connection error" in at.error[0].value
+        assert "Geen verbinding met de database" in at.error[0].value
 
 
 class TestAnalysisPage:
