@@ -236,7 +236,9 @@ def test_the_theme_is_a_complete_palette():
     own defaults, so the page ends up part cookbook, part dev tool."""
     import tomllib
 
-    theme = tomllib.loads((REPO_ROOT / ".streamlit" / "config.toml").read_text())["theme"]
+    theme = tomllib.loads((REPO_ROOT / ".streamlit" / "config.toml").read_text())[
+        "theme"
+    ]
     for key in (
         "base",
         "backgroundColor",

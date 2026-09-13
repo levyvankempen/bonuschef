@@ -209,7 +209,9 @@ def test_an_http_failure_is_unavailable_not_not_found(http_post, manager):
 
 def test_no_results_is_a_value_not_an_exception(http_post, manager):
     http_post.queue(
-        FakeResponse(200, {"data": {"recipeSearch": {"page": {"total": 0}, "result": []}}})
+        FakeResponse(
+            200, {"data": {"recipeSearch": {"page": {"total": 0}, "result": []}}}
+        )
     )
     page = search_recipes("zzqqzz", manager=manager)
     assert (page.total, page.hits) == (0, ())
@@ -219,7 +221,9 @@ def test_search_clamps_size_because_ah_silently_returns_ten_above_a_hundred(
     http_post, manager
 ):
     http_post.queue(
-        FakeResponse(200, {"data": {"recipeSearch": {"page": {"total": 5}, "result": []}}})
+        FakeResponse(
+            200, {"data": {"recipeSearch": {"page": {"total": 5}, "result": []}}}
+        )
     )
     search_recipes("pasta", size=500, manager=manager)
     assert http_post.last[1]["json"]["variables"]["size"] == 100
