@@ -145,6 +145,27 @@ docker compose exec dagster-daemon uv run python -m bonuschef.utils.ah_login "ap
 Find your `AH_STORE_ID` by postal code via `storesSearch` (the default `1876`
 is Eindhoven Torenallee).
 
+**The token stays alive by being used.** AH invalidates a refresh token that
+sits unused — that is how it expired twice, not because the lifetime is short.
+The `token_heartbeat` job (03:30 and 15:30 Amsterdam) exists only to exercise
+the credential, so it no longer depends on the clearance scrape succeeding: if
+scraping breaks for an unrelated reason, the credential still survives and the
+outage stays recoverable without a browser.
+
+Note that `AH_REFRESH_TOKEN` in `.env` is a *bootstrap for a fresh host*, not a
+durable fallback. If AH rotates the token on refresh, the `.env` value is stale
+within hours of the login that produced it, and the token file on the
+`dagster_home` volume becomes the only working credential — so `docker compose
+down -v` means an interactive login. The heartbeat records rotation and
+credential age on the `ah_refresh_credential` asset, which is what will tell us
+whether AH's expiry extends on use or runs on a fixed clock.
+
+Set `NTFY_TOPIC` (see `.env.example`) to get run failures pushed to your phone.
+This covers *failures* — it cannot tell you the host is off, since a machine
+that is down runs no sensors. That gap belongs to external uptime monitoring.
+It also fires for runs you trigger yourself, including the portal's **Refresh
+now**, which is usually what you want.
+
 The `daily_refresh` job runs once a day at **17:30 Amsterdam time**, pulling
 the AH bonus feed and rebuilding every dbt model.
 

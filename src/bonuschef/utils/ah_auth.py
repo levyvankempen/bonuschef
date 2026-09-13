@@ -19,6 +19,7 @@ up to date so the pipeline survives unattended:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import time
@@ -28,6 +29,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+_log = logging.getLogger(__name__)
 
 AUTH_BASE = "https://api.ah.nl/mobile-auth/v1/auth"
 GRAPHQL_URL = "https://api.ah.nl/graphql"
@@ -146,10 +149,21 @@ class TokenBundle:
     access_token: str
     refresh_token: str
     access_expires_at: float  # unix epoch seconds
-    refreshed_at: float  # unix epoch seconds
+    refreshed_at: float  # unix epoch seconds — when we last performed a refresh
+    # When *this* refresh token value first appeared. Distinct from
+    # ``refreshed_at``, which is stamped on every refresh and so can never tell
+    # us how long a credential survives. 0.0 means unknown: files written before
+    # this field existed cannot say, and guessing would understate the age.
+    refresh_token_issued_at: float = 0.0
 
     def is_fresh(self, now: float, margin_s: float = EXPIRY_MARGIN_S) -> bool:
         return self.access_expires_at - margin_s > now
+
+    def credential_age_s(self, now: float) -> float | None:
+        """How long this refresh token has been in service, or None if unknown."""
+        if not self.refresh_token_issued_at:
+            return None
+        return now - self.refresh_token_issued_at
 
 
 def default_token_file() -> Path:
@@ -181,12 +195,21 @@ class TokenStore:
                 refresh_token=str(raw["refresh_token"]),
                 access_expires_at=float(raw["access_expires_at"]),
                 refreshed_at=float(raw.get("refreshed_at", 0)),
+                refresh_token_issued_at=float(raw.get("refresh_token_issued_at", 0)),
             )
         except FileNotFoundError:
             return None
         except (ValueError, KeyError, TypeError, OSError):
             # Corrupt or unreadable file: treat as absent rather than crash the
-            # pipeline; the next refresh rewrites it.
+            # pipeline; the next refresh rewrites it. Say so, though — silently
+            # returning None makes a corrupt file look like a missing one, and
+            # that strands the deployment if AH_REFRESH_TOKEN has been cleared.
+            _log.warning(
+                "AH token file %s exists but could not be parsed; treating it as "
+                "absent. If AH_REFRESH_TOKEN is unset too, re-run `%s`.",
+                self.path,
+                "python -m bonuschef.utils.ah_login",
+            )
             return None
 
     def save(self, bundle: TokenBundle) -> None:
@@ -200,6 +223,20 @@ class TokenStore:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+
+
+@dataclass(frozen=True)
+class RefreshOutcome:
+    """What one forced refresh told us about the refresh credential.
+
+    Exists so the heartbeat can report on the credential it just exercised;
+    ``get_access_token`` returns a bare string and cannot carry any of this.
+    """
+
+    bundle: TokenBundle
+    rotated: bool  # did AH hand back a different refresh token than we sent?
+    credential_age_s: float | None  # age of the credential used, None if unknown
+    used_fallback: bool  # the stored credential was rejected; .env's was used
 
 
 class AHTokenManager:
@@ -227,7 +264,7 @@ class AHTokenManager:
         bundle = self.store.load()
         if bundle and not force_refresh and bundle.is_fresh(self._now()):
             return bundle.access_token
-        return self._refresh_and_store(bundle).access_token
+        return self._refresh_and_store(bundle).bundle.access_token
 
     def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         """Run a GraphQL query, retrying once with a forced refresh on 401/403."""
@@ -238,20 +275,40 @@ class AHTokenManager:
                 raise
         return graphql(self.get_access_token(force_refresh=True), query, variables)
 
+    def refresh_now(self) -> RefreshOutcome:
+        """Exercise the refresh credential unconditionally and report on it.
+
+        The heartbeat calls this rather than ``get_access_token(force_refresh=True)``
+        because it needs the rotation and age facts, which a bare token cannot
+        carry.
+        """
+        return self._refresh_and_store(self.store.load())
+
     def adopt(
         self, tokens: dict[str, Any], refresh_token_used: str = ""
     ) -> TokenBundle:
         """Persist a token response (from login or refresh) and return the bundle."""
         now = self._now()
+        refresh_token = str(tokens.get("refresh_token") or refresh_token_used)
+        if not refresh_token:
+            raise AHAuthError("Token response carried no refresh token to persist")
+        # Same credential as on disk -> keep its issue time, so age measures how
+        # long this value has survived. Different -> the clock starts now.
+        # Unknown (0.0) stays unknown; we never invent a start date.
+        previous = self.store.load()
+        issued_at = (
+            previous.refresh_token_issued_at
+            if previous is not None and previous.refresh_token == refresh_token
+            else now
+        )
         expires_in = float(tokens.get("expires_in") or MAX_ACCESS_TOKEN_AGE_S)
         bundle = TokenBundle(
             access_token=str(tokens["access_token"]),
-            refresh_token=str(tokens.get("refresh_token") or refresh_token_used),
+            refresh_token=refresh_token,
             access_expires_at=now + min(expires_in, MAX_ACCESS_TOKEN_AGE_S),
             refreshed_at=now,
+            refresh_token_issued_at=issued_at,
         )
-        if not bundle.refresh_token:
-            raise AHAuthError("Token response carried no refresh token to persist")
         self.store.save(bundle)
         return bundle
 
@@ -270,7 +327,7 @@ class AHTokenManager:
                 unique.append(token)
         return unique
 
-    def _refresh_and_store(self, bundle: TokenBundle | None) -> TokenBundle:
+    def _refresh_and_store(self, bundle: TokenBundle | None) -> RefreshOutcome:
         candidates = self._candidates(bundle)
         if not candidates:
             raise AHAuthError(
@@ -278,15 +335,44 @@ class AHTokenManager:
                 f"{LOGIN_HINT} (token file: {self.store.path})"
             )
         errors: list[str] = []
-        for token in candidates:
+        for index, token in enumerate(candidates):
+            # Age belongs to the credential we are about to use, and only when
+            # that is the one we loaded — a .env fallback has no known history.
+            age = (
+                bundle.credential_age_s(self._now())
+                if bundle is not None and token == bundle.refresh_token
+                else None
+            )
             try:
                 tokens = self._refresh(token, self.client_id)
             except AHAuthError as exc:
                 errors.append(str(exc))
                 continue
-            return self.adopt(tokens, refresh_token_used=token)
+            adopted = self.adopt(tokens, refresh_token_used=token)
+            return RefreshOutcome(
+                bundle=adopted,
+                # Compare against what was actually sent, not what was on disk:
+                # otherwise a fallback to .env reads as a rotation.
+                rotated=adopted.refresh_token != token,
+                credential_age_s=age,
+                used_fallback=index > 0,
+            )
         raise AHAuthError(
             "All known AH refresh tokens were rejected — "
             f"{LOGIN_HINT}. Details: {' | '.join(errors)}",
             status=401,
         )
+
+
+def manager_from_env() -> "AHTokenManager":
+    """The token manager the whole deployment shares.
+
+    Lives here rather than in the markdowns asset module so that jobs, schedules
+    and sensors can reach it without importing ``dlt``, and so a credential-only
+    job need not depend on ``AHMarkdownConfig``, which exists to carry a store id.
+    """
+    return AHTokenManager(
+        TokenStore(default_token_file()),
+        bootstrap_refresh_token=os.getenv("AH_REFRESH_TOKEN", ""),
+        client_id=os.getenv("AH_CLIENT_ID", "appie"),
+    )

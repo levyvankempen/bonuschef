@@ -1,6 +1,18 @@
 """Dagster Jobs."""
 
-from dagster import AssetSelection, RetryPolicy, define_asset_job, multiprocess_executor
+from dagster import (
+    AssetObservation,
+    AssetSelection,
+    MetadataValue,
+    OpExecutionContext,
+    RetryPolicy,
+    define_asset_job,
+    job,
+    multiprocess_executor,
+    op,
+)
+
+from bonuschef.utils.ah_auth import manager_from_env
 
 all_assets_job = define_asset_job("all_assets", op_retry_policy=RetryPolicy(delay=120))
 
@@ -36,10 +48,65 @@ markdowns_refresh_job = define_asset_job(
     op_retry_policy=RetryPolicy(max_retries=2, delay=60),
 )
 
+
+# The AH member refresh credential expired twice from disuse: the clearance
+# scrape was the only thing that ever refreshed it, so whenever the stack sat
+# idle - or the scrape broke for an unrelated reason - AH eventually rejected it
+# and recovery needed an interactive browser login behind hCaptcha. This job
+# exists purely to keep the credential in use, independently of any pipeline.
+@op(description="Force an AH token refresh so the refresh credential stays in use.")
+def refresh_ah_credential(context: OpExecutionContext) -> None:
+    # refresh_now(), not get_access_token(force_refresh=True): the latter returns
+    # a bare string and could not report rotation or age. An AHAuthError is
+    # deliberately left to propagate - a dead credential must fail the run so the
+    # failure sensor sees it.
+    outcome = manager_from_env().refresh_now()
+    age_days = (
+        None if outcome.credential_age_s is None else outcome.credential_age_s / 86_400
+    )
+    # An observation rather than output metadata: it is indexed by asset key, so
+    # `instance.fetch_observations` returns the whole series and the UI plots the
+    # numeric values over time. That series is the evidence for whether AH's
+    # refresh expiry is sliding or absolute.
+    context.log_event(
+        AssetObservation(
+            asset_key="ah_refresh_credential",
+            metadata={
+                "rotated": outcome.rotated,
+                "used_env_fallback": outcome.used_fallback,
+                "credential_age_days": (
+                    MetadataValue.null()
+                    if age_days is None
+                    else MetadataValue.float(round(age_days, 2))
+                ),
+            },
+        )
+    )
+    context.log.info(
+        "AH credential refreshed (rotated=%s, age_days=%s, env_fallback=%s)",
+        outcome.rotated,
+        "unknown" if age_days is None else round(age_days, 2),
+        outcome.used_fallback,
+    )
+
+
+@job(
+    name="token_heartbeat",
+    description="Keeps the AH member refresh credential alive between scrapes.",
+    # Op-level retries happen inside the run, so a transient AH 5xx costs one
+    # extra minute and still emits exactly one RUN_FAILURE if it never recovers.
+    op_retry_policy=RetryPolicy(max_retries=2, delay=60),
+)
+def token_heartbeat_job() -> None:
+    refresh_ah_credential()
+
+
 __all__ = [
     "all_assets_job",
     "backfill_job",
     "dbt_job",
     "daily_refresh_job",
     "markdowns_refresh_job",
+    "refresh_ah_credential",
+    "token_heartbeat_job",
 ]

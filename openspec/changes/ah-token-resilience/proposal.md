@@ -23,7 +23,7 @@ Note on scope: alerting was previously deferred as "container-side". That reason
 
 ## Impact
 
-- `src/bonuschef/utils/ah_auth.py` — `adopt()` gains rotation detection; the manager exposes stored-token age.
+- `src/bonuschef/utils/ah_auth.py` — a new persisted `refresh_token_issued_at`; a `refresh_now()` returning a `RefreshOutcome`; a `manager_from_env()` factory. `adopt()`'s public signature is unchanged.
 - `src/bonuschef/dags/defs/jobs/` and `schedules/` — a new heartbeat job and schedule.
 - `src/bonuschef/dags/defs/sensors/` — a new run-failure sensor.
 - `src/bonuschef/config.py` — ntfy configuration, read from the environment.

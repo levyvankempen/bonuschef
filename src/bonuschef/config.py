@@ -160,3 +160,36 @@ class DatabaseConfig:
             password=os.getenv("PG_PASSWORD", ""),
             sslmode=os.getenv("PG_SSLMODE", "prefer"),
         )
+
+
+@dataclass(frozen=True)
+class NtfyConfig:
+    """Where unattended run failures get pushed.
+
+    The topic is a capability URL: anyone who knows the name can read the
+    notifications, so it must be long and random. Unlike every other config
+    here, ``from_env`` returns ``None`` rather than raising when the topic is
+    unset — absent alerting is a deliberate choice, not a misconfiguration, and
+    it keeps local development and the test suite free of external services.
+    """
+
+    topic: str
+    server: str = "https://ntfy.sh"
+
+    def __post_init__(self) -> None:
+        if not self.topic:
+            raise ValueError("NTFY_TOPIC is required")
+        if not self.server.startswith(("http://", "https://")):
+            raise ValueError("NTFY_SERVER must be an http(s) URL")
+
+    @property
+    def url(self) -> str:
+        return f"{self.server.rstrip('/')}/{self.topic}"
+
+    @classmethod
+    def from_env(cls) -> "NtfyConfig | None":
+        """``None`` when unconfigured, so callers can skip rather than handle."""
+        topic = os.getenv("NTFY_TOPIC", "").strip()
+        if not topic:
+            return None
+        return cls(topic=topic, server=os.getenv("NTFY_SERVER", "https://ntfy.sh"))

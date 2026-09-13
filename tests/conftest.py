@@ -18,6 +18,10 @@ _ISOLATED_VARS = (
     "DAGSTER_PORT",
     "DAGSTER_HOME",
     "GITHUB_TOKEN",
+    # Without these, a developer or CI runner with a topic exported would have
+    # the alerting tests POST to ntfy.sh for real.
+    "NTFY_TOPIC",
+    "NTFY_SERVER",
 )
 
 

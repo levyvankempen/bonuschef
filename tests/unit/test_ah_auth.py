@@ -253,7 +253,7 @@ class TestAHTokenManager:
         mgr = _manager(tmp_path, refresher, bootstrap="env")
         stale = TokenBundle("old", "A", NOW - 1, NOW - 10)
         mgr.store.save(TokenBundle("other", "B", NOW - 1, NOW - 5))
-        assert mgr._refresh_and_store(stale).access_token == "a"
+        assert mgr._refresh_and_store(stale).bundle.access_token == "a"
         assert refresher.calls == ["A", "B"], "on-disk token tried before env"
 
     def test_all_tokens_rejected_raises_login_hint(self, tmp_path):
@@ -335,3 +335,123 @@ class TestManagerGraphql:
         with pytest.raises(AHAuthError, match="still"):
             mgr.graphql("q", {})
         assert calls == ["cached", "fresh"]
+
+
+class TestCredentialAge:
+    """The refresh credential's age is the evidence that settles whether AH's
+    expiry is sliding (extends on use) or absolute (a fixed maximum life).
+
+    It must be measured from when a token *value* first appeared. ``refreshed_at``
+    is stamped on every refresh, so measuring from it would report one heartbeat
+    interval forever and prove nothing.
+    """
+
+    def test_issue_time_is_carried_forward_when_the_credential_is_unchanged(
+        self, tmp_path
+    ):
+        refresher = FakeRefresher(A={"access_token": "a2", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher)
+        # Credential A has been in service for 60 days already.
+        issued = NOW - 60 * 86_400
+        mgr.store.save(TokenBundle("old", "A", NOW - 1, NOW - 43_200, issued))
+
+        outcome = mgr.refresh_now()
+
+        assert outcome.rotated is False
+        assert outcome.bundle.refresh_token_issued_at == issued, (
+            "an unchanged credential must keep its original issue time"
+        )
+        assert outcome.credential_age_s == 60 * 86_400
+        assert mgr.store.load().refresh_token_issued_at == issued
+
+    def test_rotation_restarts_the_clock(self, tmp_path):
+        refresher = FakeRefresher(
+            A={"access_token": "a2", "refresh_token": "B", "expires_in": 100}
+        )
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("old", "A", NOW - 1, NOW - 10, NOW - 5 * 86_400))
+
+        outcome = mgr.refresh_now()
+
+        assert outcome.rotated is True
+        assert outcome.credential_age_s == 5 * 86_400, "age is of the credential used"
+        assert outcome.bundle.refresh_token == "B"
+        assert outcome.bundle.refresh_token_issued_at == NOW
+
+    def test_unknown_issue_time_stays_unknown(self, tmp_path):
+        """A file written before the field existed cannot say how old it is, and
+        guessing would understate the age."""
+        refresher = FakeRefresher(A={"access_token": "a2", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("old", "A", NOW - 1, NOW - 10))  # issued_at = 0.0
+
+        outcome = mgr.refresh_now()
+
+        assert outcome.credential_age_s is None
+        assert outcome.bundle.refresh_token_issued_at == 0.0
+
+    def test_legacy_file_without_issue_time_still_loads(self, tmp_path):
+        path = tmp_path / "tokens.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "access_token": "a",
+                    "refresh_token": "r",
+                    "access_expires_at": NOW + 100,
+                    "refreshed_at": NOW,
+                }
+            )
+        )
+        bundle = TokenStore(path).load()
+        assert bundle is not None
+        assert bundle.refresh_token_issued_at == 0.0
+        assert bundle.credential_age_s(NOW) is None
+
+    def test_env_fallback_is_not_reported_as_rotation(self, tmp_path):
+        """The stored credential is dead and .env's is used. That is a fallback,
+        not AH rotating — conflating them would poison the evidence."""
+        refresher = FakeRefresher(env={"access_token": "a", "expires_in": 100})
+        mgr = _manager(tmp_path, refresher, bootstrap="env")
+        mgr.store.save(TokenBundle("old", "dead", NOW - 1, NOW - 10, NOW - 86_400))
+
+        outcome = mgr.refresh_now()
+
+        assert outcome.used_fallback is True
+        assert outcome.rotated is False, "AH returned the same token we sent"
+        assert outcome.credential_age_s is None, "a .env credential has no history"
+
+    def test_refresh_now_always_calls_the_refresher(self, tmp_path):
+        """Even with a perfectly fresh access token — refreshing the access token
+        is not the point, exercising the refresh credential is."""
+        refresher = FakeRefresher(A={"access_token": "a2", "expires_in": 10_000})
+        mgr = _manager(tmp_path, refresher)
+        mgr.store.save(TokenBundle("still-good", "A", NOW + 10_000, NOW, NOW))
+
+        mgr.refresh_now()
+
+        assert refresher.calls == ["A"]
+
+
+class TestTokenStoreDurability:
+    def test_a_failed_write_leaves_the_original_intact(self, tmp_path, monkeypatch):
+        store = TokenStore(tmp_path / "tokens.json")
+        store.save(TokenBundle("good", "A", NOW + 100, NOW, NOW))
+        before = store.path.read_bytes()
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(json, "dump", boom)
+        with pytest.raises(OSError):
+            store.save(TokenBundle("new", "B", NOW + 200, NOW, NOW))
+
+        assert store.path.read_bytes() == before, "partial write clobbered the token"
+        assert list(tmp_path.glob(".ah_tokens-*")) == [], "temp file left behind"
+
+    def test_a_corrupt_file_warns_rather_than_failing_silently(self, tmp_path, caplog):
+        path = tmp_path / "tokens.json"
+        path.write_text("{not json")
+        with caplog.at_level("WARNING"):
+            assert TokenStore(path).load() is None
+        assert "could not be parsed" in caplog.text
+        assert "ah_login" in caplog.text

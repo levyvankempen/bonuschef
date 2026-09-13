@@ -179,7 +179,14 @@ def test_env_example_documents_the_variables_the_services_read(services):
         for line in ENV_EXAMPLE.read_text().splitlines()
         if "=" in line and not line.lstrip().startswith("#")
     }
-    for required in ("PG_USER", "PG_PASSWORD", "PG_DB", "AH_REFRESH_TOKEN"):
+    for required in (
+        "PG_USER",
+        "PG_PASSWORD",
+        "PG_DB",
+        "AH_REFRESH_TOKEN",
+        "NTFY_TOPIC",
+        "NTFY_SERVER",
+    ):
         assert required in documented, f"{required} missing from .env.example"
 
 
@@ -189,3 +196,20 @@ def test_env_example_carries_no_real_secret():
     for line in text.splitlines():
         if line.startswith("AH_REFRESH_TOKEN="):
             assert len(line.split("=", 1)[1]) < 40, "looks like a real token"
+
+
+def test_runs_stay_serialised_but_a_wedged_run_is_bounded(dagster_instance):
+    """max_concurrent_runs: 1 alone is a trap: a wedged run holds the only slot,
+    every queued run waits forever including the token heartbeat, and a QUEUED
+    run emits no RUN_FAILURE - so the alerting would stay silent."""
+    assert dagster_instance["run_coordinator"]["config"]["max_concurrent_runs"] == 1
+    monitoring = dagster_instance.get("run_monitoring")
+    assert monitoring, "a wedged run could starve the heartbeat indefinitely"
+    assert monitoring["enabled"] is True
+    assert monitoring["max_runtime_seconds"] > 0
+
+
+def test_run_level_retries_stay_unset(dagster_instance):
+    """Run-level retries emit one RUN_FAILURE per attempt, which would turn one
+    broken pipeline into N phone notifications. Retries belong on the jobs."""
+    assert "run_retries" not in dagster_instance

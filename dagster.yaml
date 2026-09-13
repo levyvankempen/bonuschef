@@ -13,6 +13,19 @@ run_coordinator:
     # they are not dropped.
     max_concurrent_runs: 1
 
+# Do NOT add a `run_retries:` block. Run-level retries emit one RUN_FAILURE per
+# attempt, so the failure sensor would alert N times for one broken pipeline.
+# Retries belong on the jobs as `op_retry_policy`, which retries inside the run
+# and emits exactly one failure event.
+
+# With max_concurrent_runs: 1 a wedged run - dbt blocked on a Postgres lock -
+# would hold the only slot forever. Every queued run then waits indefinitely,
+# including the token heartbeat, and a QUEUED run never emits RUN_FAILURE, so
+# the alerting would stay silent while the credential died. Bound it.
+run_monitoring:
+  enabled: true
+  max_runtime_seconds: 3600
+
 # Run, event and schedule storage in Postgres rather than the default SQLite on
 # the shared dagster_home volume, which the webserver, the daemon and every run
 # subprocess would otherwise write concurrently from two containers.
