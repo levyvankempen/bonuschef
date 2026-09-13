@@ -27,21 +27,6 @@ class TestRecipesPage:
         )
         monkeypatch.setattr(
             recipes_page,
-            "read_recipe_cost_history",
-            lambda e: pd.DataFrame(
-                {
-                    "recipe_id": [1, 1],
-                    "recipe_name": ["Pasta", "Pasta"],
-                    "servings": [4, 4],
-                    "snapshot_timestamp": ["2025-01-06", "2025-01-13"],
-                    "total_cost_observed": [5.0, 5.5],
-                    "price_coverage": [1.0, 1.0],
-                    "cost_per_serving_strict": [1.25, 1.375],
-                }
-            ),
-        )
-        monkeypatch.setattr(
-            recipes_page,
             "read_recipe_breakdown_bonus",
             lambda e, rid: pd.DataFrame(
                 {
@@ -83,15 +68,18 @@ class TestRecipesPage:
         self._wire(monkeypatch, summary)
         at = run_app(recipes_page.render_recipes, default_timeout=10).run()
         assert not at.exception
+        # "Recipe Cost History" is gone: it plotted weekly totals for two
+        # recipes, which changed no decision.
         assert [s.value for s in at.subheader] == [
             "Recipe Overview",
             "Current Bonus Deals",
-            "Recipe Cost History",
             "Recipe Details",
         ]
         assert at.selectbox[0].value == "Pasta"
         assert "Real savings" in at.success[0].value
-        assert any("BONUS" in m.value for m in at.markdown)
+        # The bonus marker is a badge now, which renders into the markdown
+        # stream as :green-badge[...].
+        assert any("green-badge" in m.value for m in at.markdown)
 
     def test_db_error_is_shown(self, monkeypatch):
         def boom():
@@ -181,6 +169,9 @@ class TestAddRecipePage:
                 "product_url": ["https://ah.nl/1", "https://ah.nl/2"],
                 "product_name": ["AH Halfvolle melk", "AH Jonge kaas"],
                 "price": [1.09, 4.5],
+                # Carried by dim_product now, so the page no longer fetches
+                # every product image from ah.nl while rendering.
+                "image_url": [None, None],
             }
         )
         monkeypatch.setattr(recipe_builder, "get_engine", lambda: object())

@@ -6,10 +6,8 @@ from bonuschef.portal.db import (
     get_engine,
     read_recipe_bonus_summary,
     read_recipe_breakdown_bonus,
-    read_recipe_cost_history,
     read_recipe_summary,
 )
-from bonuschef.portal.ui import display_cost_breakdown, display_total_cost_line
 
 
 def _render_recipe_summary(summary_df):
@@ -31,7 +29,6 @@ def _render_recipe_summary(summary_df):
     st.dataframe(
         display_df,
         hide_index=True,
-        use_container_width=True,
         column_config={
             "Total Cost (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
             "Per Serving (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
@@ -66,22 +63,6 @@ def _render_bonus_highlights(engine):
         st.markdown("".join(parts))
 
 
-def _render_cost_history(engine):
-    """Display multi-recipe cost history line chart."""
-    history_df = read_recipe_cost_history(engine)
-
-    if history_df.empty:
-        return
-
-    st.subheader("Recipe Cost History")
-    display_total_cost_line(
-        history_df,
-        date_col="snapshot_timestamp",
-        value_col="total_cost_observed",
-        recipe_col="recipe_name",
-    )
-
-
 def _render_recipe_detail(engine, summary_df):
     """Drill-down into a specific recipe's ingredients."""
     st.subheader("Recipe Details")
@@ -107,54 +88,41 @@ def _render_recipe_detail(engine, summary_df):
             msg += f" (AH advertises \u20ac{adv_total:.2f})"
         st.success(msg)
 
-    display_cost_breakdown(breakdown_df)
-
-    st.markdown("**Ingredients**")
+    st.markdown("**Ingrediënten**")
     for _, row in breakdown_df.iterrows():
-        col_img, col_name, col_price, col_qty, col_cost, col_bonus = st.columns(
-            [1, 3, 1, 1, 1, 2]
-        )
-
-        with col_img:
+        # One card per ingredient. Six st.columns per row gave each cell about
+        # 40px on a phone, and st.columns does not wrap.
+        with st.container(border=True, horizontal=True, vertical_alignment="center"):
             if row.get("image_url"):
-                st.image(row["image_url"], width=80)
-
-        with col_name:
-            if row.get("product_url"):
-                st.markdown(f"[{row['product_name']}]({row['product_url']})")
-            else:
-                st.write(row["product_name"])
-
-        with col_price:
-            st.write(f"\u20ac{row['price']:.2f}")
-
-        with col_qty:
-            st.write(f"x{row['quantity']}")
-
-        with col_cost:
-            st.write(f"\u20ac{row['item_cost']:.2f}")
-
-        with col_bonus:
-            if row.get("is_on_bonus"):
-                mechanism = row.get("bonus_mechanism") or "BONUS"
-                bonus_price = row.get("bonus_price")
-                tracked_price = row.get("price")
-                ah_price = row.get("price_before_bonus")
-
-                st.markdown(f":green[**BONUS**] {mechanism}")
-
-                # Show all three prices for comparison
-                if bonus_price is not None:
-                    price_parts = [f"\u20ac{bonus_price:.2f} bonus"]
-                    if tracked_price is not None:
-                        price_parts.append(f"\u20ac{tracked_price:.2f} tracked")
-                    if ah_price is not None and ah_price != tracked_price:
-                        # Flag inflated AH price in orange
-                        if tracked_price is not None and ah_price > tracked_price:
-                            price_parts.append(f":orange[\u20ac{ah_price:.2f} AH]")
-                        else:
-                            price_parts.append(f"\u20ac{ah_price:.2f} AH")
-                    st.caption(" | ".join(price_parts))
+                st.image(row["image_url"], width=56)
+            with st.container():
+                if row.get("product_url"):
+                    st.markdown(f"**[{row['product_name']}]({row['product_url']})**")
+                else:
+                    st.markdown(f"**{row['product_name']}**")
+                st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
+            with st.container(horizontal_alignment="right"):
+                st.markdown(f"**€{row['item_cost']:.2f}**")
+                if row.get("is_on_bonus"):
+                    st.badge(
+                        row.get("bonus_mechanism") or "Bonus",
+                        color="green",
+                        icon=":material/savings:",
+                    )
+                    # The honest-price insight, in one line rather than three
+                    # prices separated by pipes. This is the project's thesis and
+                    # it belongs where the saving is, not in a separate table.
+                    ah_price = row.get("price_before_bonus")
+                    tracked = row.get("price")
+                    if (
+                        ah_price is not None
+                        and tracked is not None
+                        and ah_price > tracked
+                    ):
+                        st.caption(
+                            f"AH rekent €{ah_price:.2f} als 'van'-prijs; "
+                            f"wij zagen €{tracked:.2f}."
+                        )
 
 
 def render_recipes():
@@ -174,5 +142,4 @@ def render_recipes():
 
     _render_recipe_summary(summary_df)
     _render_bonus_highlights(engine)
-    _render_cost_history(engine)
     _render_recipe_detail(engine, summary_df)

@@ -213,3 +213,41 @@ def test_run_level_retries_stay_unset(dagster_instance):
     """Run-level retries emit one RUN_FAILURE per attempt, which would turn one
     broken pipeline into N phone notifications. Retries belong on the jobs."""
     assert "run_retries" not in dagster_instance
+
+
+def test_the_theme_reaches_the_container():
+    """The Dockerfile bakes src/ into the image. A theme left out of the COPY
+    would silently fall back to Streamlit's stock look with no error anywhere."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "COPY .streamlit/" in dockerfile
+
+    ignore = REPO_ROOT / ".dockerignore"
+    if ignore.exists():
+        patterns = [
+            line.strip()
+            for line in ignore.read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        assert not any(p.rstrip("/") == ".streamlit" for p in patterns)
+
+
+def test_the_theme_is_a_complete_palette():
+    """A half-set theme is worse than none: Streamlit fills the gaps from its
+    own defaults, so the page ends up part cookbook, part dev tool."""
+    import tomllib
+
+    theme = tomllib.loads((REPO_ROOT / ".streamlit" / "config.toml").read_text())["theme"]
+    for key in (
+        "base",
+        "backgroundColor",
+        "secondaryBackgroundColor",
+        "textColor",
+        "primaryColor",
+        # Stock #ff4b4b / #ffa421 are the loudest "Streamlit app" tell, and they
+        # are what the clearance urgency badges would use.
+        "greenColor",
+        "orangeColor",
+        "redColor",
+    ):
+        assert theme.get(key), f"{key} not set; Streamlit would use its default"
+    assert theme["chartCategoricalColors"], "charts would render Vega default blue"

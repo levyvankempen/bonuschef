@@ -40,7 +40,6 @@ def _render_price_changes_table(changes_df):
     st.dataframe(
         display_df,
         hide_index=True,
-        use_container_width=True,
         column_config={
             "Previous (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
             "New (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
@@ -107,7 +106,7 @@ def _render_bonus_price_check(engine):
             .properties(height=max(len(chart_data) * 40, 200))
         )
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart)
 
     # Full table
     display_df = bonus_df[
@@ -140,7 +139,6 @@ def _render_bonus_price_check(engine):
     st.dataframe(
         display_df,
         hide_index=True,
-        use_container_width=True,
         column_config={
             "Tracked (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
             "AH Price (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),

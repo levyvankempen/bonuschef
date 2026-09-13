@@ -118,25 +118,48 @@ def test_latest_snapshot_is_amsterdam_local_time():
     assert ts.strftime("%Y-%m-%d %H:%M %Z") == "2026-09-07 14:00 CEST"
 
 
-def test_renders_metrics_table_and_local_caption(stubs):
+def test_renders_items_as_cards_with_a_local_caption(stubs):
     at = _run()
     assert not at.exception
     assert at.title[0].value == "Laatste kans koopjes"
     captions = [c.value for c in at.caption]
     assert any("2026-09-07 14:00 (local time)" in c for c in captions)
-    metrics = {m.label: m.value for m in at.metric}
-    assert metrics["Clearance items"] == "2"
-    assert metrics["Max discount"] == "50%"
-    assert metrics["Matched to tracked"] == "1"
-    table = at.dataframe[0].value
-    assert list(table["Reason"]) == ["Expiring soon", "Discontinued"]
+
+    # A shopping list read on a phone: cards, not a ten-column grid.
+    assert not at.dataframe, "items should not render as a spreadsheet widget"
+    text = " ".join(m.value for m in at.markdown)
+    assert "Product 0" in text and "Product 1" in text
+    assert "€3.24" in text and "€1.00" in text
+
+    # A summary line, not a metric row - "Matched to tracked" was a join
+    # coverage statistic about the pipeline.
+    assert not at.metric
+    assert any("2 koopjes" in m.value for m in at.markdown)
+    assert any("Expiring soon" in c for c in captions)
     assert at.button[0].label == "Refresh now"
 
 
-def test_category_filter_narrows_table(stubs):
+def test_urgency_is_visible_on_the_item(stubs):
+    """Low stock and a same-day expiry are the reason to go now rather than
+    later, so they belong on the card itself."""
+    df = _df()
+    df["stock"] = [2, 50]
+    df["markdown_expiration_date"] = ["2026-09-07", "2026-12-01"]
+    stubs["read"].outcome = df
+    at = _run()
+    # st.badge renders into the markdown stream as :orange-badge[...].
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "nog 2" in rendered, "low stock not surfaced"
+    assert "THT vandaag" in rendered, "same-day expiry not surfaced"
+    assert "orange-badge" in rendered, "urgency should read as urgent"
+
+
+def test_category_filter_narrows_the_list(stubs):
     at = _run()
     at.multiselect[0].select("Zuivel").run()
-    assert list(at.dataframe[0].value["Product"]) == ["Product 1"]
+    text = " ".join(m.value for m in at.markdown)
+    assert "Product 1" in text
+    assert "Product 0" not in text
 
 
 def test_missing_mart_shows_hint_and_button(stubs):

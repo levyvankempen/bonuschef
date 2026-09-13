@@ -9,6 +9,15 @@ from sqlalchemy import create_engine, text
 from bonuschef.config import DatabaseConfig
 
 
+# Pipelines run hourly at best and recipe costs only change on a dbt run, so a
+# 60-second lifetime re-queried unchanged data constantly. Explicit .clear()
+# calls on the refresh paths keep a manual refresh immediate.
+_CACHE_TTL_S = 900
+
+# Upper bound for the diagnostic surfaces, which are not the product.
+_DIAGNOSTIC_ROW_LIMIT = 500
+
+
 def _get_schema() -> str:
     """Return the target dbt schema name (never exposed to UI)."""
     return os.getenv("TARGET_SCHEMA", "public_marts")
@@ -25,7 +34,7 @@ def get_engine():
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_summary(_engine) -> pd.DataFrame:
     """Fetch current recipe costs from fct_recipe_cost_latest."""
     schema = _get_schema()
@@ -38,7 +47,7 @@ def read_recipe_summary(_engine) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_cost_history(_engine) -> pd.DataFrame:
     """Fetch historical recipe costs from fct_recipe_cost_history."""
     schema = _get_schema()
@@ -54,7 +63,7 @@ def read_recipe_cost_history(_engine) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
     """Fetch ingredient breakdown for a recipe, joined with dim_product for images."""
     schema = _get_schema()
@@ -80,7 +89,7 @@ def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
     """Fetch ingredient breakdown with bonus info for a recipe."""
     schema = _get_schema()
@@ -112,7 +121,7 @@ def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_bonus_summary(_engine) -> pd.DataFrame:
     """Fetch bonus summary per recipe: how many ingredients on bonus, total savings."""
     schema = _get_schema()
@@ -137,7 +146,7 @@ def read_recipe_bonus_summary(_engine) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_bonus_price_comparison(_engine) -> pd.DataFrame:
     """Fetch bonus vs tracked price comparison for all matched products."""
     schema = _get_schema()
@@ -155,9 +164,13 @@ def read_bonus_price_comparison(_engine) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_price_changes(_engine) -> pd.DataFrame:
-    """Fetch all product price changes from fct_product_price_changes."""
+    """Fetch the most recent product price changes.
+
+    Bounded deliberately: this used to return every change ever recorded to
+    render a view of the newest handful.
+    """
     schema = _get_schema()
     sql = text(f"""
         SELECT
@@ -166,12 +179,13 @@ def read_price_changes(_engine) -> pd.DataFrame:
             prev_price, new_price, price_change, pct_change
         FROM "{schema}"."fct_product_price_changes"
         ORDER BY snapshot_timestamp DESC
+        LIMIT :limit
     """)
     with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn)
+        return pd.read_sql_query(sql, conn, params={"limit": _DIAGNOSTIC_ROW_LIMIT})
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_product_prices(_engine, product_names: tuple[str, ...]) -> pd.DataFrame:
     """Fetch full price history from fct_products for specific products."""
     schema = _get_schema()
@@ -187,25 +201,28 @@ def read_product_prices(_engine, product_names: tuple[str, ...]) -> pd.DataFrame
         return pd.read_sql_query(sql, conn, params={"names": product_names})
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def list_products(_engine) -> pd.DataFrame:
-    """Return all current products with latest price, sorted by name."""
+    """Return all current products with latest price and image, sorted by name.
+
+    dim_product now carries price and image_url directly, so this is a single
+    table scan rather than a DISTINCT ON over 1.19M rows to re-derive a value
+    the dimension was already built from. Carrying image_url is what lets the
+    recipe builder stop fetching every product image from ah.nl at render time.
+    """
     schema = _get_schema()
     sql = text(f"""
-        SELECT d.product_link, d.product_url, d.product_name, lp.price
+        SELECT
+            d.product_link, d.product_url, d.product_name,
+            d.price, d.image_url
         FROM "{schema}"."dim_product" AS d
-        INNER JOIN (
-            SELECT DISTINCT ON (product_link) product_link, price
-            FROM "{schema}"."fct_products"
-            ORDER BY product_link, snapshot_timestamp DESC
-        ) AS lp ON d.product_link = lp.product_link
         ORDER BY d.product_name
     """)
     with _engine.begin() as conn:
         return pd.read_sql_query(sql, conn)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_store_clearance(_engine) -> pd.DataFrame:
     """Fetch current store clearance ("laatste kans koopjes")."""
     schema = _get_schema()
@@ -216,13 +233,18 @@ def read_store_clearance(_engine) -> pd.DataFrame:
             stock, price_was, price_now, markdown_amount,
             tracked_price, real_savings_vs_tracked, image_url, scraped_at
         FROM "{schema}"."fct_store_clearance"
-        ORDER BY markdown_percentage DESC NULLS LAST, markdown_amount DESC NULLS LAST
+        -- Lowest stock first: at 17:30 the deciding question is whether it
+        -- will still be there, not which percentage is largest.
+        ORDER BY
+            stock ASC NULLS LAST,
+            markdown_percentage DESC NULLS LAST,
+            markdown_amount DESC NULLS LAST
     """)
     with _engine.begin() as conn:
         return pd.read_sql_query(sql, conn)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_last_scrape_time(_engine) -> pd.Timestamp | None:
     """When the store was last scraped, whether or not it found any items.
 

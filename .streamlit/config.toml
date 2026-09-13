@@ -1,0 +1,47 @@
+# Streamlit 1.50 supports exactly one custom theme — there is no light/dark pair
+# here, so this commits to one. The app is used indoors at 17:30 on a phone.
+#
+# The stock #FFFFFF background with #262730 blue-slate text is most of what
+# reads as "dev tool". Warm paper and warm ink change the register before a
+# single component changes. The semantic colours matter as much: Streamlit's
+# #ff4b4b and #ffa421 are the loudest tell in the product, and they are exactly
+# what the clearance urgency badges would otherwise use.
+
+[theme]
+base = "light"
+
+backgroundColor          = "#FBF8F3"   # warm off-white, recipe-book paper
+secondaryBackgroundColor = "#F1EADF"   # sand: widget fills, dataframe header
+textColor                = "#1E1B16"   # warm near-black ink, not blue-grey
+primaryColor             = "#2E7D4F"   # deep leaf green: buttons, focus
+linkColor                = "#1D6B42"
+linkUnderline            = false
+borderColor              = "#E4DACA"
+dataframeBorderColor     = "#E4DACA"
+dataframeHeaderBackgroundColor = "#F1EADF"
+codeBackgroundColor      = "#F1EADF"
+
+# Semantic palette. Green is savings, orange is urgency (low stock, expiring
+# today), red is a loss — a price that went up, or something sold out.
+greenColor  = "#2E7D4F"
+orangeColor = "#C2661B"
+redColor    = "#B3392C"
+grayColor   = "#7A7267"
+
+# A warm display serif for headings against a friendly grotesque for body.
+headingFont = "Fraunces:https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap, Georgia, serif"
+font        = "Figtree:https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap, system-ui, sans-serif"
+baseFontSize = 16
+
+# Streamlit's default h1 is 2.75rem — demo-app scale. A tighter ramp keeps a
+# page with three headings reading as one document.
+headingFontSizes   = ["2rem", "1.5rem", "1.1875rem", "1.0625rem", "1rem", "0.9375rem"]
+headingFontWeights = [700, 600, 600]
+
+baseRadius        = "0.75rem"
+buttonRadius      = "full"
+showWidgetBorder  = true
+showSidebarBorder = false
+
+# So any surviving chart stops rendering in Vega default blue.
+chartCategoricalColors = ["#2E7D4F", "#C2661B", "#3E6B8A", "#8A5A3C", "#6B7F3E", "#A8443A", "#4E7C6B"]

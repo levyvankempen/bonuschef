@@ -170,7 +170,7 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
                 "Scrape the store's current clearance items and rebuild the "
                 "tables. Takes about a minute."
             ),
-            use_container_width=True,
+            width="stretch",
         )
     if clicked:
         _run_refresh(latest)
@@ -201,58 +201,74 @@ def _render_stale(
     )
 
 
-def _render_metrics(df: pd.DataFrame) -> None:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Clearance items", len(df))
+def _render_summary(df: pd.DataFrame) -> None:
+    """One line, not a metric row.
+
+    "Matched to tracked" used to sit here — a join-coverage statistic about the
+    pipeline, shown to someone deciding what to buy.
+    """
+    headline = f"### {len(df)} koopjes"
     if df["markdown_percentage"].notna().any():
-        col2.metric("Max discount", f"{df['markdown_percentage'].max():.0f}%")
-    matched = df["real_savings_vs_tracked"].notna().sum()
-    col3.metric("Matched to tracked", int(matched))
+        headline += f" · tot −{df['markdown_percentage'].max():.0f}%"
+    st.markdown(headline)
 
 
-def _render_table(df: pd.DataFrame) -> None:
-    display = df.copy()
-    display["markdown_type"] = display["markdown_type"].map(
-        lambda t: _MARKDOWN_LABELS.get(t, t)
-    )
-    display = display[
-        [
-            "product_name",
-            "brand",
-            "sales_unit_size",
-            "markdown_percentage",
-            "price_was",
-            "price_now",
-            "markdown_amount",
-            "stock",
-            "markdown_expiration_date",
-            "markdown_type",
-        ]
-    ].rename(
-        columns={
-            "product_name": "Product",
-            "brand": "Brand",
-            "sales_unit_size": "Size",
-            "markdown_percentage": "Discount",
-            "price_was": "Was (€)",
-            "price_now": "Now (€)",
-            "markdown_amount": "You save (€)",
-            "stock": "Stock",
-            "markdown_expiration_date": "Expires",
-            "markdown_type": "Reason",
-        }
-    )
-    st.dataframe(
-        display,
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "Discount": st.column_config.NumberColumn(format="%.0f%%"),
-            "Was (€)": st.column_config.NumberColumn(format="€%.2f"),
-            "Now (€)": st.column_config.NumberColumn(format="€%.2f"),
-            "You save (€)": st.column_config.NumberColumn(format="€%.2f"),
-        },
-    )
+def _expiry_note(value, today) -> str | None:
+    """Days until the item must be eaten, which is half the decision."""
+    if value is None or pd.isna(value):
+        return None
+    expires = pd.to_datetime(value, errors="coerce")
+    if pd.isna(expires):
+        return None
+    days = (expires.date() - today).days
+    if days <= 0:
+        return "THT vandaag"
+    return f"THT over {days} dag" + ("en" if days != 1 else "")
+
+
+def _render_items(df: pd.DataFrame, today) -> None:
+    """One card per item.
+
+    This was a ten-column dataframe: a spreadsheet widget with sort arrows, a
+    resize handle and a horizontal scrollbar, for a shopping list read on a
+    phone while standing in the shop. The product image was already being
+    queried and then thrown away.
+    """
+    for _, row in df.iterrows():
+        with st.container(border=True, horizontal=True, vertical_alignment="center"):
+            if row.get("image_url") and not pd.isna(row["image_url"]):
+                st.image(row["image_url"], width=64)
+            with st.container():
+                st.markdown(f"**{row['product_name']}**")
+                detail = " · ".join(
+                    str(part)
+                    for part in (row.get("brand"), row.get("sales_unit_size"))
+                    if part and not pd.isna(part)
+                )
+                if detail:
+                    st.caption(detail)
+                # Urgency before anything else: low stock and a same-day expiry
+                # are what make an item worth acting on now rather than later.
+                if row.get("stock") is not None and not pd.isna(row["stock"]):
+                    if row["stock"] <= 3:
+                        st.badge(
+                            f"nog {int(row['stock'])}",
+                            color="orange",
+                            icon=":material/inventory_2:",
+                        )
+                note = _expiry_note(row.get("markdown_expiration_date"), today)
+                if note:
+                    st.badge(note, color="orange")
+                reason = _MARKDOWN_LABELS.get(row.get("markdown_type"))
+                if reason:
+                    st.caption(reason)
+            with st.container(horizontal_alignment="right"):
+                st.markdown(f"### €{row['price_now']:.2f}")
+                if row.get("price_was") and not pd.isna(row["price_was"]):
+                    was = f"~~€{row['price_was']:.2f}~~"
+                    if not pd.isna(row.get("markdown_percentage")):
+                        was += f"  −{row['markdown_percentage']:.0f}%"
+                    st.caption(was)
 
 
 def render_clearance() -> None:
@@ -300,11 +316,11 @@ def render_clearance() -> None:
         st.info("No clearance items in the latest snapshot.")
         return
 
-    _render_metrics(df)
+    _render_summary(df)
 
     categories = sorted(c for c in df["category_title"].dropna().unique())
     chosen = st.multiselect("Filter by category", categories, default=[])
     if chosen:
         df = df[df["category_title"].isin(chosen)]
 
-    _render_table(df)
+    _render_items(df, now.date())

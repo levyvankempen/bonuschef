@@ -25,6 +25,19 @@ _OG_IMAGE_RE = re.compile(
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource
+def _ensure_tables(_engine) -> bool:
+    """Create the portal-owned tables once per process, not once per rerun.
+
+    dbt's on-run-start creates these too, but the portal can be opened on a
+    fresh deployment before dbt has ever run. Calling them unconditionally ran
+    three CREATE TABLE statements on every keystroke in the search box.
+    """
+    ensure_recipe_tables(_engine)
+    ensure_product_images_table(_engine)
+    return True
+
+
 def _fetch_product_image(product_url: str) -> str | None:
     """Extract og:image URL from an AH product page (cached 1 hour)."""
     try:
@@ -82,8 +95,7 @@ def render_add_recipe():
         st.error(f"Database connection error: {e}")
         return
 
-    ensure_recipe_tables(engine)
-    ensure_product_images_table(engine)
+    _ensure_tables(engine)
 
     try:
         products_df = list_products(engine)
@@ -97,6 +109,9 @@ def render_add_recipe():
 
     link_by_name: dict[str, str] = dict(
         zip(products_df["product_name"], products_df["product_link"])
+    )
+    image_by_name: dict[str, str | None] = dict(
+        zip(products_df["product_name"], products_df["image_url"])
     )
     url_by_name: dict[str, str] = dict(
         zip(products_df["product_name"], products_df["product_url"])
@@ -138,7 +153,7 @@ def render_add_recipe():
             st.dataframe(
                 display,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={"AH": st.column_config.LinkColumn(display_text="link")},
             )
 
@@ -172,7 +187,8 @@ def render_add_recipe():
     for name in list(st.session_state.recipe_ingredients):
         col_img, col_name, col_price, col_qty, col_rm = st.columns([1, 4, 1, 1, 0.5])
         with col_img:
-            img_url = _fetch_product_image(url_by_name[name])
+            # From the warehouse, not from ah.nl at render time.
+            img_url = image_by_name.get(name)
             if img_url:
                 st.image(img_url, width=80)
         with col_name:
