@@ -66,11 +66,25 @@ def test_the_portal_joins_are_indexed():
 
 
 def test_promotions_are_filtered_to_the_present():
-    """199 of 214 rows were promotions that ended in July, presented as live."""
+    """Promotions that ended are not offers."""
     sql = (MODELS / "marts/inventory/fct_bonus_price_comparison.sql").read_text()
+    assert "bonus_start_date <= CURRENT_DATE" in sql
     assert "bonus_end_date >= CURRENT_DATE" in sql
-    # 941 rows carry a 2999-12-31 sentinel that a naive date filter passes.
-    assert "DATE '2100-01-01'" in sql
+
+
+def test_open_ended_offers_are_not_mistaken_for_stale_rows():
+    """AH dates standing offers - "5% volume voordeel" and the like - as
+    2999-12-31, meaning "no end date". An earlier version read that as a stale
+    sentinel and rejected it with an upper bound, silently excluding every
+    volume discount. A stale feed is caught by source freshness, not by
+    second-guessing a date."""
+    mart = (MODELS / "marts/inventory/fct_bonus_price_comparison.sql").read_text()
+    assert "2100-01-01" not in mart, "an upper bound would drop open-ended offers"
+
+    staging = (MODELS / "staging/ah/stg_ah__bonus_products.sql").read_text()
+    # Consumers still get to tell a standing discount from a campaign ending
+    # Sunday - they are different propositions.
+    assert "bonus_is_ongoing" in staging
 
 
 def test_the_product_crosswalk_exists_once():

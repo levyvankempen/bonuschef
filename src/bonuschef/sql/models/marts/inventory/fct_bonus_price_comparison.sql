@@ -19,11 +19,13 @@ live_bonus AS (
     WHERE
         is_bonus = true
         AND bonus_start_date <= CURRENT_DATE
+        -- An open-ended offer satisfies this naturally. There is deliberately
+        -- no upper bound: an earlier version rejected 2999-12-31 as a stale
+        -- sentinel, which silently excluded every standing volume discount.
+        -- What guards against a stale feed is source freshness, not a date -
+        -- if the feed stopped loading, every row in it is suspect whatever its
+        -- end date says.
         AND bonus_end_date >= CURRENT_DATE
-        -- 941 rows carry a 2999-12-31 sentinel. An upper bound states what we
-        -- actually mean - this is not a real campaign end date - and survives
-        -- AH choosing a different sentinel.
-        AND bonus_end_date < DATE '2100-01-01'
 
 ),
 
@@ -40,6 +42,7 @@ matched AS (
         bp.bonus_mechanism,
         bp.bonus_start_date,
         bp.bonus_end_date,
+        bp.bonus_is_ongoing,
         -- Advertised: AH's own claim, always available.
         CASE
             WHEN
