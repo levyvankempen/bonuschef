@@ -26,11 +26,13 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import requests
 
 _log = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 AUTH_BASE = "https://api.ah.nl/mobile-auth/v1/auth"
 GRAPHQL_URL = "https://api.ah.nl/graphql"
@@ -114,12 +116,10 @@ def refresh_access_token(refresh_token: str, client_id: str = "appie") -> str:
     return refresh_tokens(refresh_token, client_id)["access_token"]
 
 
-def graphql(access_token: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-    """Run a GraphQL query with a member Bearer token; return the ``data`` block.
-
-    Raises ``AHAuthError`` on transport errors or GraphQL-level errors (AH
-    redacts subgraph errors when the token is not authorised for a field).
-    """
+def _post_graphql(
+    access_token: str, query: str, variables: dict[str, Any]
+) -> dict[str, Any]:
+    """POST a GraphQL document and return the whole body, errors included."""
     resp = requests.post(
         GRAPHQL_URL,
         headers={**HEADERS, "Authorization": f"Bearer {access_token}"},
@@ -131,10 +131,33 @@ def graphql(access_token: str, query: str, variables: dict[str, Any]) -> dict[st
             f"GraphQL HTTP {resp.status_code}: {resp.text[:300]}",
             status=resp.status_code,
         )
-    body = resp.json()
+    return resp.json()
+
+
+def graphql(access_token: str, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    """Run a GraphQL query with a member Bearer token; return the ``data`` block.
+
+    Raises ``AHAuthError`` on transport errors or GraphQL-level errors (AH
+    redacts subgraph errors when the token is not authorised for a field).
+    """
+    body = _post_graphql(access_token, query, variables)
     if body.get("errors"):
         raise AHAuthError(f"GraphQL errors: {body['errors']}")
     return body.get("data") or {}
+
+
+def graphql_partial(
+    access_token: str, query: str, variables: dict[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Like :func:`graphql`, but hand the errors back instead of raising.
+
+    ``recipe(id:)`` answers an unknown id with HTTP 200, a null field and a
+    redacted subgraph error - byte-identical to what it returns when the recipe
+    subgraph is down. A caller that has to tell those apart cannot have the
+    errors raised away before it sees them.
+    """
+    body = _post_graphql(access_token, query, variables)
+    return body.get("data") or {}, list(body.get("errors") or [])
 
 
 # ---------------------------------------------------------------------------
@@ -266,14 +289,24 @@ class AHTokenManager:
             return bundle.access_token
         return self._refresh_and_store(bundle).bundle.access_token
 
-    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-        """Run a GraphQL query, retrying once with a forced refresh on 401/403."""
+    def _retrying(self, call: Callable[[str], _T]) -> _T:
+        """Run ``call`` with a token, retrying once with a forced refresh on 401/403."""
         try:
-            return graphql(self.get_access_token(), query, variables)
+            return call(self.get_access_token())
         except AHAuthError as exc:
             if exc.status not in (401, 403):
                 raise
-        return graphql(self.get_access_token(force_refresh=True), query, variables)
+        return call(self.get_access_token(force_refresh=True))
+
+    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """Run a GraphQL query, retrying once with a forced refresh on 401/403."""
+        return self._retrying(lambda token: graphql(token, query, variables))
+
+    def graphql_partial(
+        self, query: str, variables: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """As :meth:`graphql`, but returning GraphQL-level errors to the caller."""
+        return self._retrying(lambda token: graphql_partial(token, query, variables))
 
     def refresh_now(self) -> RefreshOutcome:
         """Exercise the refresh credential unconditionally and report on it.
