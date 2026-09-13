@@ -1,12 +1,30 @@
+# Every service here carries three things deliberately, and a test enforces them
+# for any service added later (tests/unit/test_compose_config.py):
+#   - restart: unless-stopped  -> the stack returns after a host reboot, but an
+#     explicit `docker compose stop` stays stopped.
+#   - logging limits           -> unattended running cannot fill the host disk.
+#   - 127.0.0.1 port bindings  -> neither web UI authenticates its callers and the
+#     Dagster UI can launch and kill jobs, so nothing answers on a routable
+#     interface. Reach them over Tailscale or `ssh -L`.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16
     container_name: pg_bonuschef
+    restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "5455:5432"
+      - "127.0.0.1:5455:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # No working default: a missing secret must fail loudly, not silently
+      # start a database reachable with a well-known password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: postgres
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -19,6 +37,8 @@ services:
   dagster-webserver:
     build: .
     container_name: dagster_webserver
+    restart: unless-stopped
+    logging: *default-logging
     command:
       - uv
       - run
@@ -30,7 +50,7 @@ services:
       - -m
       - bonuschef.dags.definitions
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file: .env
     environment:
       DAGSTER_HOME: /app/dagster_home
@@ -40,6 +60,23 @@ services:
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
     volumes:
       - dagster_home:/app/dagster_home
+      # The named volume above masks whatever the image put in that directory,
+      # so dagster.yaml must be mounted or edits to it never reach a deployment
+      # that has run once already.
+      - ./dagster.yaml:/app/dagster_home/dagster.yaml:ro
+    # Bare `python`, never `uv run`: urllib is stdlib, so the venv is irrelevant,
+    # while `uv run` would re-resolve the environment and lock .venv on every
+    # 30s probe - concurrently with whatever dbt/dlt run is in flight.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:3000/server_info", timeout=5).status == 200 else 1)'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,6 +84,8 @@ services:
   dagster-daemon:
     build: .
     container_name: dagster_daemon
+    restart: unless-stopped
+    logging: *default-logging
     command:
       - uv
       - run
@@ -63,6 +102,7 @@ services:
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
     volumes:
       - dagster_home:/app/dagster_home
+      - ./dagster.yaml:/app/dagster_home/dagster.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +110,8 @@ services:
   streamlit:
     build: .
     container_name: streamlit_portal
+    restart: unless-stopped
+    logging: *default-logging
     command:
       - uv
       - run
@@ -81,7 +123,7 @@ services:
       - --server.port
       - "8501"
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     env_file: .env
     environment:
       PG_HOST: postgres
@@ -89,6 +131,16 @@ services:
       # "Refresh now" on the Laatste kans page launches a job via this webserver.
       DAGSTER_HOST: dagster-webserver
       DAGSTER_PORT: "3000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=5).status == 200 else 1)'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

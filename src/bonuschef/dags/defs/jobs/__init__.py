@@ -16,10 +16,14 @@ dbt_job = define_asset_job(
     selection=AssetSelection.all() - AssetSelection.groups("dlt"),
 )
 
+# Rebuilds every dbt model, so it is a superset of markdowns_refresh. Runs are
+# serialised instance-wide (see dagster.yaml), which means this job can find the
+# warehouse busy; retry rather than silently skipping a day's bonus feed.
 daily_refresh_job = define_asset_job(
     name="daily_refresh",
     selection=AssetSelection.assets("ah__bonus_products")
     | (AssetSelection.all() - AssetSelection.groups("dlt")),
+    op_retry_policy=RetryPolicy(max_retries=2, delay=120),
 )
 
 # Clearance ("laatste kans koopjes") deepens through the day and sells out fast,

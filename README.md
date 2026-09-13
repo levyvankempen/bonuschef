@@ -57,10 +57,24 @@ uv sync
 
 ### 3. Environment variables
 
-Create a `.env` file in the project root:
+Copy the committed template and fill it in:
+
+```bash
+cp .env.example .env
+```
+
+`.env.example` lists every variable the services read. `POSTGRES_PASSWORD`
+initialises the database container, while `PG_PASSWORD` and
+`DESTINATION__POSTGRES__CREDENTIALS__PASSWORD` are what clients authenticate
+with - all three must match. Compose fails to start if `POSTGRES_PASSWORD` is
+absent, rather than falling back to a well-known default.
+
+For reference, the file looks like:
 
 ```
 # PostgreSQL
+POSTGRES_PASSWORD="postgres"
+
 DESTINATION__POSTGRES__CREDENTIALS__HOST="localhost"
 DESTINATION__POSTGRES__CREDENTIALS__PORT=5455
 DESTINATION__POSTGRES__CREDENTIALS__USERNAME="postgres"
@@ -131,6 +145,9 @@ docker compose exec dagster-daemon uv run python -m bonuschef.utils.ah_login "ap
 Find your `AH_STORE_ID` by postal code via `storesSearch` (the default `1876`
 is Eindhoven Torenallee).
 
+The `daily_refresh` job runs once a day at **17:30 Amsterdam time**, pulling
+the AH bonus feed and rebuilding every dbt model.
+
 Because clearance discounts deepen through the day and sell out quickly, the
 `markdowns_refresh` job runs hourly (11:00–20:00 **Amsterdam time**) and
 **appends** each snapshot, so `fct_store_clearance_history` captures the
@@ -147,6 +164,20 @@ docker compose up -d
 ```
 
 This starts a PostgreSQL 16 container on port **5455**.
+
+All published ports - Postgres (5455), the Dagster UI (3000) and the portal
+(8501) - bind to `127.0.0.1` only. Neither UI authenticates its callers and
+the Dagster UI can launch and terminate jobs, so nothing answers on a
+routable interface. To reach them from another machine, use Tailscale or an
+SSH tunnel:
+
+```bash
+ssh -L 8501:127.0.0.1:8501 -L 3000:127.0.0.1:3000 user@your-host
+```
+
+Runs are serialised (`max_concurrent_runs: 1` in `dagster.yaml`): the daily
+rebuild touches every dbt model, so an hourly clearance run that falls due
+mid-rebuild queues rather than racing it.
 
 ## Usage
 

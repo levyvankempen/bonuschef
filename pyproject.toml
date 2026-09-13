@@ -9,6 +9,7 @@ dependencies = [
     "dagster-dg-cli>=1.11.11",
     "dagster-dlt>=0.27.11",
     "dagster-graphql>=1.11.11",
+    "dagster-postgres>=0.27.11, <0.28",
     "dagster-webserver>=1.11.11",
     "dbt-core>=1.10.13",
     "dbt-postgres>=1.9.1",
@@ -26,8 +27,10 @@ dev = [
     "nox>=2025.5.1",
     "pytest>=8.4.2, <8.4.3",
     "pytest-cov>=7.0.0",
+    "pyyaml>=6.0.2",
     "ruff>=0.13.1, <0.13.2",
     "sqlfluff>=3.4.2, <3.4.3",
+    "types-PyYAML>=6.0.12",
     "types-requests>=2.32.0",
 ]
 

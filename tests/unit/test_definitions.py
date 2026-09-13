@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from dagster import AssetKey
+from dagster import AssetKey, DefaultScheduleStatus, DefaultSensorStatus
 
 SQL_DIR = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "sql"
 MANIFEST = SQL_DIR / "target" / "manifest.json"
@@ -84,8 +84,29 @@ def test_schedules_run_in_amsterdam_time(defs):
     by_name = {s.name: s for s in defs.schedules}
     assert set(by_name) == {"daily_refresh_schedule", "markdowns_refresh_schedule"}
     assert all(s.execution_timezone == "Europe/Amsterdam" for s in by_name.values())
-    assert by_name["daily_refresh_schedule"].cron_schedule == "0 6 * * *"
+    assert by_name["daily_refresh_schedule"].cron_schedule == "30 17 * * *"
+    # Clearance deepens through the day; the hourly sequence is what makes the
+    # markdown curve, so it stays independent of when the daily refresh runs.
     assert by_name["markdowns_refresh_schedule"].cron_schedule == "0 11-20 * * *"
+
+
+def test_schedules_and_sensors_are_running_on_a_fresh_deployment(defs):
+    """A new host has no stored scheduler state, so default_status decides
+    whether anything runs at all. A paused schedule fails silently."""
+    for schedule in defs.schedules:
+        assert schedule.default_status == DefaultScheduleStatus.RUNNING, schedule.name
+    for sensor in defs.sensors:
+        assert sensor.default_status == DefaultSensorStatus.RUNNING, sensor.name
+
+
+def test_scheduled_jobs_retry_transient_failures(defs):
+    """Runs are serialised instance-wide (dagster.yaml), so a scheduled job can
+    find the warehouse busy; without a retry it silently skips its slot."""
+    by_name = {job.name: job for job in defs.jobs}
+    for name in ("daily_refresh", "markdowns_refresh"):
+        policy = by_name[name].op_retry_policy
+        assert policy is not None, f"{name} gives up on the first failure"
+        assert policy.max_retries >= 1
 
 
 def test_sensors_registered(defs):

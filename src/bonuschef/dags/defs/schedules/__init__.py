@@ -9,7 +9,7 @@ LOCAL_TIMEZONE = "Europe/Amsterdam"
 
 daily_refresh_schedule = ScheduleDefinition(
     job=daily_refresh_job,
-    cron_schedule="0 6 * * *",  # Daily at 06:00 Amsterdam time
+    cron_schedule="30 17 * * *",  # Daily at 17:30 Amsterdam time
     execution_timezone=LOCAL_TIMEZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
