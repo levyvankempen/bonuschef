@@ -28,8 +28,10 @@ CFG = GitHubConfig(
 class TestSnapshotStr:
     def test_none_is_now_in_utc_z_format(self):
         value = _snapshot_str(None)
-        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-        assert abs((datetime.utcnow() - parsed).total_seconds()) < 60
+        parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+        assert abs((datetime.now(timezone.utc) - parsed).total_seconds()) < 60
 
     def test_datetime_is_isoformat(self):
         dt = datetime(2025, 1, 6, 8, 0, tzinfo=timezone.utc)

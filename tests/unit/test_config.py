@@ -102,7 +102,7 @@ class TestGitHubConfig:
             max_pages=2,
         )
         with pytest.raises(AttributeError):
-            cfg.owner = "other"
+            setattr(cfg, "owner", "other")
 
 
 class TestDagsterConfig:

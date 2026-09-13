@@ -23,13 +23,13 @@ readme = "README.md"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.11",
     "nox>=2025.5.1",
     "pytest>=8.4.2, <8.4.3",
     "pytest-cov>=7.0.0",
     "pyyaml>=6.0.2",
     "ruff>=0.13.1, <0.13.2",
     "sqlfluff>=3.4.2, <3.4.3",
+    "ty>=0.0.80, <0.1",
     "types-PyYAML>=6.0.12",
     "types-requests>=2.32.0",
 ]
@@ -59,11 +59,13 @@ skip_covered = true
 show_missing = true
 exclude_also = ["if __name__ == .__main__.:"]
 
-[tool.mypy]
-python_version = "3.12"
-# dagster, dagster_dbt, dagster_dlt, dlt, streamlit, altair, supermarktconnector
-# and (currently) pandas/requests ship no type stubs; don't fail on their imports.
-ignore_missing_imports = true
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.rules]
+# dagster, dagster_dbt, dagster_dlt, dlt, streamlit, altair and
+# supermarktconnector ship no type information; don't fail on their imports.
+unresolved-import = "ignore"
 
 [tool.dg]
 directory_type = "project"

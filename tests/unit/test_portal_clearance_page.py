@@ -1,5 +1,7 @@
 """Streamlit AppTest coverage for the Laatste kans page and its refresh button."""
 
+from typing import Any
+
 import pandas as pd
 import pytest
 from dagster import DagsterRunStatus
@@ -53,7 +55,7 @@ class ReadStub:
 @pytest.fixture
 def stubs(monkeypatch):
     """Wire the page to fakes; returns a dict the test can tweak before running."""
-    state = {
+    state: dict[str, Any] = {
         "read": ReadStub(_df()),
         "run_id": "run-1234567890",
         "trigger_error": None,

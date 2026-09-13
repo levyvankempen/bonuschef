@@ -51,6 +51,8 @@ def test_new_commits_become_partitions_and_runs(monkeypatch, instance, github_en
     )
     result = _evaluate(instance)
     assert result.skip_reason is None
+    assert result.dynamic_partitions_requests is not None
+    assert result.run_requests is not None
     (req,) = result.dynamic_partitions_requests
     assert req.partitions_def_name == "github_commits"
     assert list(req.partition_keys) == ["aaa", "bbb"]
@@ -65,6 +67,7 @@ def test_known_partitions_are_not_rerun(monkeypatch, instance, github_env):
         lambda **kw: [{"sha": "aaa"}, {"sha": "ccc"}],
     )
     result = _evaluate(instance)
+    assert result.run_requests is not None
     assert [r.partition_key for r in result.run_requests] == ["ccc"]
 
 

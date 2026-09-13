@@ -1,6 +1,9 @@
 """Tests for the AH bonus products dlt source (pricing rules, pagination, dedupe)."""
 
+from typing import cast
+
 import pytest
+from supermarktconnector.ah import AHConnector
 
 from bonuschef.dags.defs.assets.dlt import ah as ah_module
 from bonuschef.dags.defs.assets.dlt.ah import (
@@ -81,17 +84,23 @@ def _p(webshop_id, bonus=True, **extra):
 class TestIterSearchBonusProducts:
     def test_filters_bonus_and_stops_at_last_page(self):
         connector = FakeConnector([[_p(1), _p(2, bonus=False)], [_p(3)]])
-        items = list(_iter_search_bonus_products(connector))
+        items = list(_iter_search_bonus_products(cast(AHConnector, connector)))
         assert [i["webshopId"] for i in items] == [1, 3]
         assert connector.requested == [0, 1]
 
     def test_stops_on_empty_page(self):
         connector = FakeConnector([[_p(1)], []])
-        assert [i["webshopId"] for i in _iter_search_bonus_products(connector)] == [1]
+        assert [
+            i["webshopId"]
+            for i in _iter_search_bonus_products(cast(AHConnector, connector))
+        ] == [1]
 
     def test_stops_quietly_on_api_error(self):
         connector = FakeConnector([[_p(1)], [_p(2)], [_p(3)]], fail_on_page=1)
-        assert [i["webshopId"] for i in _iter_search_bonus_products(connector)] == [1]
+        assert [
+            i["webshopId"]
+            for i in _iter_search_bonus_products(cast(AHConnector, connector))
+        ] == [1]
 
 
 class TestBonusSource:

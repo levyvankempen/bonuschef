@@ -228,7 +228,7 @@ uv run nox -rs lint_python      # ruff check + format --diff
 uv run nox -rs lint_sql         # sqlfluff lint (requires dbt parse)
 uv run nox -rs format_python    # ruff check --fix + format
 uv run nox -rs format_sql       # sqlfluff fix
-uv run nox -rs mypy             # type checking
+uv run nox -rs types            # type checking (ty)
 ```
 
 ### Tests
@@ -262,7 +262,7 @@ database).
 
 ### CI
 
-GitHub Actions runs `lint_python`, `lint_sql`, `mypy`, and `tests` on pull requests to `main` and `develop`.
+GitHub Actions runs `lint_python`, `lint_sql`, `types`, and `tests` on pull requests to `main` and `develop`.
 
 ## Project structure
 

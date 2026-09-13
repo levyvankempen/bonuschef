@@ -18,7 +18,9 @@ def _ensure_manifest() -> None:
         return
     dbt = shutil.which("dbt")
     if dbt is None:
-        pytest.skip("dbt CLI not on PATH and no manifest present")
+        # ty cannot see through pytest's @_with_exception decorator, so it
+        # reads skip() as taking no arguments. Upstream limitation, not ours.
+        pytest.skip("dbt CLI not on PATH and no manifest present")  # ty: ignore[too-many-positional-arguments]
     env = {**os.environ, "ENVIRONMENT": "default"}
     common = ["--project-dir", str(SQL_DIR), "--profiles-dir", str(SQL_DIR)]
     subprocess.run([dbt, "deps", *common], check=True, env=env, timeout=300)

@@ -87,8 +87,9 @@ def display_cost_breakdown(df: pd.DataFrame):
 def _top_movers(data: pd.DataFrame, n: int = 10) -> list[str]:
     """Return product names with the largest cumulative absolute price change."""
     movers = (
-        data.groupby("product_name")["price_change"]
-        .apply(lambda s: s.abs().sum())
+        data.assign(_abs_change=data["price_change"].abs())
+        .groupby("product_name")["_abs_change"]
+        .sum()
         .sort_values(ascending=False)
     )
     return movers.head(n).index.tolist()
