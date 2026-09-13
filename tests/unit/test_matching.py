@@ -6,7 +6,9 @@ from bonuschef.portal.matching import Candidate, accept
 
 
 def _c(name: str, extra: int, price: float = 1.0) -> Candidate:
-    return Candidate(product_link=f"wi/{name}", product_name=name, price=price, extra_words=extra)
+    return Candidate(
+        product_link=f"wi/{name}", product_name=name, price=price, extra_words=extra
+    )
 
 
 def test_the_generic_product_wins_over_its_variants():
@@ -24,7 +26,7 @@ def test_several_products_attach_to_one_concept():
 
 
 def test_a_compound_only_match_is_refused():
-    """"Bonduelle pasta pronto fusilli courgette broccoli" contains the word
+    """ "Bonduelle pasta pronto fusilli courgette broccoli" contains the word
     but is a different food. An unresolved ingredient is visibly unresolved; a
     wrong one produces a confident wrong price."""
     assert accept([_c("Bonduelle pasta pronto fusilli courgette broccoli", 5)]) == []

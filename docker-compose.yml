@@ -124,9 +124,17 @@ services:
     environment:
       PG_HOST: postgres
       PG_PORT: "5432"
+      # Share the daemon's token file. Without this the portal falls through to
+      # a path that does not exist, bootstraps its own token from .env, and then
+      # rotates the refresh credential out from under the daemon - recreating
+      # the disuse expiry the heartbeat exists to prevent. Concurrent access is
+      # safe: TokenStore writes a temp file and os.replaces it.
+      AH_TOKEN_FILE: /app/dagster_home/ah_tokens.json
       # "Refresh now" on the Laatste kans page launches a job via this webserver.
       DAGSTER_HOST: dagster-webserver
       DAGSTER_PORT: "3000"
+    volumes:
+      - dagster_home:/app/dagster_home
     healthcheck:
       test:
         - CMD

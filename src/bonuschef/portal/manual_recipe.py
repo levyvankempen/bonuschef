@@ -1,4 +1,4 @@
-"""Add Recipe page — create new recipes and save to PostgreSQL."""
+"""Handmatig een recept invoeren — create new recipes and save to PostgreSQL."""
 
 import re
 from html import unescape
@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 
 import streamlit as st
 
+from bonuschef.portal.rebuild import start_recipe_rebuild
 from bonuschef.portal.db import (
     ensure_product_images_table,
     ensure_recipe_tables,
@@ -86,7 +87,7 @@ def _save_recipe(
     return recipe_id
 
 
-def render_add_recipe():
+def render_manual_entry():
     st.title("Add Recipe")
 
     try:
@@ -237,11 +238,11 @@ def render_add_recipe():
                     link_by_name,
                     url_by_name,
                 )
-                st.success(
-                    f"Recipe **{recipe_name.strip()}** saved (ID {recipe_id}). "
-                    "Run the following to update the models:"
-                )
-                st.code("dbt run", language="bash")
+                # The portal knows what has to happen; it should not ask the
+                # user to open a terminal and type it.
+                start_recipe_rebuild()
+                st.success(f"**{recipe_name.strip()}** opgeslagen (nr. {recipe_id}).")
+                st.caption("De prijs wordt op de achtergrond berekend.")
                 st.session_state.recipe_ingredients = {}
             except Exception as e:
-                st.error(f"Failed to save: {e}")
+                st.error(f"Opslaan is mislukt: {e}")

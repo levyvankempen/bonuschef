@@ -69,8 +69,12 @@ models:
 
   - name: fct_recipe_cost_breakdown
     tests:
+      # Keyed on the ingredient line, not the product. Two ingredients in one
+      # recipe can resolve to the same product - "ui" and "rode ui" both
+      # confirmed against a generic onion pack is not hypothetical - and an
+      # unresolved ingredient has no product at all.
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [recipe_id, product_link]
+          combination_of_columns: [recipe_id, item_key]
     description: "Current recipe ingredient cost breakdown with percentage of total."
     columns:
       - name: recipe_id
@@ -82,9 +86,10 @@ models:
       - name: product_name
         description: "Display name of the ingredient product."
       - name: product_link
-        description: "Link slug of the ingredient product."
-        tests:
-          - not_null
+        description: >
+          Link slug of the chosen product. NULL when no product satisfies the
+          ingredient - the row stays so the gap is visible rather than the
+          recipe quietly looking cheaper.
       - name: quantity
         description: "Number of units needed."
       - name: price
@@ -106,9 +111,9 @@ models:
       - name: product_name
         description: "Display name of the ingredient product."
       - name: product_link
-        description: "Link slug of the ingredient product."
-        tests:
-          - not_null
+        description: >
+          Link slug of the chosen product. NULL when the ingredient resolves to
+          nothing, so an unresolved item is visible rather than dropped.
       - name: quantity
         description: "Number of units needed."
       - name: price

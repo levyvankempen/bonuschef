@@ -3,7 +3,7 @@
 import streamlit as st
 
 from bonuschef.portal.clearance_page import render_clearance
-from bonuschef.portal.recipe_builder import render_add_recipe
+from bonuschef.portal.add_recipe_page import render_add_recipe
 from bonuschef.portal.recipes_page import render_recipes
 
 st.set_page_config(

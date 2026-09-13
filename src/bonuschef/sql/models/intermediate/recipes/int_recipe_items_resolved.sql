@@ -36,7 +36,7 @@ adopted AS (
         -- AH ids are large and disjoint from the hand-entered sequence, so the
         -- two namespaces coexist without a discriminator column.
         r.ah_recipe_id AS recipe_id,
-        'c:' || CAST (i.concept_id AS text) AS item_key,
+        'c:' || CAST(i.concept_id AS text) AS item_key,
         'concept' AS source_kind,
         i.concept_id,
         MIN(i.concept_name) AS item_label,

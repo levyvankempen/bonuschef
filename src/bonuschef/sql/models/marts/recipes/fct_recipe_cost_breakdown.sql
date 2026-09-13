@@ -15,8 +15,10 @@ recipe_totals AS (
 SELECT
     d.recipe_id,
     d.recipe_name,
+    i.item_key,
     i.product_name,
     i.product_link,
+    i.is_unresolved,
     i.quantity,
     i.price,
     ROUND(i.item_cost::numeric, 2) AS item_cost,

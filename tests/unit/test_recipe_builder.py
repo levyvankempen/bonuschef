@@ -3,8 +3,8 @@
 from contextlib import contextmanager
 from io import BytesIO
 
-from bonuschef.portal import recipe_builder
-from bonuschef.portal.recipe_builder import (
+from bonuschef.portal import manual_recipe as recipe_builder
+from bonuschef.portal.manual_recipe import (
     _fetch_product_image,
     _save_recipe,
     _validate,

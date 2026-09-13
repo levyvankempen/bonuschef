@@ -54,6 +54,7 @@ def test_all_jobs_registered(defs):
         "daily_refresh",
         "markdowns_refresh",
         "token_heartbeat",
+        "recipes_rebuild",
     }
 
 

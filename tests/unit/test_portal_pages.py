@@ -1,8 +1,11 @@
 """AppTest smoke coverage for the recipes, analysis and add-recipe pages."""
 
+from typing import Any
+
 import pandas as pd
 
-from bonuschef.portal import analysis_page, recipe_builder, recipes_page
+from bonuschef.portal import analysis_page, recipes_page
+from bonuschef.portal import manual_recipe as recipe_builder
 
 from tests.conftest import run_app
 
@@ -159,7 +162,7 @@ class TestAddRecipePage:
             recipe_builder, "ensure_product_images_table", lambda e: None
         )
         monkeypatch.setattr(recipe_builder, "list_products", lambda e: pd.DataFrame())
-        at = run_app(recipe_builder.render_add_recipe).run()
+        at = run_app(recipe_builder.render_manual_entry).run()
         assert "No products found" in at.warning[0].value
 
     def test_search_then_add_ingredient(self, monkeypatch):
@@ -182,7 +185,7 @@ class TestAddRecipePage:
         monkeypatch.setattr(recipe_builder, "list_products", lambda e: products)
         monkeypatch.setattr(recipe_builder, "_fetch_product_image", lambda url: None)
 
-        at = run_app(recipe_builder.render_add_recipe, default_timeout=10)
+        at = run_app(recipe_builder.render_manual_entry, default_timeout=10)
         at.run()
         assert "Search and add at least one product" in at.info[0].value
 
@@ -192,3 +195,153 @@ class TestAddRecipePage:
         at.button[0].click().run()
         assert not at.exception
         assert at.session_state["recipe_ingredients"] == {"AH Halfvolle melk": 1}
+
+
+class TestAddRecipeCatalogue:
+    """Adopting a recipe from AH: three taps and one search term."""
+
+    def _stubs(self, monkeypatch, **over):
+        from bonuschef.portal import add_recipe_page as page
+        from bonuschef.utils.ah_recipes import Ingredient, Recipe, RecipeHit, SearchPage
+
+        recipe = Recipe(
+            recipe_id=1199196,
+            title="Zuurkoolstamppot",
+            servings=4,
+            ingredients=(
+                Ingredient(4812, "zuurkool", 520, "g", "520 g zuurkool"),
+                Ingredient(3200, "milde olijfolie", 1, "el", "1 el milde olijfolie"),
+            ),
+        )
+        state: dict[str, Any] = {
+            "page": page,
+            "recipe": recipe,
+            "search": SearchPage(
+                total=20, hits=(RecipeHit(1199196, "Zuurkoolstamppot"),)
+            ),
+            "search_exc": None,
+            "fetch_exc": None,
+            "saved": [],
+            "rebuilt": [],
+            "adopted_already": False,
+            "proposals": [
+                {"concept_id": 4812, "product_link": "x", "product_name": "Zuurkool"}
+            ],
+            **over,
+        }
+
+        def search(q, size=8):
+            if state["search_exc"]:
+                raise state["search_exc"]
+            return state["search"]
+
+        def fetch(rid):
+            if state["fetch_exc"]:
+                raise state["fetch_exc"]
+            return state["recipe"]
+
+        monkeypatch.setattr(page, "get_engine", lambda: object())
+        monkeypatch.setattr(page, "_ensure", lambda e: True)
+        monkeypatch.setattr(page, "_search", search)
+        monkeypatch.setattr(page, "fetch_recipe", fetch)
+        monkeypatch.setattr(page, "is_adopted", lambda e, i: state["adopted_already"])
+        monkeypatch.setattr(
+            page, "save_adopted_recipe", lambda e, r: state["saved"].append(r.recipe_id)
+        )
+        monkeypatch.setattr(page, "propose_for", lambda e, c: state["proposals"])
+        monkeypatch.setattr(page, "propose_products", lambda e, p: None)
+        monkeypatch.setattr(
+            page, "start_recipe_rebuild", lambda: state["rebuilt"].append(1) or True
+        )
+        monkeypatch.setattr(page, "render_manual_entry", lambda: None)
+        return state
+
+    def _search(self, at, term="zuurkool"):
+        at.text_input[0].input(term)
+        at.button[0].click().run()
+        return at
+
+    def test_results_are_cards_not_a_grid(self, monkeypatch):
+        s = self._stubs(monkeypatch)
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        assert not at.exception
+        assert not at.dataframe
+        assert any("Zuurkoolstamppot" in m.value for m in at.markdown)
+
+    def test_typing_does_not_call_the_catalogue(self, monkeypatch):
+        """A form, not a live input: keystrokes must not hit a third party."""
+        calls = []
+        s = self._stubs(monkeypatch)
+        monkeypatch.setattr(
+            s["page"], "_search", lambda q, size=8: calls.append(q) or s["search"]
+        )
+        at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        at.text_input[0].input("zuur").run()
+        assert calls == []
+
+    def test_unreachable_is_distinct_from_nothing_found(self, monkeypatch):
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        s = self._stubs(monkeypatch, search_exc=AHRecipeUnavailable("down"))
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        assert "niet bereikbaar" in at.error[0].value
+        assert not at.info
+
+    def test_nothing_found_is_not_an_error(self, monkeypatch):
+        from bonuschef.utils.ah_recipes import SearchPage
+
+        s = self._stubs(monkeypatch, search=SearchPage(total=0, hits=()))
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        assert "Geen recepten gevonden" in at.info[0].value
+        assert not at.error
+
+    def test_ingredients_are_visible_before_committing(self, monkeypatch):
+        s = self._stubs(monkeypatch)
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        next(b for b in at.button if b.label == "Bekijken").click().run()
+        text = " ".join(m.value for m in at.markdown)
+        assert "zuurkool" in text and "milde olijfolie" in text
+        assert s["saved"] == [], "previewing must not adopt"
+
+    def test_adopting_saves_and_starts_the_build_itself(self, monkeypatch):
+        s = self._stubs(monkeypatch)
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        next(b for b in at.button if b.label == "Bekijken").click().run()
+        next(
+            b for b in at.button if b.label == "Voeg toe aan mijn recepten"
+        ).click().run()
+        assert s["saved"] == [1199196]
+        assert s["rebuilt"] == [1], "the portal finishes its own work"
+        assert not at.code, "and never asks for a terminal"
+
+    def test_an_unmatched_ingredient_is_visible_not_silent(self, monkeypatch):
+        s = self._stubs(monkeypatch, proposals=[])
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        next(b for b in at.button if b.label == "Bekijken").click().run()
+        next(
+            b for b in at.button if b.label == "Voeg toe aan mijn recepten"
+        ).click().run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "orange-badge" in rendered
+        assert "2 zonder product" in rendered
+
+    def test_adopting_twice_is_refused(self, monkeypatch):
+        s = self._stubs(monkeypatch, adopted_already=True)
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        next(b for b in at.button if b.label == "Bekijken").click().run()
+        assert "staat al" in at.info[0].value
+        assert not [b for b in at.button if b.label == "Voeg toe aan mijn recepten"]

@@ -38,6 +38,17 @@ daily_refresh_job = define_asset_job(
     op_retry_policy=RetryPolicy(max_retries=2, delay=120),
 )
 
+# The portal triggers this when a recipe is adopted, so it can finish its own
+# work instead of printing `dbt run` for the user to type. Deliberately an asset
+# job over models that already exist: adoption is one human act on one recipe,
+# and a new asset would be swept into daily_refresh and re-run nightly.
+recipes_rebuild_job = define_asset_job(
+    name="recipes_rebuild",
+    selection=AssetSelection.assets("int_recipe_items_resolved").downstream(),
+    op_retry_policy=RetryPolicy(max_retries=2, delay=30),
+)
+
+
 # Clearance ("laatste kans koopjes") deepens through the day and sells out fast,
 # so it runs on its own intraday cadence: scrape the store markdowns, then
 # rebuild only the downstream clearance dbt models. The portal's "Refresh now"
@@ -107,6 +118,7 @@ __all__ = [
     "dbt_job",
     "daily_refresh_job",
     "markdowns_refresh_job",
+    "recipes_rebuild_job",
     "refresh_ah_credential",
     "token_heartbeat_job",
 ]
