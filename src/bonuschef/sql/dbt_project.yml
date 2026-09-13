@@ -4,6 +4,9 @@ config-version: 2
 profile: 'dbt_bonuschef'
 
 on-run-start:
+  # Only portal-owned tables here. ah__bonus_products and ah__store_markdowns
+  # are dlt's - it creates them with _dlt_id / _dlt_load_id and a unique
+  # constraint this DDL did not, so two owners raced for one schema.
   - >
     CREATE TABLE IF NOT EXISTS public.recipes (
       recipe_id INTEGER NOT NULL,
@@ -24,35 +27,14 @@ on-run-start:
       product_link TEXT PRIMARY KEY,
       image_url TEXT NOT NULL
     )
-  - >
-    CREATE TABLE IF NOT EXISTS public.ah__bonus_products (
-      webshop_id INTEGER,
-      title TEXT,
-      bonus_mechanism TEXT,
-      bonus_start_date TEXT,
-      bonus_end_date TEXT,
-      price_before_bonus DOUBLE PRECISION,
-      bonus_price DOUBLE PRECISION,
-      is_bonus BOOLEAN,
-      loaded_at TEXT
-    )
-  - >
-    CREATE TABLE IF NOT EXISTS public.ah__store_markdowns (
-      store_id BIGINT,
-      webshop_id BIGINT,
-      title TEXT,
-      brand TEXT,
-      sales_unit_size TEXT,
-      category_title TEXT,
-      markdown_type TEXT,
-      markdown_percentage DOUBLE PRECISION,
-      markdown_expiration_date TEXT,
-      stock BIGINT,
-      price_was DOUBLE PRECISION,
-      price_now DOUBLE PRECISION,
-      scraped_at TEXT
-    )
   - "{{ seed_default_recipes() }}"
+
+vars:
+  # How old an observed price may be and still support a savings claim. The
+  # GitHub snapshot source loads weekly, so 45 days is six missed loads - long
+  # enough not to fire on ordinary gaps, short enough to exclude the 8,465
+  # products last seen in 2025-11.
+  max_price_age_days: 45
 
 models:
   bonuschef:

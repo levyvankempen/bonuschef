@@ -7,7 +7,13 @@ sources:
     tables:
       - name: bonus_products
         identifier: ah__bonus_products
-        description: "Currently discounted products from Albert Heijn."
+        description: "Promotional products from Albert Heijn, live and expired."
+        # This feed went 69 days without loading and nothing reported it; the
+        # marts served July promotions as current the whole time.
+        loaded_at_field: "loaded_at::timestamptz"
+        freshness:
+          warn_after: {count: 36, period: hour}
+          error_after: {count: 7, period: day}
         meta:
           dagster:
             asset_key: ["ah__bonus_products"]
@@ -17,6 +23,11 @@ sources:
           Append-only snapshots of store-specific markdowns ("laatste kans
           koopjes") — reduced-to-clear and discontinued stock. One row per
           item per scrape; the discount deepens intraday.
+        # Scraped hourly 11:00-20:00, so two hours inside the window is late.
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 24, period: hour}
         meta:
           dagster:
             asset_key: ["ah__store_markdowns"]

@@ -39,42 +39,19 @@ tracked_products AS (
 
 ),
 
-latest_price AS (
-
-    SELECT
-        product_link,
-        price
-    FROM {{ ref('int_product_latest_price') }}
-
-),
-
--- Map each AH webshop_id to a single tracked product. The product_link's
--- leading segment carries the numeric id; a webshop_id can match more than one
--- link, so keep one deterministically to preserve the one-row-per-item grain.
+-- One shared reconciliation, with a recency-first tie-break. This used to be
+-- inlined here and in two other marts with three different behaviours.
 product_crosswalk AS (
 
-    SELECT DISTINCT ON (webshop_id)
-        webshop_id,
-        product_link,
-        image_url,
-        tracked_price
-    FROM (
-        SELECT
-            NULLIF(
-                REGEXP_REPLACE(
-                    SPLIT_PART(tp.product_link, '/', 1), '[^0-9]', '', 'g'
-                ),
-                ''
-            )::integer AS webshop_id,
-            tp.product_link,
-            tp.image_url,
-            lp.price AS tracked_price
-        FROM tracked_products AS tp
-        LEFT JOIN latest_price AS lp
-            ON tp.product_link = lp.product_link
-    ) AS candidates
-    WHERE webshop_id IS NOT NULL
-    ORDER BY webshop_id, product_link
+    SELECT
+        cw.webshop_id,
+        cw.product_link,
+        cw.tracked_price,
+        cw.price_age_days,
+        dp.image_url
+    FROM {{ ref('int_product_crosswalk') }} AS cw
+    LEFT JOIN tracked_products AS dp
+        ON cw.product_link = dp.product_link
 
 ),
 
@@ -98,8 +75,14 @@ joined AS (
         pc.product_link,
         pc.image_url,
         pc.tracked_price,
+        pc.price_age_days,
+        -- Withheld, not flagged, when the reference price is too old to be
+        -- comparable. A number with a caveat gets read as a number.
         CASE
-            WHEN pc.tracked_price IS NOT NULL AND cm.price_now IS NOT NULL
+            WHEN
+                pc.tracked_price IS NOT NULL
+                AND cm.price_now IS NOT NULL
+                AND pc.price_age_days <= {{ var('max_price_age_days') }}
                 THEN ROUND((pc.tracked_price - cm.price_now)::numeric, 2)
         END AS real_savings_vs_tracked
     FROM current_markdowns AS cm

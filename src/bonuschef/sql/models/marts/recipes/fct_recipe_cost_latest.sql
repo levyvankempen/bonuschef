@@ -23,6 +23,9 @@ SELECT
     a.total_cost,
     ROUND((a.total_cost / NULLIF(d.servings, 0))::numeric, 2)
         AS cost_per_serving
-FROM agg AS a
-INNER JOIN dim_recipe AS d
-    ON a.recipe_id = d.recipe_id
+-- LEFT, not INNER. A recipe whose ingredients all fail to price used to
+-- disappear from this mart entirely, so the portal showed nothing rather than
+-- an unknown cost - a silent drop that looked like the recipe was deleted.
+FROM dim_recipe AS d
+LEFT JOIN agg AS a
+    ON d.recipe_id = a.recipe_id

@@ -36,6 +36,9 @@ models:
         description: "Total cost divided by number of servings."
 
   - name: fct_recipe_cost_history
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, snapshot_timestamp]
     description: "Historical recipe cost per snapshot, with SCD2-aware ingredient selection and price coverage tracking."
     columns:
       - name: recipe_id
@@ -58,6 +61,9 @@ models:
         description: "Cost per serving, only calculated when all valid items have prices."
 
   - name: fct_recipe_cost_breakdown
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, product_link]
     description: "Current recipe ingredient cost breakdown with percentage of total."
     columns:
       - name: recipe_id

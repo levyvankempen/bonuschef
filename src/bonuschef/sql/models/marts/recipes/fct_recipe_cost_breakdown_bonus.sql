@@ -8,7 +8,7 @@ breakdown AS (
 
 bonus_products AS (
 
-    SELECT * FROM {{ ref('stg_ah__bonus_products') }}
+    SELECT * FROM {{ ref('fct_bonus_price_comparison') }}
 
 ),
 
@@ -26,17 +26,17 @@ enriched AS (
         bp.bonus_mechanism,
         bp.bonus_start_date,
         bp.bonus_end_date,
-        bp.price_before_bonus,
+        bp.ah_price AS price_before_bonus,
         bp.bonus_price,
-        bp.webshop_id IS NOT NULL AS is_on_bonus,
+        bp.product_link IS NOT NULL AS is_on_bonus,
         CASE
             WHEN
-                bp.webshop_id IS NOT NULL
-                AND bp.price_before_bonus IS NOT NULL
+                bp.product_link IS NOT NULL
+                AND bp.ah_price IS NOT NULL
                 AND bp.bonus_price IS NOT NULL
                 THEN ROUND(
                     (
-                        (bp.price_before_bonus - bp.bonus_price)
+                        (bp.ah_price - bp.bonus_price)
                         * COALESCE(b.quantity, 1)
                     )::numeric,
                     2
@@ -44,7 +44,7 @@ enriched AS (
         END AS advertised_savings,
         CASE
             WHEN
-                bp.webshop_id IS NOT NULL
+                bp.product_link IS NOT NULL
                 AND b.price IS NOT NULL
                 AND bp.bonus_price IS NOT NULL
                 THEN ROUND(
@@ -56,11 +56,11 @@ enriched AS (
                 )
         END AS real_savings
     FROM breakdown AS b
+    -- fct_bonus_price_comparison is already filtered to promotions running
+    -- today, so is_on_bonus here means "on offer now" rather than "appeared in
+    -- a snapshot we happened to take in July".
     LEFT JOIN bonus_products AS bp
-        ON (REGEXP_REPLACE(
-            SPLIT_PART(b.product_link, '/', 1),
-            '[^0-9]', '', 'g'
-        ))::integer = bp.webshop_id
+        ON b.product_link = bp.product_link
 )
 
 SELECT * FROM enriched

@@ -23,6 +23,9 @@ models:
         description: "URL of the product image scraped from Albert Heijn (NULL if not yet scraped)."
 
   - name: fct_products
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [product_link, snapshot_timestamp]
     description: "Historical price snapshots for all products across all ingested weeks."
     columns:
       - name: product_link
@@ -41,6 +44,9 @@ models:
           - not_null
 
   - name: fct_product_price_changes
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [product_link, snapshot_timestamp]
     description: "Price changes between consecutive snapshots for each product."
     columns:
       - name: product_link
@@ -65,6 +71,11 @@ models:
         description: "Percentage price change."
 
   - name: fct_store_clearance
+    tests:
+      # The model groups by store_id, so the grain is the pair. A unique test on
+      # webshop_id alone passes only while exactly one store is scraped.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, webshop_id]
     description: >
       Current store clearance ("laatste kans koopjes") — every item present in
       the most recent scrape of each tracked store, with real savings versus the
@@ -76,18 +87,28 @@ models:
         tests:
           - not_null
       - name: webshop_id
-        description: "AH webshop/product id (one row per item; single-store grain)."
+        description: "AH webshop/product id. Grain is (store_id, webshop_id)."
         tests:
           - not_null
-          - unique
       - name: product_name
         description: "Product title."
         tests:
           - not_null
       - name: markdown_type
         description: "Reason for markdown (EXPIRATION, OUT_OF_ASSORTMENT)."
+        tests:
+          # The portal translates exactly these two and would otherwise render a
+          # raw enum code to the user.
+          - accepted_values:
+              values: [EXPIRATION, OUT_OF_ASSORTMENT]
+              config:
+                severity: warn
       - name: markdown_percentage
         description: "Current discount percentage off shelf price."
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 100
       - name: markdown_expiration_date
         description: "Date the markdown/product expires."
       - name: stock
@@ -112,6 +133,9 @@ models:
           - not_null
 
   - name: fct_store_clearance_history
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, webshop_id, scraped_at]
     description: >
       Append-only time-series of store markdowns across all scrapes, with each
       item's markdown curve (first/max percentage, first/last seen) so the
@@ -143,6 +167,9 @@ models:
           - not_null
 
   - name: fct_bonus_price_comparison
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [product_link]
     description: "Comparison of tracked product prices with AH bonus prices to detect price inflation."
     columns:
       - name: product_link
