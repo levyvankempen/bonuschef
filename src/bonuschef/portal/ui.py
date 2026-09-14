@@ -35,23 +35,23 @@ def display_price_changes(df: pd.DataFrame, engine=None):
     all_products = sorted(changes["product_name"].unique())
 
     selected = st.multiselect(
-        "Products to display (top 10 movers pre-selected)",
+        "Producten om te tonen (top 10 sterkste bewegers voorgeselecteerd)",
         options=all_products,
         default=top,
     )
 
     if not selected:
-        st.info("Select at least one product to display the chart.")
+        st.info("Kies minstens één product om de grafiek te tonen.")
         return
 
     if engine is None:
-        st.warning("Cannot load full price history without database connection.")
+        st.warning("Zonder databaseverbinding is de prijsgeschiedenis niet te laden.")
         return
 
     history = read_product_prices(engine, tuple(selected))
 
     if history.empty:
-        st.info("No price history found for the selected products.")
+        st.info("Voor de gekozen producten is geen prijsgeschiedenis bekend.")
         return
 
     history["snapshot_timestamp"] = pd.to_datetime(
@@ -64,8 +64,8 @@ def display_price_changes(df: pd.DataFrame, engine=None):
         alt.Chart(history)
         .mark_line(point=True)
         .encode(
-            x=alt.X("snapshot_timestamp:T", title="Date"),
-            y=alt.Y("price:Q", title="Price (€)"),
+            x=alt.X("snapshot_timestamp:T", title="Datum"),
+            y=alt.Y("price:Q", title="Prijs (€)"),
             color=alt.Color("product_name:N", title="Product"),
             tooltip=["product_name", "snapshot_timestamp", "price"],
         )

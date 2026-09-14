@@ -14,7 +14,7 @@ from bonuschef.portal.ui import display_price_changes
 
 def _render_price_changes_table(changes_df):
     """Display recent price changes in a formatted table."""
-    st.subheader("Recent Price Changes")
+    st.subheader("Recente prijswijzigingen")
 
     display_df = changes_df[
         [
@@ -29,11 +29,11 @@ def _render_price_changes_table(changes_df):
     display_df = display_df.rename(
         columns={
             "product_name": "Product",
-            "snapshot_timestamp": "Date",
-            "prev_price": "Previous (\u20ac)",
-            "new_price": "New (\u20ac)",
-            "price_change": "Change (\u20ac)",
-            "pct_change": "Change (%)",
+            "snapshot_timestamp": "Datum",
+            "prev_price": "Was (\u20ac)",
+            "new_price": "Nu (\u20ac)",
+            "price_change": "Verschil (\u20ac)",
+            "pct_change": "Verschil (%)",
         }
     )
 
@@ -41,17 +41,17 @@ def _render_price_changes_table(changes_df):
         display_df,
         hide_index=True,
         column_config={
-            "Previous (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "New (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "Change (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "Change (%)": st.column_config.NumberColumn(format="%.1f%%"),
+            "Was (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Nu (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Verschil (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Verschil (%)": st.column_config.NumberColumn(format="%.1f%%"),
         },
     )
 
 
 def _render_price_history(engine, changes_df):
     """Display top movers chart and product price history."""
-    st.subheader("Price History")
+    st.subheader("Prijsverloop")
     display_price_changes(changes_df, engine=engine)
 
 
@@ -61,10 +61,10 @@ def _render_bonus_price_check(engine):
     if bonus_df.empty:
         return
 
-    st.subheader("Bonus Price Check")
+    st.subheader("Bonusprijzen gecontroleerd")
     st.caption(
-        "Compares AH's claimed regular price with the actual tracked price "
-        'to detect inflated "before" prices.'
+        "Vergelijkt de normale prijs die AH claimt met de prijs die wij zelf "
+        'hebben gevolgd, om opgeblazen "van"-prijzen zichtbaar te maken.'
     )
 
     total = len(bonus_df)
@@ -76,11 +76,11 @@ def _render_bonus_price_check(engine):
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Bonus products matched", total)
+        st.metric("Bonusproducten gekoppeld", total)
     with col2:
-        st.metric("Inflated pricing", f"{inflated} ({100 * inflated / total:.0f}%)")
+        st.metric("Opgeblazen van-prijs", f"{inflated} ({100 * inflated / total:.0f}%)")
     with col3:
-        st.metric("Avg. inflation", f"\u20ac{avg_inflation:.2f}")
+        st.metric("Gem. opslag", f"\u20ac{avg_inflation:.2f}")
 
     # Bar chart — top 15 products by price inflation
     if not inflated_df.empty:
@@ -94,13 +94,15 @@ def _render_bonus_price_check(engine):
             alt.Chart(chart_data)
             .mark_bar()
             .encode(
-                x=alt.X("price_inflation:Q", title="Price Inflation (\u20ac)"),
+                x=alt.X("price_inflation:Q", title="Opslag op de van-prijs (\u20ac)"),
                 y=alt.Y("product_name:N", title="Product", sort="-x"),
                 tooltip=[
                     alt.Tooltip("product_name:N", title="Product"),
-                    alt.Tooltip("tracked_price:Q", title="Tracked price", format=".2f"),
-                    alt.Tooltip("ah_price:Q", title="AH price", format=".2f"),
-                    alt.Tooltip("price_inflation:Q", title="Inflation", format=".2f"),
+                    alt.Tooltip(
+                        "tracked_price:Q", title="Gevolgde prijs", format=".2f"
+                    ),
+                    alt.Tooltip("ah_price:Q", title="AH-prijs", format=".2f"),
+                    alt.Tooltip("price_inflation:Q", title="Opslag", format=".2f"),
                 ],
             )
             .properties(height=max(len(chart_data) * 40, 200))
@@ -125,14 +127,14 @@ def _render_bonus_price_check(engine):
     display_df = display_df.rename(
         columns={
             "product_name": "Product",
-            "tracked_price": "Tracked (\u20ac)",
-            "ah_price": "AH Price (\u20ac)",
+            "tracked_price": "Gevolgd (\u20ac)",
+            "ah_price": "AH-prijs (\u20ac)",
             "bonus_price": "Bonus (\u20ac)",
-            "price_inflation": "Inflation (\u20ac)",
-            "real_savings": "Real Savings (\u20ac)",
-            "advertised_savings": "AH Claims (\u20ac)",
-            "bonus_mechanism": "Mechanism",
-            "is_inflated": "Inflated?",
+            "price_inflation": "Opslag (\u20ac)",
+            "real_savings": "Echte korting (\u20ac)",
+            "advertised_savings": "AH claimt (\u20ac)",
+            "bonus_mechanism": "Actie",
+            "is_inflated": "Opgeblazen?",
         }
     )
 
@@ -140,29 +142,31 @@ def _render_bonus_price_check(engine):
         display_df,
         hide_index=True,
         column_config={
-            "Tracked (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "AH Price (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Gevolgd (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "AH-prijs (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
             "Bonus (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "Inflation (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "Real Savings (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
-            "AH Claims (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Opslag (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
+            "Echte korting (\u20ac)": st.column_config.NumberColumn(
+                format="\u20ac%.2f"
+            ),
+            "AH claimt (\u20ac)": st.column_config.NumberColumn(format="\u20ac%.2f"),
         },
     )
 
 
 def render_analysis():
-    st.title("Price Analysis")
+    st.title("Prijsanalyse")
 
     try:
         engine = get_engine()
     except Exception as e:
-        st.error(f"Database connection error: {e}")
+        st.error(f"Geen verbinding met de database: {e}")
         return
 
     changes_df = read_price_changes(engine)
 
     if changes_df.empty:
-        st.info("No price changes recorded yet.")
+        st.info("Er zijn nog geen prijswijzigingen vastgelegd.")
         return
 
     _render_price_changes_table(changes_df)

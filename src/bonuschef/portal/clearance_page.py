@@ -104,7 +104,7 @@ def _run_refresh(before: pd.Timestamp | None = None) -> None:
     try:
         run_id = trigger_job(MARKDOWNS_REFRESH_JOB)
     except DagsterTriggerError as exc:
-        st.error(f"{exc}\n\nIs the Dagster webserver running and reachable?")
+        st.error(f"{exc}\n\nDraait de Dagster-webserver en is die bereikbaar?")
         return
 
     with st.spinner("De winkel wordt gescand…"):

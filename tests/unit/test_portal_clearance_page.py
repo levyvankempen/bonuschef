@@ -215,7 +215,7 @@ def test_refresh_trigger_failure_shows_error(stubs):
     at = _run()
     at.button[0].click().run()
     assert "Could not start job" in at.error[0].value
-    assert "Dagster webserver" in at.error[0].value
+    assert "Dagster-webserver" in at.error[0].value
     assert stubs["read"].cleared == 0
 
 

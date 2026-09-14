@@ -70,12 +70,13 @@ def _render_bonus_highlights(engine):
 
         parts = [
             f"**{row['recipe_name']}**: "
-            f"{row['bonus_count']}/{row['total_ingredients']} ingredients on bonus"
+            f"{row['bonus_count']}/{row['total_ingredients']} "
+            "ingrediënten in de bonus"
         ]
         if real > 0:
-            parts.append(f" \u2014 save **\u20ac{real:.2f}**")
+            parts.append(f" — je bespaart **€{real:.2f}**")
         if advertised > 0 and advertised != real:
-            parts.append(f" (AH claims \u20ac{advertised:.2f})")
+            parts.append(f" (AH adverteert €{advertised:.2f})")
 
         st.markdown("".join(parts))
 
@@ -102,7 +103,7 @@ def _render_recipe_detail(engine, summary_df):
     if real_total > 0:
         msg = f"Ingrediënten in de bonus — je bespaart €{real_total:.2f}"
         if adv_total > 0 and adv_total != real_total:
-            msg += f" (AH advertises \u20ac{adv_total:.2f})"
+            msg += f" (AH adverteert €{adv_total:.2f})"
         st.success(msg)
 
     st.markdown("**Ingrediënten**")

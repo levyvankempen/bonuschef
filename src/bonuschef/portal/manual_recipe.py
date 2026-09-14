@@ -57,11 +57,11 @@ def _fetch_product_image(product_url: str) -> str | None:
 def _validate(engine, recipe_name: str, quantities: dict[str, int]) -> list[str]:
     errors: list[str] = []
     if not recipe_name or not recipe_name.strip():
-        errors.append("Recipe name cannot be empty.")
+        errors.append("Geef het recept een naam.")
     if not quantities:
-        errors.append("Select at least one product.")
+        errors.append("Kies minstens één product.")
     if recipe_name and recipe_name.strip() in existing_recipe_names(engine):
-        errors.append(f"A recipe named '{recipe_name.strip()}' already exists.")
+        errors.append(f"Er bestaat al een recept met de naam '{recipe_name.strip()}'.")
     return errors
 
 
@@ -88,12 +88,12 @@ def _save_recipe(
 
 
 def render_manual_entry():
-    st.title("Add Recipe")
+    st.title("Recept toevoegen")
 
     try:
         engine = get_engine()
     except Exception as e:
-        st.error(f"Database connection error: {e}")
+        st.error(f"Geen verbinding met de database: {e}")
         return
 
     _ensure_tables(engine)
@@ -101,11 +101,11 @@ def render_manual_entry():
     try:
         products_df = list_products(engine)
     except Exception as e:
-        st.error(f"Could not load products: {e}")
+        st.error(f"De producten konden niet geladen worden: {e}")
         return
 
     if products_df.empty:
-        st.warning("No products found in the database.")
+        st.warning("Er staan nog geen producten in de database.")
         return
 
     link_by_name: dict[str, str] = dict(
@@ -126,9 +126,9 @@ def render_manual_entry():
         st.session_state.recipe_ingredients = {}
 
     # --- Step 1: Search and add products ---
-    st.markdown("**Step 1: Search and add products**")
+    st.markdown("**Stap 1: zoek producten en voeg ze toe**")
     search = st.text_input(
-        "Search for a product", placeholder="e.g. eieren, melk, kibbeling"
+        "Zoek een product", placeholder="bijv. eieren, melk, kibbeling"
     )
 
     if search.strip():
@@ -141,14 +141,14 @@ def render_manual_entry():
         ]
 
         if matches.empty:
-            st.info(f"No products match '{search.strip()}'.")
+            st.info(f"Geen producten gevonden voor '{search.strip()}'.")
         else:
             display = matches[["product_name", "product_url", "price"]].copy()
             display = display.rename(
                 columns={
                     "product_name": "Product",
                     "product_url": "AH",
-                    "price": "Price (€)",
+                    "price": "Prijs (€)",
                 }
             )
             st.dataframe(
@@ -165,24 +165,24 @@ def render_manual_entry():
             ]
             if available:
                 to_add = st.multiselect(
-                    "Select products to add",
+                    "Kies producten om toe te voegen",
                     options=available,
                     key=f"add_{search.strip()}",
                 )
-                if st.button("Add to recipe") and to_add:
+                if st.button("Voeg toe aan recept") and to_add:
                     for name in to_add:
                         st.session_state.recipe_ingredients[name] = 1
                     st.rerun()
             else:
-                st.info("All matching products are already in the recipe.")
+                st.info("Alle gevonden producten zitten al in het recept.")
 
     # --- Current ingredients ---
     if not st.session_state.recipe_ingredients:
-        st.info("Search and add at least one product to continue.")
+        st.info("Zoek en voeg minstens één product toe om verder te gaan.")
         return
 
     st.markdown("---")
-    st.markdown("**Selected ingredients**")
+    st.markdown("**Gekozen ingrediënten**")
 
     to_remove: list[str] = []
     for name in list(st.session_state.recipe_ingredients):
@@ -198,7 +198,7 @@ def render_manual_entry():
             st.write(f"€{price_by_name[name]:.2f}")
         with col_qty:
             st.session_state.recipe_ingredients[name] = st.number_input(
-                "Qty",
+                "Aantal",
                 min_value=1,
                 value=st.session_state.recipe_ingredients[name],
                 step=1,
@@ -217,10 +217,10 @@ def render_manual_entry():
     # --- Step 2: Save recipe ---
     st.markdown("---")
     with st.form("recipe_form"):
-        st.markdown("**Step 2: Recipe details**")
-        recipe_name = st.text_input("Recipe name")
-        servings = st.number_input("Servings", min_value=1, value=4, step=1)
-        submitted = st.form_submit_button("Save Recipe")
+        st.markdown("**Stap 2: receptgegevens**")
+        recipe_name = st.text_input("Naam van het recept")
+        servings = st.number_input("Personen", min_value=1, value=4, step=1)
+        submitted = st.form_submit_button("Recept opslaan")
 
     if submitted:
         quantities = dict(st.session_state.recipe_ingredients)

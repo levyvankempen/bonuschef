@@ -18,8 +18,8 @@ class TestValidate:
         )
         errors = _validate(object(), "  ", {})
         assert errors == [
-            "Recipe name cannot be empty.",
-            "Select at least one product.",
+            "Geef het recept een naam.",
+            "Kies minstens één product.",
         ]
 
     def test_duplicate_name(self, monkeypatch):
@@ -27,7 +27,7 @@ class TestValidate:
             recipe_builder, "existing_recipe_names", lambda e: {"Pasta"}
         )
         errors = _validate(object(), " Pasta ", {"Melk": 1})
-        assert errors == ["A recipe named 'Pasta' already exists."]
+        assert errors == ["Er bestaat al een recept met de naam 'Pasta'."]
 
     def test_valid(self, monkeypatch):
         monkeypatch.setattr(recipe_builder, "existing_recipe_names", lambda e: set())

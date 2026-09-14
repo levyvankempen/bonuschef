@@ -100,7 +100,7 @@ class TestAnalysisPage:
             analysis_page, "read_price_changes", lambda e: pd.DataFrame()
         )
         at = run_app(analysis_page.render_analysis).run()
-        assert "No price changes" in at.info[0].value
+        assert "prijswijzigingen" in at.info[0].value
 
     def test_bonus_price_check_metrics(self, monkeypatch):
         monkeypatch.setattr(analysis_page, "get_engine", lambda: object())
@@ -149,9 +149,9 @@ class TestAnalysisPage:
         at = run_app(analysis_page.render_analysis, default_timeout=10).run()
         assert not at.exception
         metrics = {m.label: m.value for m in at.metric}
-        assert metrics["Bonus products matched"] == "2"
-        assert metrics["Inflated pricing"] == "1 (50%)"
-        assert metrics["Avg. inflation"] == "€0.50"
+        assert metrics["Bonusproducten gekoppeld"] == "2"
+        assert metrics["Opgeblazen van-prijs"] == "1 (50%)"
+        assert metrics["Gem. opslag"] == "€0.50"
 
 
 class TestAddRecipePage:
@@ -163,7 +163,7 @@ class TestAddRecipePage:
         )
         monkeypatch.setattr(recipe_builder, "list_products", lambda e: pd.DataFrame())
         at = run_app(recipe_builder.render_manual_entry).run()
-        assert "No products found" in at.warning[0].value
+        assert "geen producten" in at.warning[0].value
 
     def test_search_then_add_ingredient(self, monkeypatch):
         products = pd.DataFrame(
@@ -187,7 +187,7 @@ class TestAddRecipePage:
 
         at = run_app(recipe_builder.render_manual_entry, default_timeout=10)
         at.run()
-        assert "Search and add at least one product" in at.info[0].value
+        assert "voeg minstens één product toe" in at.info[0].value
 
         at.text_input[0].input("melk").run()
         assert list(at.dataframe[0].value["Product"]) == ["AH Halfvolle melk"]
