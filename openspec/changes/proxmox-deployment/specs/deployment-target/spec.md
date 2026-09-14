@@ -103,3 +103,22 @@ The stack's interfaces SHALL be reachable by their intended user from their own 
 
 - **WHEN** the deployment is complete
 - **THEN** no interface is published to the internet, directly or by port forwarding
+
+### Requirement: A health signal reflects whether the service can do its work
+
+A service's health SHALL be judged on whether it can serve what it exists to serve, not merely on whether its process is answering. A probe that passes while the service cannot do its job is worse than no probe, because an operator and an automated monitor both trust it.
+
+#### Scenario: The service cannot load what it serves
+
+- **WHEN** a service is running and answering requests, but cannot load the definitions, configuration or content it exists to serve
+- **THEN** it reports unhealthy
+
+#### Scenario: A dependency is down
+
+- **WHEN** a service is able to serve its own content but something it depends on is unavailable
+- **THEN** it still reports healthy, because the failure is not its own and a cascade of unhealthy services hides where the fault is
+
+#### Scenario: A probe is proven, not assumed
+
+- **WHEN** a health probe is introduced or changed
+- **THEN** it has been observed to fail for a service that is genuinely broken, rather than only observed to pass for one that is working

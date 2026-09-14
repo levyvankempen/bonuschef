@@ -15,7 +15,8 @@
 
 - [ ] 3.1 Run `systemctl enable docker` inside the guest; without it every `restart: unless-stopped` in `docker-compose.yml` is inert and the stack silently never returns from a power cut
 - [ ] 3.2 Reboot the guest and confirm the stack comes back with nobody logging in; verify all four containers reach their healthy state unaided. This is the requirement the container-runtime capability depends on and it is only observable on a reboot
-- [ ] 3.3 Reboot the Proxmox host itself and confirm both the guest and the stack return; verify Home Assistant also returns, since this is the first host reboot in 44 days
+- [ ] 3.3 Verify each health probe actually fails for a broken service, not merely passes for a working one. This is not hypothetical: the Dagster webserver probe polled `/server_info`, which answers from static version strings without touching user code, so it reported healthy for hours while every code location failed to load and nothing could run. Break each service deliberately — stop its code from importing — and confirm the container goes unhealthy before trusting the probe on an unattended host
+- [ ] 3.4 Reboot the Proxmox host itself and confirm both the guest and the stack return; verify Home Assistant also returns, since this is the first host reboot in 44 days
 
 ## 4. The application
 

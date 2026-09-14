@@ -56,6 +56,9 @@ One nightly snapshot of the guest captures the database volume, the `dagster_hom
 **The data migration is `pg_dump` once, not a re-scrape.**
 `fct_products` rebuilds from source tables, but `ah__store_markdowns` is append-only and irreplaceable — it holds the intraday markdown curve, which is the point of the project and cannot be back-filled because AH publishes only the present. Same for `public.recipes` and `recipe_ingredients`, which were typed by hand. Those three, plus the token file, are the entire set of things a rebuild cannot produce.
 
+**A health probe must be able to fail.**
+This is recorded because it already happened. The Dagster webserver's probe polled `/server_info`, which returns three static version strings and never touches user code. When a change removed the venv from `PATH` and every code location stopped loading, the container reported healthy throughout — the daemon was dead, no schedule could fire, and the portal's refresh button did nothing, while `docker compose ps` showed green. The probe now asks GraphQL for the repository, which fails when the definitions cannot load. The general rule this deployment inherits: a probe should be observed failing for a genuinely broken service before it is trusted, and "the process is answering" is not the same claim as "the service works". Note the deliberate asymmetry with a dependency being down, where healthy remains correct — a Postgres outage should not turn four containers red and hide which one is at fault.
+
 **`systemctl enable docker` is a requirement, not a note.**
 Every `restart: unless-stopped` in `docker-compose.yml` is inert without it, and the failure mode is silent: the stack simply never comes back after a power cut, and the credential dies again some weeks later. The specification requires the automatic-start path to be exercised rather than configured, because the difference is only visible on a reboot nobody plans.
 
