@@ -53,6 +53,9 @@ services:
       - "127.0.0.1:3000:3000"
     env_file: .env
     environment:
+      # The venv is not on PATH when the binaries are invoked directly rather
+      # than through `uv run`, and dbt lives there.
+      PATH: /app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
       DAGSTER_HOME: /app/dagster_home
       PG_HOST: postgres
       PG_PORT: "5432"
@@ -72,7 +75,11 @@ services:
         - CMD
         - python
         - -c
-        - 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:3000/server_info", timeout=5).status == 200 else 1)'
+        # /server_info returns static version strings without touching user
+        # code, so it reported healthy for a code location that could not load
+        # at all. Ask for the repository instead: a webserver that cannot serve
+        # its definitions is not serving.
+        - 'import json,urllib.request,sys; r=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:3000/graphql",data=json.dumps({"query":"{repositoriesOrError{__typename}}"}).encode(),headers={"Content-Type":"application/json"}),timeout=10); b=json.load(r); sys.exit(0 if b.get("data",{}).get("repositoriesOrError",{}).get("__typename")=="RepositoryConnection" else 1)'
       interval: 30s
       timeout: 10s
       retries: 3
@@ -93,6 +100,9 @@ services:
       - bonuschef.dags.definitions
     env_file: .env
     environment:
+      # The venv is not on PATH when the binaries are invoked directly rather
+      # than through `uv run`, and dbt lives there.
+      PATH: /app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
       DAGSTER_HOME: /app/dagster_home
       PG_HOST: postgres
       PG_PORT: "5432"

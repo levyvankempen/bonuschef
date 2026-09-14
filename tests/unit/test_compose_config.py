@@ -26,7 +26,10 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 # absent by design (no port to poll); this is deliberately not asserted as an
 # absence, so adding `dagster-daemon liveness-check` later stays legal.
 WEB_SERVICES = {
-    "dagster-webserver": "/server_info",
+    # The Dagster probe asks GraphQL for the repository rather than hitting
+    # /server_info: the latter answers from static version strings and reported
+    # healthy for a code location that could not load at all.
+    "dagster-webserver": "/graphql",
     "streamlit": "/_stcore/health",
 }
 DAGSTER_SERVICES = ("dagster-webserver", "dagster-daemon")
@@ -272,3 +275,32 @@ def test_dagster_workers_match_the_instigator_count():
     schedules, not four of anything."""
     instance = yaml.safe_load((REPO_ROOT / "dagster.yaml").read_text())
     assert instance["sensors"]["num_workers"] <= 2
+
+
+def test_services_that_bypass_uv_still_find_the_venv():
+    """Calling the venv binaries directly saves ~180MB per container but drops
+    what `uv run` provided: the venv on PATH. Dagster's dbt resource resolves
+    the bare name "dbt" through PATH, so every code location failed to load
+    with "The dbt executable 'dbt' does not exist" - while the containers still
+    reported healthy."""
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    for name, svc in compose["services"].items():
+        command = svc.get("command") or []
+        if not command or not str(command[0]).startswith("/app/.venv/bin"):
+            continue
+        path = (svc.get("environment") or {}).get("PATH")
+        if name == "streamlit":
+            continue  # the portal shells out to nothing
+        assert path and "/app/.venv/bin" in path, (
+            f"{name} runs a venv binary directly but has no venv on PATH"
+        )
+
+
+def test_the_webserver_health_probe_loads_the_definitions():
+    """/server_info returns static version strings without touching user code,
+    so a code location that could not load at all still reported healthy. The
+    probe asks for the repository instead."""
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    probe = " ".join(compose["services"]["dagster-webserver"]["healthcheck"]["test"])
+    assert "graphql" in probe
+    assert "repositoriesOrError" in probe

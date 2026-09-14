@@ -152,3 +152,14 @@ def test_heartbeat_runs_more_than_once_a_day(defs):
     runs_per_day = len(hours.split(","))
     assert runs_per_day >= 2, "a single daily run has no margin for a missed cycle"
     assert 86_400 / runs_per_day <= 12 * 3600
+
+
+def test_the_dbt_executable_is_resolved_absolutely():
+    """DbtCliResource defaults to the bare name "dbt" and finds it through
+    PATH. That held only while the containers started through `uv run`; it does
+    not any more, and the failure mode was every code location refusing to
+    load."""
+    from bonuschef.dags.defs.resources.dbt import dbt
+
+    assert dbt.dbt_executable != "dbt", "resolving through PATH is what broke"
+    assert Path(dbt.dbt_executable).is_absolute()
