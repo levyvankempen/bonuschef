@@ -44,17 +44,25 @@
 - [ ] 5.10 `severity: warn` test that clearance stock covers the lines claiming it
 - [ ] 5.11 Python test that exactly one model cross-joins the store spine and no cost model references clearance or the offer layer
 
-## 6. The catalogue pool
+## 6. The pool of well-rated recipes
 
-- [ ] 6.1 dlt source `ah__recipes` / `ah__recipe_ingredients`, `write_disposition="merge"`, `primary_key="recipe_id"` — a slowly-changing dimension, *not* the append-only clearance pattern where the curve is the data
-- [ ] 6.2 `group_name="dlt"`, verified by a test against `daily_refresh_job`'s selection — outside that group the catalogue re-crawls nightly inside the 17:30 rebuild
-- [ ] 6.3 Facet-sweep enumeration; `recipeSearch` caps at `start + size <= 2000`, so deep pagination is impossible and facets are the only route. Sweep `allerhande-magazine` first (299 values, 14,956 ids)
-- [ ] 6.4 Alias-batched fetch at **200**, not the 238 ceiling — the limit is a document token budget, so one more field silently breaks a 238 batch
-- [ ] 6.5 Store `modifiedAt` and `fetched_at`; incremental sweep at 500 aliases (`id + modifiedAt` only), re-fetching only what moved (~0.03%/day)
-- [ ] 6.6 Own job and schedule at ~04:00 — after the 03:30 heartbeat has proven the credential, outside the 11:00–20:00 clearance window
-- [ ] 6.7 Daily request budget with a hard cap of 500; abort the whole crawl on the first auth rejection surviving one forced refresh; persist progress and resume next day; never retry-loop through the auth fallback chain
-- [ ] 6.8 Bound runtime well under the 3600s `run_monitoring` cap — `max_concurrent_runs: 1` means a long crawl holds the only slot
-- [ ] 6.9 Tests: budget enforced, abort-on-rejection does not retry, resume picks up where it stopped, batch size and schedule hour pinned with the reasons above
+- [ ] 6.1 Add `rating { average count }` to `_RECIPE_QUERY` in `ah_recipes.py`, with a test pinning that `rating` needs a subfield selection — a scalar selection fails validation, which is how the field was found
+- [ ] 6.2 Enumerate the pool with `recipeSearch(sortBy: POPULAR)`, `size: 100`, to the hard `start + size <= 2000` ceiling: 20 requests. Pin the ceiling in a test, since exceeding it returns `Subgraph errors redacted` rather than an error that names the cause
+- [ ] 6.3 Do not use `TRENDING` — it returned results identical to `NEWEST` and is not a popularity signal. Record that in the code, not only here
+- [ ] 6.4 Fetch the 2,000 in 200-alias batches: 10 requests. Keep 200 rather than the measured 238 ceiling, which is a document token budget and shrinks as fields are added — `rating` has just added some
+- [ ] 6.5 dlt source `ah__recipes` / `ah__recipe_ingredients`, `write_disposition="merge"`, `primary_key="recipe_id"`, storing `rating_average`, `rating_count`, `modified_at` and `fetched_at`
+- [ ] 6.6 `group_name="dlt"`, verified by a test against `daily_refresh_job`'s selection — outside that group the pool refetches nightly inside the 17:30 rebuild
+- [ ] 6.7 Weekly schedule at ~04:00 — after the 03:30 heartbeat has proven the credential, outside the 11:00–20:00 clearance window. 30 requests a week against a measured tolerance of ~420/day
+- [ ] 6.8 Evict pool recipes that fall out of the listing, **except** any that were adopted, entered by hand, or kept. A test must prove an adopted recipe survives a refresh that no longer returns it
+- [ ] 6.9 Abort on the first auth rejection surviving one forced refresh; never retry-loop through the auth fallback chain. At 30 requests there is nothing to resume, so the job simply fails and alerts
+- [ ] 6.10 Tests: enumeration stops at the ceiling, batch size pinned with its reason, eviction spares the exempt, schedule hour pinned
+
+## 6b. Keeping and rejecting
+
+- [ ] 6b.1 Portal-owned table for a person's verdict on a recipe — kept or rejected — keyed on `recipe_id` so it survives the recipe being refetched
+- [ ] 6b.2 A rejected recipe is excluded from the ranking at the mart boundary, and its `exclusion_reason` says it was rejected rather than leaving it absent without record
+- [ ] 6b.3 Keeping a recipe adopts it, so it joins the person's own and becomes exempt from eviction — one action, not two
+- [ ] 6b.4 Tests: a rejection survives a refetch, a kept recipe survives an eviction sweep, reinstating clears the rejection, and a rejected recipe never reaches the ranking
 
 ## 7. The page
 
@@ -66,10 +74,12 @@
 - [ ] 7.6 Stale clearance withdraws the source: re-rank on `saving_bonus_only`, strip clearance prices from ingredient cards, say clearance was set aside. Decided at **read** time from `clearance_scraped_at`, never at build time
 - [ ] 7.7 Five degraded states, each tested: nothing discounted, nothing adopted, clearance stale, bonus feed stale, warehouse unreachable
 - [ ] 7.8 Pool size against rankable count, with the reason a recipe is unranked reachable
-- [ ] 7.9 Offer the ingredient review queue ordered by pool frequency as the next action — it is what turns 57 rankable into 1,233, and costs zero AH requests
-- [ ] 7.10 Lift the freshness helpers out of `clearance_page.py` into `freshness.py` and use them in both, so the two pages cannot disagree about what "current" means
-- [ ] 7.11 Make it the portal's default destination in `app.py`
-- [ ] 7.12 AppTest coverage for each state; Dutch throughout, which `test_portal_language.py` now enforces
+- [ ] 7.9 Keep and reject on every recommended recipe; the rejected list reachable and every entry reversible
+- [ ] 7.10 Show `rating_average` with `rating_count` beside it — five stars from three votes is not five stars from three hundred
+- [ ] 7.11 Offer the ingredient review queue ordered by pool frequency as the next action — it costs zero AH requests and is what makes the pool rankable
+- [ ] 7.12 Lift the freshness helpers out of `clearance_page.py` into `freshness.py` and use them in both, so the two pages cannot disagree about what "current" means
+- [ ] 7.13 Make it the portal's default destination in `app.py`
+- [ ] 7.14 AppTest coverage for each state; Dutch throughout, which `test_portal_language.py` now enforces
 
 ## 8. Verification
 

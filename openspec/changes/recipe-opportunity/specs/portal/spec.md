@@ -81,6 +81,30 @@ The portal SHALL NOT present a saving in a way that implies it was saved on the 
 - **WHEN** an ingredient's promotional price requires buying more than the recipe needs
 - **THEN** it is shown separately with its condition stated, and is not part of the ranked saving
 
+### Requirement: The page lets a person curate what it recommends
+
+The portal SHALL offer, on each recommended recipe, a way to keep it and a way to reject it, and SHALL make what has been rejected reviewable and reversible.
+
+#### Scenario: Dismissing a recipe from the ranking
+
+- **WHEN** a person rejects a recommended recipe
+- **THEN** it leaves the ranking immediately and does not return
+
+#### Scenario: Keeping one worth cooking again
+
+- **WHEN** a person keeps a recommended recipe
+- **THEN** it joins their own recipes and survives every later pool refresh
+
+#### Scenario: Reviewing what was dismissed
+
+- **WHEN** a person wants to see what they have rejected
+- **THEN** the list is reachable from the page and each entry can be reinstated
+
+#### Scenario: The rating is shown with its weight
+
+- **WHEN** a pool recipe's rating is shown
+- **THEN** the number of votes behind it is shown with it
+
 ### Requirement: The page is the portal's default destination
 
 The portal SHALL open on this page, because it is the question the rest of the application exists to support.

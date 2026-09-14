@@ -9,7 +9,7 @@ Four reviews informed this design: an architect, a UX designer, a data modeller,
 | Claim in the original proposal | Measurement | Effect |
 |---|---|---|
 | "fetching all 24,803 is one request each" | `recipe(id:)` alias-batches at 200/request; 7,555 recipes in 38 requests, 67s | wrong by 124×; the crawl is nearly free |
-| A bounded pool is the interesting decision | 7,555-recipe pool yields **57 rankable recipes** under the original eligibility rule | pool size was never the constraint; resolution is |
+| A bounded pool is the interesting decision | 7,555-recipe pool yields **57 rankable recipes** under the original eligibility rule | resolution is the constraint, not crawl cost |
 | Every ingredient must be priced to rank | matcher resolves 34% of 10,919 concepts; 8.78 ingredients/recipe | 0.8% of the pool survives; the rule is fatal |
 | Clearance and bonus rarely overlap | **2 products** are on both today | the fan-out is real, not hypothetical |
 | `bonus_price` is a price you can pay | **146 of 256** live matched promotions are multibuy | the ranking would systematically overstate |
@@ -20,6 +20,7 @@ Four reviews informed this design: an architect, a UX designer, a data modeller,
 
 **Goals**
 - Rank recipes by observed saving, resting on partial knowledge where necessary, without ever publishing a total the evidence does not support.
+- Hold a pool small enough to curate by hand, and let the person prune it.
 - Keep store-scoped, hours-perishable clearance out of the comparable cost history structurally rather than by filter.
 - Make every reason a recipe is absent from the ranking reachable.
 - Hold the catalogue within a request budget that clearance always outranks.
@@ -93,28 +94,29 @@ So the mart publishes **both** `saving_total` / `cost_today` and `saving_bonus_o
 
 `saving_bonus_only` is recomputed from each item's best *promotional* offer, not derived by subtracting a clearance component — an item whose best offer was clearance must fall back to its bonus price, not to zero.
 
-### 7. Crawl the whole catalogue; spend the effort on resolution
+### 7. A bounded pool of well-rated recipes, not the whole catalogue
 
-Measured: alias batching caps on a **GraphQL lexer token budget (~9,000 tokens/document)**, not an alias count — 238 aliases with the full field set, 500 with `id + modifiedAt`. Operating point **200**, deliberately below the ceiling, because the limit scales with fields-per-alias and adding one field would silently break a 238 batch.
+The feasibility work established the full crawl is affordable — ~900 requests, eight minutes. Affordable is not the same as wanted. 24,803 recipes is far more than anyone will ever cook from, it makes the review queue unboundedly long, and it turns a personal tool into a mirror of someone else's catalogue.
 
-`recipeSearch` pagination caps hard at `start + size ≤ 2000`, so the catalogue cannot be walked directly. It is enumerated by facet sweep — `allerhande-magazine` has 299 values summing to 14,956, none over the cap — then fetched in 200-alias batches.
+**`Recipe.rating { average count }` exists**, which was not known when the earlier options were costed. Probed directly, since introspection is off: `rating` rejected a scalar selection with *"must have a selection of subfields"*, and `average` and `count` both resolve. So the retailer's own readers have already ranked the catalogue for us.
 
-| target | search reqs | fetch reqs | wall | bytes |
-|---|---|---|---|---|
-| 24,803 (full) | ~600–800 | 124 | ~8 min | 38 MB |
-| steady state | 0 | ~51/day | seconds | — |
+`recipeSearch(sortBy: POPULAR)` paginates to the same hard `start + size <= 2000` ceiling that blocks a full walk — and here that ceiling is the feature, not the obstacle. It defines the pool exactly:
 
-`modifiedAt` is present on 7,555/7,555 recipes and only **0.77%** changed in 30 days, so the steady state is an `id + modifiedAt` sweep at 500 aliases (50 requests) plus a re-fetch of the ~6 recipes/day that moved.
+| step | requests |
+|---|---|
+| enumerate top 2,000 by POPULAR, `size: 100` | 20 |
+| fetch them, 200 aliases per request | 10 |
+| **total, weekly** | **30** |
 
-**This is why pool size is not the interesting decision.** Crawling all 24,803 today yields roughly 165 rankable recipes. Confirming concepts by hand — which costs **zero AH requests**, `matching.py` is entirely local at 24ms/concept — is what moves the number:
+Thirty requests a week against a measured tolerance of ~420 a day. The facet sweep, the incremental `modifiedAt` diff, the 500-alias lean batch and the resumable-crawl machinery all become unnecessary — the pool is small enough to refetch whole. That is a large amount of design deleted by one field probe.
 
-| confirmed concepts | rankable of 7,555 | mean ingredient coverage |
-|---|---|---|
-| 0 (today) | 57 (0.8%) | 44.5% |
-| 500 | 1,233 (16.3%) | 76.2% |
-| 1,500 | 3,238 (42.9%) | 85.7% |
+Verified: `POPULAR` is genuinely rating-ordered — the top ten are 5-star with 7 to 18 votes each — and it is distinct from `TRENDING`, which returned results identical to `NEWEST` and is therefore not a popularity signal at all.
 
-Top 100 concepts cover 43% of all ingredient lines; top 1,000 cover 75.5%. The portal therefore points at the review queue ordered by pool frequency — that is the feature's real engine, and decision 1 is what lets partial coverage produce answers in the meantime.
+`rating.count` is stored alongside `average`, because a five-star average over three votes is not the claim a five-star average over three hundred is, and the portal must not present them as equal.
+
+**Eviction has one exception.** The pool is refreshed rather than accumulated, so recipes that fall out of favour leave. Anything a person adopted, entered by hand, or explicitly kept is exempt — the person's choice outranks the retailer's ordering. Rejections are stored against the recipe id and survive a refetch, so dismissing something is permanent until reversed.
+
+This also changes what the review queue is for. Ordered by frequency across 2,000 recipes rather than 24,803, the top concepts still cover most ingredient lines, but the tail that never pays off is gone.
 
 ### 8. Rejected: reverse lookup from clearance to recipes
 

@@ -158,14 +158,66 @@ A recipe's recorded cost over time SHALL NOT include store-specific clearance pr
 - **WHEN** today's opportunity is computed
 - **THEN** clearance is included, because that is what makes it an opportunity
 
-### Requirement: The cost of holding a recipe pool is bounded and stated
+### Requirement: The pool is the well-regarded recipes, not the whole catalogue
 
-The system SHALL limit what it spends on the retailer to maintain its pool of recipes, under a stated daily budget, and SHALL make the pool's size and its usable size visible to the person relying on it. The bound SHALL be on requests, not on the number of recipes held.
+The system SHALL hold a bounded pool of recipes chosen by how well the retailer's own readers rate them, rather than the entire published catalogue. The bound SHALL be a stated number of recipes, and the pool SHALL be refreshed rather than accumulated, so that it does not grow without limit.
+
+A recipe's rating and the number of votes behind it SHALL be held with it, because a five-star average over three votes is not the same claim as one over three hundred.
+
+#### Scenario: The pool is refreshed, not accumulated
+
+- **WHEN** the pool is rebuilt
+- **THEN** recipes that have fallen out of favour leave it, and the total held stays within the stated bound
+
+#### Scenario: A thinly voted recipe
+
+- **WHEN** a recipe's rating rests on very few votes
+- **THEN** how many votes it rests on is available wherever the rating is shown
 
 #### Scenario: A person has adopted few recipes
 
 - **WHEN** someone has adopted only a handful of recipes
-- **THEN** the ranking still draws on more than those, so the answer is useful before a large collection exists
+- **THEN** the ranking still draws on the pool, so the answer is useful before a large collection exists
+
+### Requirement: A person's own recipes outrank the pool and are never evicted
+
+A recipe a person has adopted or entered SHALL NOT be removed by a pool refresh, regardless of its rating or whether it still appears in the retailer's popular listing.
+
+#### Scenario: An adopted recipe falls out of the popular listing
+
+- **WHEN** the pool is refreshed and an adopted recipe is no longer among the well-rated
+- **THEN** it is kept, because the person chose it and that outranks the retailer's ordering
+
+### Requirement: A person can dismiss a recipe and stop seeing it
+
+A person SHALL be able to reject a recipe from the pool, and a rejected recipe SHALL NOT be recommended again. The rejection SHALL survive a pool refresh, so that dismissing something is permanent until the person reverses it.
+
+A person SHALL also be able to keep a recipe, which adopts it into their own and exempts it from eviction.
+
+#### Scenario: Rejecting a recommendation
+
+- **WHEN** a person rejects a recipe they do not want to cook
+- **THEN** it does not appear in any later ranking
+
+#### Scenario: A rejection outlives the pool it was made against
+
+- **WHEN** the pool is refreshed and a rejected recipe is fetched again
+- **THEN** it remains rejected without the person having to reject it twice
+
+#### Scenario: Keeping a recipe that keeps coming up
+
+- **WHEN** a person keeps a recipe that has been recommended to them
+- **THEN** it becomes one of their own and is never evicted by a refresh
+
+#### Scenario: Changing one's mind
+
+- **WHEN** a person looks at what they have rejected
+- **THEN** they can reverse any of it, so a dismissal is not a trap
+
+#### Scenario: Dismissals are not silently lost
+
+- **WHEN** a recipe is rejected
+- **THEN** it remains listed as rejected rather than vanishing without record
 
 #### Scenario: The budget is exhausted or the credential is rejected
 
