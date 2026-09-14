@@ -297,10 +297,26 @@ def test_services_that_bypass_uv_still_find_the_venv():
 
 
 def test_the_webserver_health_probe_loads_the_definitions():
-    """/server_info returns static version strings without touching user code,
-    so a code location that could not load at all still reported healthy. The
-    probe asks for the repository instead."""
+    """This probe has now been wrong twice, and the second way is the subtle one.
+
+    /server_info answered from static version strings and passed while every
+    code location was dead. Asking for `repositoriesOrError` looked like the
+    fix, but a webserver with a broken definitions module *still* answers
+    `RepositoryConnection` - with `nodes: []`. Verified on the deployment host
+    by appending a `raise` to definitions.py: the container stayed green
+    through five probes.
+
+    So a `__typename` check is not enough. The probe must assert that a
+    repository is actually being served and that no code location failed to
+    load.
+    """
     compose = yaml.safe_load(COMPOSE_FILE.read_text())
     probe = " ".join(compose["services"]["dagster-webserver"]["healthcheck"]["test"])
     assert "graphql" in probe
     assert "repositoriesOrError" in probe
+    # An empty RepositoryConnection is what a dead code location looks like.
+    assert "nodes" in probe, "probe accepts a connection serving no repositories"
+    # And the failure is named here, so a location that dies mid-load is caught
+    # even if some repository is still being served.
+    assert "workspaceOrError" in probe
+    assert "PythonError" in probe

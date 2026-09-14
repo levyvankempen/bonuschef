@@ -75,11 +75,15 @@ services:
         - CMD
         - python
         - -c
-        # /server_info returns static version strings without touching user
-        # code, so it reported healthy for a code location that could not load
-        # at all. Ask for the repository instead: a webserver that cannot serve
-        # its definitions is not serving.
-        - 'import json,urllib.request,sys; r=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:3000/graphql",data=json.dumps({"query":"{repositoriesOrError{__typename}}"}).encode(),headers={"Content-Type":"application/json"}),timeout=10); b=json.load(r); sys.exit(0 if b.get("data",{}).get("repositoriesOrError",{}).get("__typename")=="RepositoryConnection" else 1)'
+        # Two false-healthy bugs deep. /server_info answered from static
+        # version strings, so it passed while every code location was dead.
+        # Asking for repositoriesOrError was not enough either: with a broken
+        # definitions module it still answers RepositoryConnection, just with
+        # nodes: [] - verified on the guest by appending a `raise` to
+        # definitions.py, which the __typename check waved straight through.
+        # So assert what actually matters: at least one repository is being
+        # served, and no code location failed to load.
+        - 'import json,urllib.request,sys; q={"query":"{repositoriesOrError{__typename ... on RepositoryConnection{nodes{name}}} workspaceOrError{__typename ... on Workspace{locationEntries{locationOrLoadError{__typename}}}}}"}; r=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:3000/graphql",data=json.dumps(q).encode(),headers={"Content-Type":"application/json"}),timeout=10); d=json.load(r).get("data") or {}; repos=(d.get("repositoriesOrError") or {}).get("nodes") or []; entries=(d.get("workspaceOrError") or {}).get("locationEntries") or []; broken=[e for e in entries if ((e.get("locationOrLoadError") or {}).get("__typename")=="PythonError")]; sys.exit(0 if repos and entries and not broken else 1)'
       interval: 30s
       timeout: 10s
       retries: 3
