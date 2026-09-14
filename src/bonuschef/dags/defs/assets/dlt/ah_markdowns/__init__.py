@@ -23,7 +23,7 @@ from bonuschef.utils.ah_auth import AHTokenManager, TokenStore
 
 _BARGAIN_ITEMS_QUERY = """query BargainItems($storeId: String!) {
   bargainItems(storeId: $storeId) {
-    product { id title brand salesUnitSize }
+    product { id title brand salesUnitSize imagePack { medium { url } } }
     categoryTitle
     markdown { markdownType markdownPercentage markdownExpirationDate }
     stock
@@ -40,6 +40,30 @@ def _to_float(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _image_url(product: dict) -> str | None:
+    """A thumbnail for the clearance card, or None.
+
+    AH returns ``imagePack`` as a list of packs, each carrying named sizes.
+    Nothing about that shape is documented, so every step degrades to None
+    rather than raising: a missing picture is never worth failing a scrape over,
+    and the card already renders without one.
+
+    ``medium`` by name rather than by index - the pack's ordering is not
+    specified and an index would break silently the day it changes.
+    """
+    pack = product.get("imagePack")
+    if not isinstance(pack, list):
+        return None
+    for entry in pack:
+        if not isinstance(entry, dict):
+            continue
+        for size in ("medium", "small", "large"):
+            node = entry.get(size)
+            if isinstance(node, dict) and node.get("url"):
+                return str(node["url"])
+    return None
 
 
 def token_manager(cfg: AHMarkdownConfig) -> AHTokenManager:
@@ -66,6 +90,7 @@ def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
             "title": product.get("title"),
             "brand": product.get("brand"),
             "sales_unit_size": product.get("salesUnitSize"),
+            "image_url": _image_url(product),
             "category_title": item.get("categoryTitle"),
             "markdown_type": markdown.get("markdownType"),
             "markdown_percentage": markdown.get("markdownPercentage"),

@@ -219,6 +219,9 @@ class TestAddRecipeCatalogue:
             "search": SearchPage(
                 total=20, hits=(RecipeHit(1199196, "Zuurkoolstamppot"),)
             ),
+            "browse": SearchPage(
+                total=24803, hits=(RecipeHit(1234, "Uit de Allerhande"),)
+            ),
             "search_exc": None,
             "fetch_exc": None,
             "saved": [],
@@ -243,6 +246,10 @@ class TestAddRecipeCatalogue:
         monkeypatch.setattr(page, "get_engine", lambda: object())
         monkeypatch.setattr(page, "_ensure", lambda e: True)
         monkeypatch.setattr(page, "_search", search)
+        # The page browses when nothing has been typed; without these the
+        # default state would reach AH.
+        monkeypatch.setattr(page, "_browse", lambda sort_by, season: state["browse"])
+        monkeypatch.setattr(page, "_seasons", lambda: ["winter", "zomer"])
         monkeypatch.setattr(page, "fetch_recipe", fetch)
         monkeypatch.setattr(page, "is_adopted", lambda e, i: state["adopted_already"])
         monkeypatch.setattr(
@@ -257,8 +264,10 @@ class TestAddRecipeCatalogue:
         return state
 
     def _search(self, at, term="zuurkool"):
+        # By label, not by index: the browse controls sit alongside the form and
+        # the positions shift whenever the default state changes.
         at.text_input[0].input(term)
-        at.button[0].click().run()
+        next(b for b in at.button if b.label == "Zoek").click().run()
         return at
 
     def test_results_are_cards_not_a_grid(self, monkeypatch):
@@ -345,3 +354,58 @@ class TestAddRecipeCatalogue:
         next(b for b in at.button if b.label == "Bekijken").click().run()
         assert "staat al" in at.info[0].value
         assert not [b for b in at.button if b.label == "Voeg toe aan mijn recepten"]
+
+    def test_recipes_are_shown_before_anything_is_typed(self, monkeypatch):
+        """The page used to open on an empty search box, which required knowing
+        a dish name before the catalogue was any use."""
+        s = self._stubs(monkeypatch)
+        at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        assert not at.exception
+        assert any("Uit de Allerhande" in m.value for m in at.markdown)
+        assert [b for b in at.button if b.label == "Bekijken"]
+
+    def test_the_ordering_can_be_changed(self, monkeypatch):
+        asked = []
+        s = self._stubs(monkeypatch)
+        monkeypatch.setattr(
+            s["page"],
+            "_browse",
+            lambda sort_by, season: asked.append((sort_by, season)) or s["browse"],
+        )
+        at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        assert asked[-1][0] == "NEWEST", "opens on what is new"
+        at.radio[0].set_value("Populair").run()
+        assert asked[-1][0] == "POPULAR"
+
+    def test_the_season_values_come_from_the_catalogue(self, monkeypatch):
+        """Hardcoding them would rot the day AH renames one, and offering a
+        season with nothing in it is worse than no filter."""
+        s = self._stubs(monkeypatch)
+        monkeypatch.setattr(s["page"], "_seasons", lambda: ["herfst", "winter"])
+        at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        assert "herfst" in at.selectbox[0].options
+        assert "winter" in at.selectbox[0].options
+
+    def test_searching_replaces_the_browsable_list(self, monkeypatch):
+        s = self._stubs(monkeypatch)
+        at = self._search(
+            run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        )
+        text = " ".join(m.value for m in at.markdown)
+        assert "Zuurkoolstamppot" in text
+        assert "Uit de Allerhande" not in text
+
+    def test_an_unreachable_catalogue_on_arrival_says_so(self, monkeypatch):
+        """Distinct from an empty catalogue, which would read as there being no
+        recipes at all."""
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        s = self._stubs(monkeypatch)
+
+        def boom(sort_by, season):
+            raise AHRecipeUnavailable("down")
+
+        monkeypatch.setattr(s["page"], "_browse", boom)
+        at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
+        assert "niet bereikbaar" in at.error[0].value
+        assert not at.info

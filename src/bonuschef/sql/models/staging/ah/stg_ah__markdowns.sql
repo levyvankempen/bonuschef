@@ -14,6 +14,7 @@ renamed AS (
         title AS product_name,
         brand,
         sales_unit_size,
+        image_url,
         category_title,
         markdown_type,
         markdown_percentage,

@@ -22,6 +22,7 @@ from bonuschef.portal.rebuild import start_recipe_rebuild
 from bonuschef.portal.review import open_review
 from bonuschef.utils.ah_recipes import (
     AHRecipeNotFound,
+    facet_values,
     AHRecipeShapeError,
     AHRecipeUnavailable,
     fetch_recipe,
@@ -39,9 +40,34 @@ def _ensure(_engine) -> bool:
     return True
 
 
+_SORT_LABELS = {
+    "Nieuw": "NEWEST",
+    "Populair": "POPULAR",
+    "In trek": "TRENDING",
+}
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def _search(query: str):
     return search_recipes(query, size=8)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _browse(sort_by: str, season: str | None):
+    """Allerhande without a search term, which is how people actually browse."""
+    filters: list[dict[str, object]] | None = (
+        [{"group": "seizoen", "values": [season]}] if season else None
+    )
+    return search_recipes(size=8, sort_by=sort_by, filters=filters)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _seasons() -> list[str]:
+    """Read from the catalogue: a hardcoded copy rots the day AH renames one."""
+    try:
+        return facet_values("seizoen")
+    except (AHRecipeUnavailable, AHRecipeShapeError):
+        return []
 
 
 def _render_search() -> None:
@@ -66,6 +92,71 @@ def _render_search() -> None:
         st.session_state[_QUERY] = query.strip()
         st.session_state.pop(_PICKED, None)
         st.session_state.pop(_ADDED, None)
+
+
+def _render_hits(hits) -> None:
+    for hit in hits:
+        with st.container(border=True, horizontal=True, vertical_alignment="center"):
+            if hit.image_url:
+                st.image(hit.image_url, width=72)
+            with st.container():
+                st.markdown(f"**{hit.title}**")
+            with st.container(horizontal_alignment="right"):
+                if st.button("Bekijken", key=f"pick_{hit.recipe_id}"):
+                    st.session_state[_PICKED] = hit.recipe_id
+                    st.rerun()
+
+
+def _render_browse() -> None:
+    """Allerhande, before anything has been typed.
+
+    The page used to open on an empty search box, which required knowing a dish
+    name before the catalogue was any use at all.
+    """
+    st.markdown("**Uit de Allerhande**")
+    controls = st.columns([2, 2])
+    with controls[0]:
+        # radio, not segmented_control: AppTest reads the latter's single-select
+        # value as a sequence and iterates the label's characters.
+        label = st.radio(
+            "Sorteren",
+            list(_SORT_LABELS),
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    seasons = _seasons()
+    season = None
+    with controls[1]:
+        if seasons:
+            season = st.selectbox(
+                "Seizoen",
+                ["Alle seizoenen", *seasons],
+                label_visibility="collapsed",
+            )
+            season = None if season == "Alle seizoenen" else season
+
+    try:
+        with st.spinner("Recepten ophalen…"):
+            page = _browse(_SORT_LABELS.get(label or "Nieuw", "NEWEST"), season)
+    except AHRecipeUnavailable as exc:
+        # Distinct from an empty catalogue, which would read as "there are no
+        # recipes" rather than "we could not ask".
+        st.error(
+            "De receptencatalogus van Albert Heijn is nu niet bereikbaar. "
+            "Je eigen recepten blijven gewoon werken."
+        )
+        st.caption(str(exc))
+        return
+    except AHRecipeShapeError as exc:
+        st.error("Albert Heijn gaf een antwoord dat we niet konden lezen.")
+        st.caption(str(exc))
+        return
+
+    if not page.hits:
+        st.info("Geen recepten gevonden voor deze keuze.")
+        return
+    st.caption(f"{page.total} recepten")
+    _render_hits(page.hits)
 
 
 def _render_results(query: str) -> None:
@@ -94,18 +185,9 @@ def _render_results(query: str) -> None:
         return
 
     st.caption(f"{page.total} recepten gevonden")
-    for hit in page.hits:
-        with st.container(border=True, horizontal=True, vertical_alignment="center"):
-            if hit.image_url:
-                st.image(hit.image_url, width=72)
-            with st.container():
-                st.markdown(f"**{hit.title}**")
-            with st.container(horizontal_alignment="right"):
-                # Picking IS selecting. The old flow showed a table and then
-                # made you find the same name again in a separate control.
-                if st.button("Bekijken", key=f"pick_{hit.recipe_id}"):
-                    st.session_state[_PICKED] = hit.recipe_id
-                    st.rerun()
+    # Picking IS selecting: the old flow showed a table and then made you find
+    # the same name again in a separate control.
+    _render_hits(page.hits)
 
 
 def _adopt(engine, recipe) -> None:
@@ -221,6 +303,8 @@ def render_add_recipe() -> None:
         _render_search()
         if query := st.session_state.get(_QUERY):
             _render_results(query)
+        else:
+            _render_browse()
 
     with st.expander("Zelf een recept invoeren"):
         render_manual_entry()

@@ -18,6 +18,7 @@ from bonuschef.utils.ah_recipes import (
     AHRecipeShapeError,
     AHRecipeUnavailable,
     _parse_recipe,
+    facet_values,
     fetch_recipe,
     search_recipes,
 )
@@ -266,3 +267,88 @@ def test_the_search_document_declares_the_custom_page_scalar():
 
     assert "$size: PageSize" in _SEARCH_QUERY
     assert "$size: Int" not in _SEARCH_QUERY
+
+
+class TestBrowsing:
+    """Retrieving recipes without a search term."""
+
+    def test_an_unsupported_ordering_is_rejected_before_the_request(
+        self, http_post, manager
+    ):
+        """The catalogue rejects it at request time, which surfaces as the whole
+        thing being unreachable - the same confusing failure the PageSize scalar
+        produced. Fail where the mistake is."""
+        with pytest.raises(ValueError, match="sort_by"):
+            search_recipes(sort_by="RELEVANCE", manager=manager)
+        assert http_post.calls == [], "nothing should have been sent"
+
+    def test_an_ordering_reaches_the_request(self, http_post, manager):
+        http_post.queue(
+            FakeResponse(
+                200, {"data": {"recipeSearch": {"page": {"total": 1}, "result": []}}}
+            )
+        )
+        search_recipes(size=3, sort_by="NEWEST", manager=manager)
+        assert http_post.last[1]["json"]["variables"]["sortBy"] == "NEWEST"
+
+    def test_browsing_sends_no_search_text(self, http_post, manager):
+        http_post.queue(
+            FakeResponse(
+                200, {"data": {"recipeSearch": {"page": {"total": 1}, "result": []}}}
+            )
+        )
+        search_recipes(manager=manager)
+        assert http_post.last[1]["json"]["variables"]["text"] is None
+
+    def test_a_facet_filter_reaches_the_request(self, http_post, manager):
+        http_post.queue(
+            FakeResponse(
+                200, {"data": {"recipeSearch": {"page": {"total": 1}, "result": []}}}
+            )
+        )
+        search_recipes(
+            filters=[{"group": "seizoen", "values": ["winter"]}], manager=manager
+        )
+        assert http_post.last[1]["json"]["variables"]["filters"] == [
+            {"group": "seizoen", "values": ["winter"]}
+        ]
+
+    def test_facet_values_are_read_from_the_catalogue(self, http_post, manager):
+        http_post.queue(
+            FakeResponse(
+                200,
+                {
+                    "data": {
+                        "recipeSearch": {
+                            "filters": [
+                                {
+                                    "name": "seizoen",
+                                    "label": "Seizoen",
+                                    "filters": [
+                                        {
+                                            "name": "winter",
+                                            "label": "Winter",
+                                            "count": 5,
+                                        },
+                                        {"name": "zomer", "label": "Zomer", "count": 3},
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                },
+            )
+        )
+        assert facet_values("seizoen", manager=manager) == ["winter", "zomer"]
+
+    def test_an_unknown_facet_group_is_empty_not_an_error(self, http_post, manager):
+        http_post.queue(FakeResponse(200, {"data": {"recipeSearch": {"filters": []}}}))
+        assert facet_values("seizoen", manager=manager) == []
+
+    def test_a_changed_facet_shape_fails_rather_than_yielding_nothing(
+        self, http_post, manager
+    ):
+        """Silently empty options would read as "this season has no recipes"."""
+        http_post.queue(FakeResponse(200, {"data": {"recipeSearch": {}}}))
+        with pytest.raises(AHRecipeShapeError):
+            facet_values("seizoen", manager=manager)

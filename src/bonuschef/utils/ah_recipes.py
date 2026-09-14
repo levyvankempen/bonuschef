@@ -56,12 +56,29 @@ _RECIPE_QUERY = """query AHRecipe($id: Int!, $canary: Int!) {
 
 # `size` is a custom scalar, not an Int - declaring it Int fails validation
 # with "PageSize cannot represent value". `start` really is an Int.
-_SEARCH_QUERY = """query AHRecipeSearch($text: String, $size: PageSize, $start: Int) {
-  recipeSearch(query: { searchText: $text, size: $size, start: $start }) {
+_SEARCH_QUERY = """query AHRecipeSearch(
+  $text: String, $size: PageSize, $start: Int,
+  $sortBy: RecipeSearchSortOption, $filters: [RecipeSearchQueryFilter!]
+) {
+  recipeSearch(query: {
+    searchText: $text, size: $size, start: $start,
+    sortBy: $sortBy, filters: $filters
+  }) {
     page { total }
     result { id title images { url width height } }
   }
 }"""
+
+_FACETS_QUERY = """query AHRecipeFacets {
+  recipeSearch(query: { size: 1 }) {
+    filters { name label filters { name label count } }
+  }
+}"""
+
+# The catalogue accepts exactly these and rejects anything else at request time,
+# which surfaces as the whole catalogue being unreachable - the same confusing
+# failure the PageSize scalar produced. Reject locally instead.
+SORT_OPTIONS = ("NEWEST", "POPULAR", "TRENDING")
 
 
 class AHRecipeError(RuntimeError):
@@ -252,13 +269,24 @@ def fetch_recipe(recipe_id: int, *, manager: AHTokenManager | None = None) -> Re
 
 
 def search_recipes(
-    text: str,
+    text: str | None = None,
     *,
     size: int = 20,
     start: int = 0,
+    sort_by: str | None = None,
+    filters: list[dict[str, object]] | None = None,
     manager: AHTokenManager | None = None,
 ) -> SearchPage:
-    """Search the catalogue. No results is a value, never an exception."""
+    """Search or browse the catalogue. No results is a value, never an exception.
+
+    With no ``text`` this browses, which is what lets the add-recipe page be
+    useful before anything has been typed.
+    """
+    if sort_by is not None and sort_by not in SORT_OPTIONS:
+        # The catalogue rejects an unknown ordering at request time, which
+        # surfaces as the whole thing being unreachable - the same confusing
+        # failure the PageSize scalar produced. Fail where the mistake is.
+        raise ValueError(f"sort_by must be one of {SORT_OPTIONS}, got {sort_by!r}")
     manager = manager or manager_from_env()
     _pace()
     try:
@@ -268,6 +296,8 @@ def search_recipes(
                 "text": text,
                 "size": min(int(size), MAX_SEARCH_SIZE),
                 "start": int(start),
+                "sortBy": sort_by,
+                "filters": filters,
             },
         )
     except AHAuthError as exc:
@@ -294,3 +324,33 @@ def search_recipes(
         (node.get("page") or {}) if isinstance(node.get("page"), dict) else {}
     ).get("total")
     return SearchPage(total=int(total or 0), hits=hits, start=start)
+
+
+def facet_values(group: str, *, manager: AHTokenManager | None = None) -> list[str]:
+    """The values the catalogue itself offers for a facet, e.g. seizoen.
+
+    Read rather than hardcoded: a copy would rot silently the day AH renames a
+    season, and offering a season with nothing in it is worse than no filter.
+    """
+    manager = manager or manager_from_env()
+    _pace()
+    try:
+        data = manager.graphql(_FACETS_QUERY, {})
+    except AHAuthError as exc:
+        raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+    except Exception as exc:
+        raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+
+    node = data.get("recipeSearch")
+    groups = node.get("filters") if isinstance(node, dict) else None
+    if not isinstance(groups, list):
+        raise AHRecipeShapeError("the catalogue returned no facet groups")
+    for entry in groups:
+        if isinstance(entry, dict) and entry.get("name") == group:
+            values = entry.get("filters")
+            if not isinstance(values, list):
+                raise AHRecipeShapeError(f"facet {group!r} carries no values")
+            return [
+                str(v["name"]) for v in values if isinstance(v, dict) and v.get("name")
+            ]
+    return []

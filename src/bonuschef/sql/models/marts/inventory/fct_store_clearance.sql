@@ -73,7 +73,7 @@ joined AS (
         cm.markdown_amount,
         cm.scraped_at,
         pc.product_link,
-        pc.image_url,
+        COALESCE(cm.image_url, pc.image_url) AS image_url,
         pc.tracked_price,
         pc.price_age_days,
         -- Withheld, not flagged, when the reference price is too old to be

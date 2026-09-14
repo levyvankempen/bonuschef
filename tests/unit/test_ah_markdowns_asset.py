@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from bonuschef.config import AHMarkdownConfig
 from bonuschef.dags.defs.assets.dlt import ah_markdowns as module
 from bonuschef.dags.defs.assets.dlt.ah_markdowns import (
@@ -80,6 +82,7 @@ def test_iter_markdowns_maps_fields(monkeypatch):
             "title": "Kip",
             "brand": "AH",
             "sales_unit_size": "500 g",
+            "image_url": None,
             "category_title": "Vlees",
             "markdown_type": "EXPIRATION",
             "markdown_percentage": 35,
@@ -116,3 +119,47 @@ def test_source_stamps_one_scraped_at_per_run(monkeypatch):
     stamps = {r["scraped_at"] for r in rows}
     assert len(stamps) == 1
     assert stamps.pop().endswith("Z")
+
+
+class TestImagePack:
+    """AH returns the product image with the clearance item itself.
+
+    The shape is undocumented, so every step degrades to None rather than
+    raising: a missing picture must never fail a scrape, and the card already
+    renders without one.
+    """
+
+    def test_the_medium_size_is_taken(self):
+        from bonuschef.dags.defs.assets.dlt.ah_markdowns import _image_url
+
+        url = _image_url(
+            {"imagePack": [{"medium": {"url": "https://static.ah.nl/m.jpg"}}]}
+        )
+        assert url == "https://static.ah.nl/m.jpg"
+
+    def test_another_size_is_used_when_medium_is_absent(self):
+        from bonuschef.dags.defs.assets.dlt.ah_markdowns import _image_url
+
+        assert (
+            _image_url(
+                {"imagePack": [{"small": {"url": "https://static.ah.nl/s.jpg"}}]}
+            )
+            == "https://static.ah.nl/s.jpg"
+        )
+
+    @pytest.mark.parametrize(
+        "product",
+        [
+            pytest.param({}, id="no-pack"),
+            pytest.param({"imagePack": None}, id="null-pack"),
+            pytest.param({"imagePack": []}, id="empty-pack"),
+            pytest.param({"imagePack": [{}]}, id="entry-without-sizes"),
+            pytest.param({"imagePack": [{"medium": None}]}, id="null-size"),
+            pytest.param({"imagePack": [{"medium": {}}]}, id="size-without-url"),
+            pytest.param({"imagePack": "not-a-list"}, id="wrong-type"),
+        ],
+    )
+    def test_anything_unexpected_degrades_to_no_image(self, product):
+        from bonuschef.dags.defs.assets.dlt.ah_markdowns import _image_url
+
+        assert _image_url(product) is None
