@@ -49,7 +49,7 @@ An ingredient SHALL be recorded against the retailer's stable identity for that 
 
 ### Requirement: An ingredient is resolved to purchasable products explicitly
 
-An ingredient identity SHALL be resolved to the products that satisfy it. The system SHALL propose candidates; a person SHALL be able to confirm or correct the resolution; and a confirmed resolution SHALL persist and be reused.
+An ingredient identity SHALL be resolved to the products that satisfy it. The system SHALL propose candidates automatically, and a proposal SHALL persist and be reused by every recipe sharing that ingredient. Proposing SHALL NOT interrupt adoption: a person who adopts twenty recipes SHALL not be asked twenty times.
 
 #### Scenario: A confident candidate
 
@@ -61,10 +61,10 @@ An ingredient identity SHALL be resolved to the products that satisfy it. The sy
 - **WHEN** more than one product satisfies an ingredient
 - **THEN** all of them can be associated with it, because which is cheapest changes from day to day and the cheapest is the point
 
-#### Scenario: A person corrects a proposal
+#### Scenario: Proposing never blocks adopting
 
-- **WHEN** a proposed resolution is wrong
-- **THEN** the person can replace it, and their correction is what persists
+- **WHEN** a recipe is adopted
+- **THEN** its ingredients are resolved as far as they can be automatically, and the person is not asked to approve anything before the recipe exists
 
 #### Scenario: A resolution is reused
 
