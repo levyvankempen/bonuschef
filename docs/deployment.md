@@ -128,6 +128,30 @@ Bring the app services up and run a full `dbt build`. It rebuilds every mart fro
 the restored sources, which is what establishes nothing else needed migrating.
 Measured: 27 s at 2 threads, 106 passing tests.
 
+### The restore has an aftershock: Dagster's own state did not come with it
+
+Migrating the data does not migrate the Dagster instance tables, and nothing tells
+you that. A fresh instance has no dynamic partitions, so the github sensor treats
+every commit in the history as new and queues a run for each — 43 of them here. The
+source merges on `(l, snapshot_at)`, so each is an expensive no-op rather than a
+duplicate, but with `max_concurrent_runs: 1` they serialise: the first ran 33 minutes
+on two cores and the other 42 waited behind it.
+
+The visible symptom is somewhere else entirely. Pressing **Nu verversen** in the
+portal queues a run at position 44 and it does not start for hours, while the page
+shows a spinner claiming the store is being scanned.
+
+So after restoring, check the queue before trusting anything on-demand:
+
+```
+docker exec pg_bonuschef psql -U postgres -d postgres -Atc \
+  "SELECT status, count(*) FROM runs GROUP BY status;"
+```
+
+Cancel the backfill runs if the data they would load is already restored — they are
+redundant by construction. The partitions stay registered, so the sensor does not
+re-queue them.
+
 ## 5. The AH credential
 
 The refresh token **rotates on use**, so two stacks running at once fight over it
