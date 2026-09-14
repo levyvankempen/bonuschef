@@ -74,6 +74,11 @@ def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
         SELECT
             b.recipe_id,
             b.recipe_name,
+            b.item_key,
+            b.is_unresolved,
+            i.concept_id,
+            i.item_label,
+            r.review_state,
             b.product_name,
             b.product_link,
             b.quantity,
@@ -85,6 +90,10 @@ def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
         FROM "{schema}"."fct_recipe_cost_breakdown" AS b
         LEFT JOIN "{schema}"."dim_product" AS d
             ON b.product_link = d.product_link
+        LEFT JOIN public.int_recipe_items_priced AS i
+            ON b.recipe_id = i.recipe_id AND b.item_key = i.item_key
+        LEFT JOIN public.ah_ingredient_review AS r
+            ON i.concept_id = r.concept_id
         WHERE b.recipe_id = :recipe_id
         ORDER BY b.item_cost DESC
     """)
@@ -117,6 +126,10 @@ def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
         FROM "{schema}"."fct_recipe_cost_breakdown_bonus" AS b
         LEFT JOIN "{schema}"."dim_product" AS d
             ON b.product_link = d.product_link
+        LEFT JOIN public.int_recipe_items_priced AS i
+            ON b.recipe_id = i.recipe_id AND b.item_key = i.item_key
+        LEFT JOIN public.ah_ingredient_review AS r
+            ON i.concept_id = r.concept_id
         WHERE b.recipe_id = :recipe_id
         ORDER BY b.item_cost DESC
     """)
@@ -352,6 +365,21 @@ def ensure_catalogue_tables(_engine) -> None:
         )
         conn.execute(
             text("""
+            -- "A person looked and there is no such product" cannot be spelled
+            -- as a NULL on the products table, and without it an ingredient
+            -- like bospaddenstoelenfond stays outstanding forever and the list
+            -- of work stops being a list of work. Absence of a row here means
+            -- nobody has looked.
+            CREATE TABLE IF NOT EXISTS public.ah_ingredient_review (
+                concept_id   BIGINT PRIMARY KEY,
+                review_state TEXT NOT NULL
+                    CHECK (review_state IN ('resolved', 'none_exists')),
+                reviewed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        )
+        conn.execute(
+            text("""
             -- 6 of 467 sampled ingredient names carry two concept ids
             -- (courgette is both 1853 and 219282). Without this, resolving an
             -- ingredient once fails to serve both for about one in seventy-eight.
@@ -360,6 +388,114 @@ def ensure_catalogue_tables(_engine) -> None:
                 canonical_concept_id BIGINT NOT NULL
             )
         """)
+        )
+
+
+def confirm_resolution(_engine, concept_id: int, product_links: list[str]) -> None:
+    """Record a person's decision about which products satisfy an ingredient.
+
+    Chosen products are marked confirmed; anything they deselected is removed.
+    An empty choice is a legitimate answer - "nothing in the catalogue
+    satisfies this" - and is recorded as such rather than rejected.
+    """
+    state = "resolved" if product_links else "none_exists"
+    with _engine.begin() as conn:
+        conn.execute(
+            text("""
+                DELETE FROM public.ah_ingredient_products
+                WHERE concept_id = :concept_id
+                  AND (CAST(:keep AS text[]) IS NULL
+                       OR NOT (product_link = ANY(CAST(:keep AS text[]))))
+            """),
+            {"concept_id": concept_id, "keep": product_links or None},
+        )
+        for link in product_links:
+            conn.execute(
+                text("""
+                    UPDATE public.ah_ingredient_products
+                    SET confirmed_at = now()
+                    WHERE concept_id = :concept_id AND product_link = :link
+                """),
+                {"concept_id": concept_id, "link": link},
+            )
+        conn.execute(
+            text("""
+                INSERT INTO public.ah_ingredient_review
+                    (concept_id, review_state, reviewed_at)
+                VALUES (:concept_id, :state, now())
+                ON CONFLICT (concept_id) DO UPDATE
+                SET review_state = EXCLUDED.review_state, reviewed_at = now()
+            """),
+            {"concept_id": concept_id, "state": state},
+        )
+
+
+def add_resolution_products(_engine, concept_id: int, products: list[dict]) -> None:
+    """Attach products a person picked that the matcher had not proposed."""
+    if not products:
+        return
+    with _engine.begin() as conn:
+        for row in products:
+            conn.execute(
+                text("""
+                    INSERT INTO public.ah_ingredient_products
+                        (concept_id, product_link, product_name, confirmed_at)
+                    VALUES (:concept_id, :product_link, :product_name, now())
+                    ON CONFLICT (concept_id, product_link) DO UPDATE
+                    SET confirmed_at = now()
+                """),
+                {"concept_id": concept_id, **row},
+            )
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_unresolved_concepts(_engine, recipe_id: int | None = None) -> pd.DataFrame:
+    """Ingredients nobody has settled yet.
+
+    A concept a person examined and found nothing for is excluded: it has been
+    answered, and leaving it here would make the outstanding list never empty.
+    """
+    sql = text("""
+        SELECT DISTINCT i.concept_id, i.concept_name
+        FROM public.ah_recipe_ingredients AS i
+        LEFT JOIN public.ah_ingredient_review AS r
+            ON i.concept_id = r.concept_id
+        WHERE r.concept_id IS NULL
+          AND (CAST(:recipe_id AS bigint) IS NULL
+               OR i.recipe_id = CAST(:recipe_id AS bigint))
+        ORDER BY i.concept_name
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_concept_resolution(_engine, concept_id: int) -> pd.DataFrame:
+    """Products attached to an ingredient, and whether a person chose them."""
+    sql = text("""
+        SELECT product_link, product_name, (confirmed_at IS NOT NULL) AS is_confirmed
+        FROM public.ah_ingredient_products
+        WHERE concept_id = :concept_id
+        ORDER BY product_name
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"concept_id": concept_id})
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def search_catalogue_products(_engine, term: str, limit: int = 20) -> pd.DataFrame:
+    """Find a product by name, for when the matcher proposed nothing usable."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT product_link, product_name, price
+        FROM "{schema}"."dim_product"
+        WHERE product_name ILIKE :pattern
+        ORDER BY length(product_name), product_name
+        LIMIT :limit
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(
+            sql, conn, params={"pattern": f"%{term.strip()}%", "limit": limit}
         )
 
 

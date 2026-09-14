@@ -17,6 +17,8 @@ enriched AS (
     SELECT
         b.recipe_id,
         b.recipe_name,
+        b.item_key,
+        b.is_unresolved,
         b.product_name,
         b.product_link,
         b.quantity,

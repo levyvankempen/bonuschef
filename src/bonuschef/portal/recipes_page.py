@@ -3,6 +3,7 @@
 import pandas as pd
 import streamlit as st
 
+from bonuschef.portal.review import open_single
 from bonuschef.portal.db import (
     get_engine,
     read_recipe_bonus_summary,
@@ -106,19 +107,40 @@ def _render_recipe_detail(engine, summary_df):
 
     st.markdown("**Ingrediënten**")
     for _, row in breakdown_df.iterrows():
-        # One card per ingredient. Six st.columns per row gave each cell about
-        # 40px on a phone, and st.columns does not wrap.
+        # One card per ingredient, in one of three states: resolved to a
+        # product, unresolved, or decided to have no purchasable equivalent.
+        # The third is a decision and must not read like an oversight.
+        unresolved = bool(row.get("is_unresolved"))
+        no_product = row.get("review_state") == "none_exists"
+        label = row.get("item_label") or row.get("product_name")
         with st.container(border=True, horizontal=True, vertical_alignment="center"):
-            if row.get("image_url"):
+            if row.get("image_url") and not unresolved:
                 st.image(row["image_url"], width=56)
             with st.container():
-                if row.get("product_url"):
+                if unresolved:
+                    st.markdown(f"**{label}**")
+                    if no_product:
+                        st.badge(
+                            "geen product",
+                            color="gray",
+                            icon=":material/block:",
+                        )
+                        st.caption("Hiervoor is bewust geen product gekozen.")
+                    else:
+                        st.badge(
+                            "nog niet gekoppeld",
+                            color="orange",
+                            icon=":material/help:",
+                        )
+                elif row.get("product_url"):
                     st.markdown(f"**[{row['product_name']}]({row['product_url']})**")
+                    st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
                 else:
                     st.markdown(f"**{row['product_name']}**")
-                st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
+                    st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
             with st.container(horizontal_alignment="right"):
-                st.markdown(f"**€{row['item_cost']:.2f}**")
+                if not unresolved and pd.notna(row.get("item_cost")):
+                    st.markdown(f"**€{row['item_cost']:.2f}**")
                 if row.get("is_on_bonus"):
                     st.badge(
                         row.get("bonus_mechanism") or "Bonus",
@@ -126,8 +148,8 @@ def _render_recipe_detail(engine, summary_df):
                         icon=":material/savings:",
                     )
                     # The honest-price insight, in one line rather than three
-                    # prices separated by pipes. This is the project's thesis and
-                    # it belongs where the saving is, not in a separate table.
+                    # prices separated by pipes. This is the project's thesis
+                    # and it belongs where the saving is.
                     ah_price = row.get("price_before_bonus")
                     tracked = row.get("price")
                     if (
@@ -139,6 +161,16 @@ def _render_recipe_detail(engine, summary_df):
                             f"AH rekent €{ah_price:.2f} als 'van'-prijs; "
                             f"wij zagen €{tracked:.2f}."
                         )
+                # Correctable where the gap is visible: noticing and fixing are
+                # one act, and because resolution lives on the ingredient, this
+                # corrects every recipe using it.
+                if pd.notna(row.get("concept_id")):
+                    if st.button(
+                        "wijzig",
+                        key=f"fix_{row['recipe_id']}_{row['item_key']}",
+                        type="tertiary",
+                    ):
+                        open_single(get_engine(), int(row["concept_id"]), str(label))
 
 
 def render_recipes():

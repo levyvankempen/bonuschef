@@ -1,0 +1,191 @@
+"""Settling what an ingredient can be bought as.
+
+The SQL half is exercised against the real database because the guarantees that
+matter here - a person's decision surviving the matcher, an empty choice being a
+valid answer - live in the statements rather than in Python, and a stubbed
+engine would assert only that the right strings were sent.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from sqlalchemy import create_engine, text
+
+from bonuschef.portal.db import (
+    add_resolution_products,
+    confirm_resolution,
+    ensure_catalogue_tables,
+    propose_products,
+)
+
+_CONCEPT = 999_000_001
+_OTHER = 999_000_002
+
+
+@pytest.fixture
+def engine():
+    """A live connection, skipped when there isn't one.
+
+    The suite is network-free by design; this is the local Postgres the whole
+    project runs against, and these assertions are about SQL semantics.
+    """
+    url = (
+        f"postgresql+psycopg2://{os.getenv('PG_USER', 'postgres')}:"
+        f"{os.getenv('PG_PASSWORD', 'postgres')}@{os.getenv('PG_HOST', 'localhost')}:"
+        f"{os.getenv('PG_PORT', '5455')}/{os.getenv('PG_DB', 'postgres')}"
+    )
+    try:
+        eng = create_engine(url, pool_pre_ping=True)
+        with eng.begin() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        # ty cannot see through pytest's @_with_exception decorator, so it
+        # reads skip() as taking no arguments. Upstream limitation, not ours.
+        pytest.skip("no local Postgres")  # ty: ignore[too-many-positional-arguments]
+    ensure_catalogue_tables(eng)
+    yield eng
+    with eng.begin() as conn:
+        for cid in (_CONCEPT, _OTHER):
+            conn.execute(
+                text("DELETE FROM public.ah_ingredient_products WHERE concept_id = :c"),
+                {"c": cid},
+            )
+            conn.execute(
+                text("DELETE FROM public.ah_ingredient_review WHERE concept_id = :c"),
+                {"c": cid},
+            )
+
+
+def _attached(engine, concept_id):
+    with engine.begin() as conn:
+        return {
+            r[0]: r[1]
+            for r in conn.execute(
+                text("""SELECT product_link, confirmed_at IS NOT NULL
+                        FROM public.ah_ingredient_products WHERE concept_id = :c"""),
+                {"c": concept_id},
+            )
+        }
+
+
+def _review(engine, concept_id):
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "SELECT review_state FROM public.ah_ingredient_review WHERE concept_id = :c"
+            ),
+            {"c": concept_id},
+        ).scalar()
+
+
+def test_a_decision_survives_the_matcher(engine):
+    """The durability guarantee, and the reason it lives in SQL: the matcher
+    runs unattended on every adoption, so a guard in a code path someone can
+    forget to call is not a guard."""
+    propose_products(
+        engine,
+        [
+            {
+                "concept_id": _CONCEPT,
+                "product_link": "a",
+                "product_name": "Olijfolie mild",
+            },
+            {
+                "concept_id": _CONCEPT,
+                "product_link": "b",
+                "product_name": "Olijfolie extra",
+            },
+        ],
+    )
+    confirm_resolution(engine, _CONCEPT, ["a"])
+    assert _attached(engine, _CONCEPT) == {"a": True}, "deselected product removed"
+
+    # The matcher runs again, as it does on every adoption.
+    propose_products(
+        engine,
+        [
+            {
+                "concept_id": _CONCEPT,
+                "product_link": "a",
+                "product_name": "SOMETHING ELSE",
+            },
+        ],
+    )
+    with engine.begin() as conn:
+        name = conn.execute(
+            text("""SELECT product_name FROM public.ah_ingredient_products
+                    WHERE concept_id = :c AND product_link = 'a'"""),
+            {"c": _CONCEPT},
+        ).scalar()
+    assert name == "Olijfolie mild", "the matcher overwrote a decision"
+
+
+def test_the_matcher_may_still_fill_an_undecided_gap(engine):
+    propose_products(
+        engine,
+        [
+            {"concept_id": _OTHER, "product_link": "x", "product_name": "First"},
+        ],
+    )
+    propose_products(
+        engine,
+        [
+            {"concept_id": _OTHER, "product_link": "x", "product_name": "Second"},
+        ],
+    )
+    with engine.begin() as conn:
+        name = conn.execute(
+            text("""SELECT product_name FROM public.ah_ingredient_products
+                    WHERE concept_id = :c"""),
+            {"c": _OTHER},
+        ).scalar()
+    assert name == "Second", "an untouched proposal is not a decision"
+
+
+def test_choosing_nothing_records_that_nothing_satisfies_it(engine):
+    """An ingredient with no purchasable equivalent is an answer, not an
+    incomplete form. Without this state it stays outstanding forever and the
+    list of work never empties."""
+    propose_products(
+        engine,
+        [
+            {"concept_id": _CONCEPT, "product_link": "a", "product_name": "Wrong"},
+        ],
+    )
+    confirm_resolution(engine, _CONCEPT, [])
+    assert _attached(engine, _CONCEPT) == {}
+    assert _review(engine, _CONCEPT) == "none_exists"
+
+
+def test_choosing_products_records_it_as_resolved(engine):
+    propose_products(
+        engine,
+        [
+            {"concept_id": _CONCEPT, "product_link": "a", "product_name": "Right"},
+        ],
+    )
+    confirm_resolution(engine, _CONCEPT, ["a"])
+    assert _review(engine, _CONCEPT) == "resolved"
+
+
+def test_several_products_can_satisfy_one_ingredient(engine):
+    """Which is cheapest changes daily, which is the premise of the project."""
+    propose_products(
+        engine,
+        [
+            {"concept_id": _CONCEPT, "product_link": "a", "product_name": "A"},
+            {"concept_id": _CONCEPT, "product_link": "b", "product_name": "B"},
+        ],
+    )
+    confirm_resolution(engine, _CONCEPT, ["a", "b"])
+    assert _attached(engine, _CONCEPT) == {"a": True, "b": True}
+
+
+def test_a_person_can_attach_a_product_the_matcher_never_proposed(engine):
+    add_resolution_products(
+        engine, _CONCEPT, [{"product_link": "z", "product_name": "Found by hand"}]
+    )
+    confirm_resolution(engine, _CONCEPT, ["z"])
+    assert _attached(engine, _CONCEPT) == {"z": True}

@@ -19,6 +19,7 @@ from bonuschef.portal.db import (
 from bonuschef.portal.manual_recipe import render_manual_entry
 from bonuschef.portal.matching import propose_for
 from bonuschef.portal.rebuild import start_recipe_rebuild
+from bonuschef.portal.review import open_review
 from bonuschef.utils.ah_recipes import (
     AHRecipeNotFound,
     AHRecipeShapeError,
@@ -164,6 +165,10 @@ def _render_preview(engine, ah_id: int) -> None:
         st.rerun()
 
 
+def _engine_for_review():
+    return get_engine()
+
+
 def _render_added(added: dict) -> None:
     with st.container(border=True):
         st.markdown(f"### {added['title']}")
@@ -177,8 +182,11 @@ def _render_added(added: dict) -> None:
                 icon=":material/help:",
             )
             st.caption(
-                "Die tellen nog niet mee in de prijs. Het recept staat er wel in."
+                "Die tellen nog niet mee in de prijs. Koppel ze één keer en elk "
+                "recept met dat ingrediënt is meteen compleet."
             )
+            if st.button("Nakijken", width="stretch"):
+                open_review(_engine_for_review())
         else:
             st.badge(
                 "alle ingrediënten herkend",
