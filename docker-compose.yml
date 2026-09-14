@@ -149,6 +149,17 @@ services:
       DAGSTER_PORT: "3000"
     volumes:
       - dagster_home:/app/dagster_home
+    # What this proves, and what it does not. /_stcore/health answers from
+    # Streamlit's HTTP server, which is up long before any page runs: with a
+    # `raise` appended to app.py this still returned 200 "ok" and / still
+    # served its 1.5 KB shell. Streamlit executes the script per browser
+    # session, so no endpoint reflects whether the app works.
+    #
+    # Deliberately not strengthened by importing the page modules in the probe:
+    # that pulls pandas and streamlit into a fresh interpreter every 30s, which
+    # this 2 GB guest cannot spare. The real guard for page breakage is the
+    # AppTest suite, and unlike a silent Dagster failure a broken portal
+    # announces itself to whoever opens it.
     healthcheck:
       test:
         - CMD

@@ -118,6 +118,11 @@ A service's health SHALL be judged on whether it can serve what it exists to ser
 - **WHEN** a service is able to serve its own content but something it depends on is unavailable
 - **THEN** it still reports healthy, because the failure is not its own and a cascade of unhealthy services hides where the fault is
 
+#### Scenario: The right shape carrying nothing
+
+- **WHEN** a probe asks a service for something it serves, and the service answers with a well-formed but empty response
+- **THEN** the emptiness is treated as failure, because a collection with no members is what a broken service returns and a probe that checks only the shape of an answer has not checked the answer
+
 #### Scenario: A probe is proven, not assumed
 
 - **WHEN** a health probe is introduced or changed
