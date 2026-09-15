@@ -301,6 +301,6 @@ def test_no_jinja_expression_has_been_given_a_table_alias():
             for n, line in enumerate(path.read_text().splitlines(), 1):
                 if re.search(r"[A-Za-z_][A-Za-z0-9_]*\.\{\{", line):
                     offenders.append(f"{path.name}:{n}: {line.strip()[:70]}")
-    assert not offenders, "a table alias was attached to a Jinja expression:\n" + "\n".join(
-        offenders
+    assert not offenders, (
+        "a table alias was attached to a Jinja expression:\n" + "\n".join(offenders)
     )
