@@ -1,7 +1,69 @@
+# Mounted into the container from the repo (see docker-compose.yml): the
+# dagster_home named volume masks whatever the image placed here, so a change
+# to this file only reaches a running deployment via that bind mount.
+
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
+  config:
+    # daily_refresh rebuilds every dbt model - a superset of what
+    # markdowns_refresh touches - and dbt's on-run-start DDL and table
+    # materialisations are not safe to run twice at once against one Postgres.
+    # Dagster's default is 10; serialise instead of racing. Queued runs wait,
+    # they are not dropped.
+    max_concurrent_runs: 1
+
+# Do NOT add a `run_retries:` block. Run-level retries emit one RUN_FAILURE per
+# attempt, so the failure sensor would alert N times for one broken pipeline.
+# Retries belong on the jobs as `op_retry_policy`, which retries inside the run
+# and emits exactly one failure event.
+
+# With max_concurrent_runs: 1 a wedged run - dbt blocked on a Postgres lock -
+# would hold the only slot forever. Every queued run then waits indefinitely,
+# including the token heartbeat, and a QUEUED run never emits RUN_FAILURE, so
+# the alerting would stay silent while the credential died. Bound it.
+run_monitoring:
+  enabled: true
+  max_runtime_seconds: 3600
+
+# Dagster's own bookkeeping is the fastest-growing thing on this disk - faster
+# than the product feed it exists to orchestrate. Schedule ticks default to
+# never being purged, and with ~13 runs a day on a 16 GB rootfs that is a few
+# GB a year. The first symptom is not a full disk: it is daily_refresh failing
+# to spill its temp files while the smaller hourly scrape keeps working, which
+# reads as "the recipe prices seem stuck".
+#
+# This bounds the ticks. event_logs have no retention setting in Dagster OSS at
+# all and need pruning outside it - see docs/deployment.md.
+retention:
+  schedule:
+    purge_after_days: 30
+  sensor:
+    purge_after_days: 30
+
+# Run, event and schedule storage in Postgres rather than the default SQLite on
+# the shared dagster_home volume, which the webserver, the daemon and every run
+# subprocess would otherwise write concurrently from two containers.
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: PG_USER
+      password:
+        env: PG_PASSWORD
+      hostname:
+        env: PG_HOST
+      db_name:
+        env: PG_DB
+      port:
+        env: PG_PORT
 
 sensors:
   use_threads: true
-  num_workers: 4
+  # Two sensors exist. Four workers reserved threads for work that never
+  # arrives, on a host where memory is the binding constraint.
+  num_workers: 2
+
+schedules:
+  use_threads: true
+  num_workers: 2

@@ -7,7 +7,7 @@ nox.options.sessions = [
     "lint_sql",
     "format_python",
     "format_sql",
-    "mypy",
+    "types",
     "tests",
 ]
 locations_python = "src", "tests", "noxfile.py"
@@ -26,7 +26,16 @@ def tests(session: Session) -> None:
 
     session.run("uv", "sync", "--active", "--dev")
     session.run("uv", "sync", "--active", external=True)
-    session.run("uv", "run", "--active", "pytest", *args, external=True)
+    session.run(
+        "uv",
+        "run",
+        "--active",
+        "pytest",
+        "--cov",
+        "--cov-report=term-missing",
+        *args,
+        external=True,
+    )
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
@@ -80,7 +89,8 @@ def format_sql(session: Session) -> None:
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
-def mypy(session):
+def types(session: Session) -> None:
+    """Type check with ty (Astral's checker; replaced mypy)."""
     args = session.posargs or locations_python
     session.run("uv", "sync", "--active", "--dev")
-    session.run("uv", "run", "--active", "mypy", *args)
+    session.run("uv", "run", "--active", "ty", "check", *args)

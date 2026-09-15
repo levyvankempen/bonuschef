@@ -1,14 +1,8 @@
 WITH
 
-products AS (
+crosswalk AS (
 
-    SELECT * FROM {{ ref('dim_product') }}
-
-),
-
-latest_prices AS (
-
-    SELECT * FROM {{ ref('int_product_latest_price') }}
+    SELECT * FROM {{ ref('int_product_crosswalk') }}
 
 ),
 
@@ -18,42 +12,83 @@ bonus_products AS (
 
 ),
 
+live_bonus AS (
+
+    SELECT *
+    FROM bonus_products
+    WHERE
+        is_bonus = true
+        AND bonus_start_date <= CURRENT_DATE
+        -- An open-ended offer satisfies this naturally. There is deliberately
+        -- no upper bound: an earlier version rejected 2999-12-31 as a stale
+        -- sentinel, which silently excluded every standing volume discount.
+        -- What guards against a stale feed is source freshness, not a date -
+        -- if the feed stopped loading, every row in it is suspect whatever its
+        -- end date says.
+        AND bonus_end_date >= CURRENT_DATE
+
+),
+
 matched AS (
 
     SELECT
-        dp.product_link,
-        dp.product_name,
-        lp.price AS tracked_price,
+        cw.product_link,
+        cw.product_name,
+        cw.tracked_price,
+        cw.price_observed_at,
+        cw.price_age_days,
         bp.price_before_bonus AS ah_price,
         bp.bonus_price,
         bp.bonus_mechanism,
         bp.bonus_start_date,
         bp.bonus_end_date,
+        bp.bonus_is_ongoing,
+        -- Advertised: AH's own claim, always available.
         CASE
-            WHEN bp.price_before_bonus IS NOT NULL AND lp.price IS NOT NULL
-                THEN ROUND((bp.price_before_bonus - lp.price)::numeric, 2)
-        END AS price_inflation,
+            WHEN
+                bp.price_before_bonus IS NOT null AND bp.bonus_price IS NOT null
+                THEN ROUND((bp.price_before_bonus - bp.bonus_price)::NUMERIC, 2)
+        END AS advertised_savings,
+        -- Observed: measured against a price we saw ourselves, and only while
+        -- that observation is recent enough to describe the same market. A
+        -- third of the catalogue was last seen in 2025-11; a saving against
+        -- that is not a saving, it is a comparison across seasons.
         CASE
-            WHEN lp.price IS NOT NULL AND bp.bonus_price IS NOT NULL
-                THEN ROUND((lp.price - bp.bonus_price)::numeric, 2)
+            WHEN
+                cw.tracked_price IS NOT null
+                AND bp.bonus_price IS NOT null
+                AND cw.price_age_days <= {{ var('max_price_age_days') }}
+                THEN ROUND((cw.tracked_price - bp.bonus_price)::NUMERIC, 2)
         END AS real_savings,
         CASE
             WHEN
-                bp.price_before_bonus IS NOT NULL AND bp.bonus_price IS NOT NULL
-                THEN ROUND((bp.price_before_bonus - bp.bonus_price)::numeric, 2)
-        END AS advertised_savings,
-        bp.price_before_bonus IS NOT NULL
-        AND lp.price IS NOT NULL
-        AND bp.price_before_bonus > lp.price AS is_inflated
-    FROM products AS dp
-    INNER JOIN latest_prices AS lp
-        ON dp.product_link = lp.product_link
-    INNER JOIN bonus_products AS bp
-        ON (REGEXP_REPLACE(
-            SPLIT_PART(dp.product_link, '/', 1),
-            '[^0-9]', '', 'g'
-        ))::integer = bp.webshop_id
+                bp.price_before_bonus IS NOT null
+                AND cw.tracked_price IS NOT null
+                AND cw.price_age_days <= {{ var('max_price_age_days') }}
+                THEN
+                    ROUND(
+                        (bp.price_before_bonus - cw.tracked_price)::NUMERIC, 2
+                    )
+        END AS price_inflation,
+        CASE
+            WHEN
+                bp.price_before_bonus IS NOT null
+                AND cw.tracked_price IS NOT null
+                AND cw.price_age_days <= {{ var('max_price_age_days') }}
+                THEN bp.price_before_bonus > cw.tracked_price
+        END AS is_inflated
+    FROM crosswalk AS cw
+    INNER JOIN live_bonus AS bp
+        ON cw.webshop_id = bp.webshop_id
 
 )
 
-SELECT * FROM matched
+-- When this answer was computed. The portal's freshness banner used to read
+-- the source table's loaded_at, so a successful dlt load followed by a failed
+-- dbt rebuild left the banner quiet while every figure on the page was frozen
+-- at the last good build. An answer is only as fresh as the older of the feed
+-- it came from and the build that produced it.
+SELECT
+    *,
+    CURRENT_TIMESTAMP AS built_at
+FROM matched

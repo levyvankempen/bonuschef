@@ -1,15 +1,41 @@
+# Every service here carries three things deliberately, and a test enforces them
+# for any service added later (tests/unit/test_compose_config.py):
+#   - restart: unless-stopped  -> the stack returns after a host reboot, but an
+#     explicit `docker compose stop` stays stopped.
+#   - logging limits           -> unattended running cannot fill the host disk.
+#   - 127.0.0.1 port bindings  -> neither web UI authenticates its callers and the
+#     Dagster UI can launch and kill jobs, so nothing answers on a routable
+#     interface. Reach them over Tailscale or `ssh -L`.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16
     container_name: pg_bonuschef
+    restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "5455:5432"
+      - "127.0.0.1:5455:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # No working default: a missing secret must fail loudly, not silently
+      # start a database reachable with a well-known password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       POSTGRES_DB: postgres
     volumes:
       - pg_data:/var/lib/postgresql/data
+    # Docker's default /dev/shm is 64 MB. Postgres uses it for parallel query
+    # workers, which engage on the 1.2M-row product scans, and the failure -
+    # "could not resize shared memory segment" - reads as a full disk when the
+    # disk is fine.
+    shm_size: 256mb
+    # A slow checkpoint killed at compose's 10s default means WAL recovery on
+    # the next boot, on a host that reboots for power cuts rather than plans.
+    stop_grace_period: 60s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -19,10 +45,12 @@ services:
   dagster-webserver:
     build: .
     container_name: dagster_webserver
+    restart: unless-stopped
+    logging: *default-logging
     command:
-      - uv
-      - run
-      - dagster-webserver
+      # Not `uv run`: it lingers as a parent process costing ~180MB, and the
+      # venv path is fixed by the Dockerfile.
+      - /app/.venv/bin/dagster-webserver
       - -h
       - "0.0.0.0"
       - -p
@@ -30,16 +58,50 @@ services:
       - -m
       - bonuschef.dags.definitions
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file: .env
     environment:
+      # The venv is not on PATH when the binaries are invoked directly rather
+      # than through `uv run`, and dbt lives there.
+      PATH: /app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
       DAGSTER_HOME: /app/dagster_home
       PG_HOST: postgres
       PG_PORT: "5432"
       DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+      # dlt keeps every completed load package by default - a second copy of
+      # data that is now in Postgres - under /var/dlt in the container's
+      # writable layer, where `du /opt/bonuschef` and `docker volume ls` both
+      # miss it. Failed packages are still kept, which is the case where the
+      # artefacts are the diagnosis rather than litter.
+      LOAD__DELETE_COMPLETED_JOBS: "true"
     volumes:
       - dagster_home:/app/dagster_home
+      # The named volume above masks whatever the image put in that directory,
+      # so dagster.yaml must be mounted or edits to it never reach a deployment
+      # that has run once already.
+      - ./dagster.yaml:/app/dagster_home/dagster.yaml:ro
+    # Bare `python`, never `uv run`: urllib is stdlib, so the venv is irrelevant,
+    # while `uv run` would re-resolve the environment and lock .venv on every
+    # 30s probe - concurrently with whatever dbt/dlt run is in flight.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        # Two false-healthy bugs deep. /server_info answered from static
+        # version strings, so it passed while every code location was dead.
+        # Asking for repositoriesOrError was not enough either: with a broken
+        # definitions module it still answers RepositoryConnection, just with
+        # nodes: [] - verified on the guest by appending a `raise` to
+        # definitions.py, which the __typename check waved straight through.
+        # So assert what actually matters: at least one repository is being
+        # served, and no code location failed to load.
+        - 'import json,urllib.request,sys; q={"query":"{repositoriesOrError{__typename ... on RepositoryConnection{nodes{name}}} workspaceOrError{__typename ... on Workspace{locationEntries{locationOrLoadError{__typename}}}}}"}; r=urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:3000/graphql",data=json.dumps(q).encode(),headers={"Content-Type":"application/json"}),timeout=10); d=json.load(r).get("data") or {}; repos=(d.get("repositoriesOrError") or {}).get("nodes") or []; entries=(d.get("workspaceOrError") or {}).get("locationEntries") or []; broken=[e for e in entries if ((e.get("locationOrLoadError") or {}).get("__typename")=="PythonError")]; sys.exit(0 if repos and entries and not broken else 1)'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,22 +109,32 @@ services:
   dagster-daemon:
     build: .
     container_name: dagster_daemon
+    restart: unless-stopped
+    logging: *default-logging
     command:
-      - uv
-      - run
-      - dagster-daemon
+      - /app/.venv/bin/dagster-daemon
       - run
       - -m
       - bonuschef.dags.definitions
     env_file: .env
     environment:
+      # The venv is not on PATH when the binaries are invoked directly rather
+      # than through `uv run`, and dbt lives there.
+      PATH: /app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
       DAGSTER_HOME: /app/dagster_home
       PG_HOST: postgres
       PG_PORT: "5432"
       DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+      # dlt keeps every completed load package by default - a second copy of
+      # data that is now in Postgres - under /var/dlt in the container's
+      # writable layer, where `du /opt/bonuschef` and `docker volume ls` both
+      # miss it. Failed packages are still kept, which is the case where the
+      # artefacts are the diagnosis rather than litter.
+      LOAD__DELETE_COMPLETED_JOBS: "true"
     volumes:
       - dagster_home:/app/dagster_home
+      - ./dagster.yaml:/app/dagster_home/dagster.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,10 +142,10 @@ services:
   streamlit:
     build: .
     container_name: streamlit_portal
+    restart: unless-stopped
+    logging: *default-logging
     command:
-      - uv
-      - run
-      - streamlit
+      - /app/.venv/bin/streamlit
       - run
       - src/bonuschef/portal/app.py
       - --server.address
@@ -81,11 +153,43 @@ services:
       - --server.port
       - "8501"
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     env_file: .env
     environment:
       PG_HOST: postgres
       PG_PORT: "5432"
+      # Share the daemon's token file. Without this the portal falls through to
+      # a path that does not exist, bootstraps its own token from .env, and then
+      # rotates the refresh credential out from under the daemon - recreating
+      # the disuse expiry the heartbeat exists to prevent. Concurrent access is
+      # safe: TokenStore writes a temp file and os.replaces it.
+      AH_TOKEN_FILE: /app/dagster_home/ah_tokens.json
+      # "Refresh now" on the Laatste kans page launches a job via this webserver.
+      DAGSTER_HOST: dagster-webserver
+      DAGSTER_PORT: "3000"
+    volumes:
+      - dagster_home:/app/dagster_home
+    # What this proves, and what it does not. /_stcore/health answers from
+    # Streamlit's HTTP server, which is up long before any page runs: with a
+    # `raise` appended to app.py this still returned 200 "ok" and / still
+    # served its 1.5 KB shell. Streamlit executes the script per browser
+    # session, so no endpoint reflects whether the app works.
+    #
+    # Deliberately not strengthened by importing the page modules in the probe:
+    # that pulls pandas and streamlit into a fresh interpreter every 30s, which
+    # this 2 GB guest cannot spare. The real guard for page breakage is the
+    # AppTest suite, and unlike a silent Dagster failure a broken portal
+    # announces itself to whoever opens it.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=5).status == 200 else 1)'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

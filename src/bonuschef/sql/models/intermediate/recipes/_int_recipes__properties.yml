@@ -2,45 +2,154 @@ version: 2
 
 models:
   - name: int_recipe_items_resolved
-    description: "Recipes joined with their ingredient items, including SCD2 validity windows."
+    description: >
+      One row per ingredient line, from either path. A hand-entered ingredient
+      is the degenerate case of an adopted one: an item already resolved to
+      exactly one product. Nothing below this model needs to know which is which.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, item_key]
+      # A direct item pins a product and has no concept; an adopted item the
+      # reverse. Anything else means the union leaked a hybrid row, which would
+      # either be dropped or double-counted downstream.
+      - dbt_utils.expression_is_true:
+          expression: >
+            (source_kind = 'direct' AND pinned_product_link IS NOT NULL
+                                    AND concept_id IS NULL)
+            OR
+            (source_kind = 'concept' AND concept_id IS NOT NULL
+                                     AND pinned_product_link IS NULL)
     columns:
       - name: recipe_id
         description: "ID of the recipe."
         tests:
           - not_null
-      - name: recipe_name
-        description: "Name of the recipe."
-      - name: servings
-        description: "Number of people the recipe serves."
-      - name: product_name
-        description: "Display name of the ingredient product."
-      - name: product_link
-        description: "Link slug of the ingredient product."
+      - name: item_key
+        description: "Stable key for the ingredient line within its recipe."
         tests:
           - not_null
+      - name: source_kind
+        description: "Whether the ingredient was hand-entered or adopted."
+        tests:
+          - accepted_values:
+              values: ['direct', 'concept']
+      - name: concept_id
+        description: "AH's stable ingredient-concept id; NULL for hand-entered items."
+      - name: item_label
+        description: "Human-readable ingredient name."
+        tests:
+          - not_null
+      - name: pinned_product_link
+        description: >
+          The product a hand-entered ingredient names directly. NULL for an
+          adopted ingredient, which resolves through its concept instead.
       - name: quantity
         description: "Number of units needed of this ingredient."
+      - name: quantity_text
+        description: "The recipe's own wording, e.g. '520 g zuurkool', kept for display."
       - name: valid_from
-        description: "Start of validity window for this ingredient (NULL = from the beginning)."
+        description: "Start of validity window (NULL = from the beginning)."
       - name: valid_to
-        description: "End of validity window for this ingredient (NULL = still active)."
+        description: "End of validity window (NULL = still active)."
 
   - name: int_recipe_items_priced
-    description: "Current recipe items (valid_to IS NULL) joined with the latest product price."
+    description: >
+      Current ingredient lines with the cheapest product that satisfies them.
+      Exactly one row per line, priced or not - an ingredient nobody can price
+      keeps its row so that it cannot silently make a recipe look cheaper.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, item_key]
+      # An unpriced item must carry no cost, and a priced one must carry one.
+      - dbt_utils.expression_is_true:
+          expression: "(price IS NULL) = (item_cost IS NULL)"
     columns:
       - name: recipe_id
         description: "ID of the recipe."
         tests:
           - not_null
-      - name: product_link
-        description: "Link slug of the ingredient product."
+      - name: item_key
+        description: "Stable key for the ingredient line within its recipe."
         tests:
           - not_null
-      - name: quantity
-        description: "Number of units needed of this ingredient."
+      - name: product_link
+        description: "Chosen product; NULL when the ingredient resolves to nothing."
       - name: product_name
-        description: "Display name of the ingredient product."
+        description: "Chosen product's name, falling back to the ingredient label."
       - name: price
-        description: "Latest price of the product."
+        description: "Latest price of the chosen product; NULL when unresolved or unpriced."
       - name: item_cost
-        description: "Price of the product multiplied by the quantity needed."
+        description: "Price multiplied by the quantity needed; NULL when unpriced."
+      - name: is_unresolved
+        description: "True when no product satisfies this ingredient."
+        tests:
+          - not_null
+
+  - name: int_recipe_item_candidates
+    description: >
+      The exploded candidate set. Deliberately NOT unique on
+      (recipe_id, item_key) - that explosion is the model's purpose, and
+      int_recipe_item_opportunity is where it collapses.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, item_key, product_link]
+    columns:
+      - name: product_link
+        tests: [not_null]
+      - name: recipe_id
+        tests: [not_null]
+      - name: item_key
+        tests: [not_null]
+
+  - name: int_recipe_item_opportunity
+    description: >
+      One row per ingredient line per store. The last grain before aggregation,
+      and the only model that manufactures a store-scoped recipe row.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, recipe_id, item_key]
+      # THE test. A saving may never be claimed against a reference price older
+      # than the threshold - the one defect that would put a wrong number in
+      # front of a person with no way for them to tell.
+      - dbt_utils.expression_is_true:
+          expression: "NOT is_discounted OR reference_is_comparable"
+      # A discount cannot make an ingredient dearer, and cannot be negative.
+      - dbt_utils.expression_is_true:
+          expression: >
+            price_ordinary IS NULL OR price_today <= price_ordinary
+      - dbt_utils.expression_is_true:
+          expression: "item_saving IS NULL OR item_saving >= 0"
+      # Withdrawing clearance may only ever cost a saving, never create one.
+      - dbt_utils.expression_is_true:
+          expression: >
+            item_saving IS NULL
+            OR item_saving_bonus_only <= item_saving
+      # An unpriced ingredient can be neither discounted nor comparable. Note
+      # this must hold as FALSE, not NULL: SQL three-valued logic made the
+      # comparison NULL for every unpriced line, which a not_null test caught
+      # only once the pool arrived and most ingredients were unresolved.
+      - dbt_utils.expression_is_true:
+          expression: >
+            price_ordinary IS NOT NULL
+            OR (is_discounted = FALSE AND reference_is_comparable = FALSE)
+      # A conditional saving is a saving you could have; it is still a saving.
+      - dbt_utils.expression_is_true:
+          expression: >
+            item_conditional_saving IS NULL OR item_conditional_saving >= 0
+      # The chosen offer is never a multibuy one - best_offer filters them out -
+      # so a line whose only discount is conditional keeps its ordinary price.
+      - dbt_utils.expression_is_true:
+          expression: >
+            conditional_offer_price IS NULL
+            OR offer_price IS NULL
+            OR offer_price <> conditional_offer_price
+            OR offer_kind = 'clearance'
+    columns:
+      - name: store_id
+        tests: [not_null]
+      - name: recipe_id
+        tests: [not_null]
+      - name: item_key
+        tests: [not_null]
+      - name: is_discounted
+        tests: [not_null]

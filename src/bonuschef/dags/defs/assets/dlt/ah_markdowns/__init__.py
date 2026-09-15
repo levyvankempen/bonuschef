@@ -19,11 +19,11 @@ import dlt
 from dagster import AssetExecutionContext, RetryPolicy, asset
 
 from bonuschef.config import AHMarkdownConfig
-from bonuschef.utils.ah_auth import graphql, refresh_access_token
+from bonuschef.utils.ah_auth import AHTokenManager, TokenStore
 
 _BARGAIN_ITEMS_QUERY = """query BargainItems($storeId: String!) {
   bargainItems(storeId: $storeId) {
-    product { id title brand salesUnitSize }
+    product { id title brand salesUnitSize imagePack { medium { url } } }
     categoryTitle
     markdown { markdownType markdownPercentage markdownExpirationDate }
     stock
@@ -42,9 +42,43 @@ def _to_float(value) -> float | None:
         return None
 
 
+def _image_url(product: dict) -> str | None:
+    """A thumbnail for the clearance card, or None.
+
+    AH returns ``imagePack`` as a list of packs, each carrying named sizes.
+    Nothing about that shape is documented, so every step degrades to None
+    rather than raising: a missing picture is never worth failing a scrape over,
+    and the card already renders without one.
+
+    ``medium`` by name rather than by index - the pack's ordering is not
+    specified and an index would break silently the day it changes.
+    """
+    pack = product.get("imagePack")
+    if not isinstance(pack, list):
+        return None
+    for entry in pack:
+        if not isinstance(entry, dict):
+            continue
+        for size in ("medium", "small", "large"):
+            node = entry.get(size)
+            if isinstance(node, dict) and node.get("url"):
+                return str(node["url"])
+    return None
+
+
+def token_manager(cfg: AHMarkdownConfig) -> AHTokenManager:
+    """Token manager backed by the configured token file (auto-refreshing)."""
+    return AHTokenManager(
+        TokenStore(cfg.token_file),
+        bootstrap_refresh_token=cfg.refresh_token,
+        client_id=cfg.client_id,
+    )
+
+
 def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
-    access_token = refresh_access_token(cfg.refresh_token, client_id=cfg.client_id)
-    data = graphql(access_token, _BARGAIN_ITEMS_QUERY, {"storeId": str(cfg.store_id)})
+    data = token_manager(cfg).graphql(
+        _BARGAIN_ITEMS_QUERY, {"storeId": str(cfg.store_id)}
+    )
 
     for item in data.get("bargainItems") or []:
         product = item.get("product") or {}
@@ -56,6 +90,7 @@ def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
             "title": product.get("title"),
             "brand": product.get("brand"),
             "sales_unit_size": product.get("salesUnitSize"),
+            "image_url": _image_url(product),
             "category_title": item.get("categoryTitle"),
             "markdown_type": markdown.get("markdownType"),
             "markdown_percentage": markdown.get("markdownPercentage"),

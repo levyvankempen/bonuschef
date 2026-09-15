@@ -12,14 +12,33 @@ snapshots AS (
 basket AS (
     SELECT
         i.recipe_id,
-        i.product_link,
+        i.pinned_product_link AS product_link,
         i.quantity,
         s.snapshot_timestamp
     FROM recipe_items AS i
     CROSS JOIN snapshots AS s
     WHERE
-        s.snapshot_timestamp >= COALESCE(i.valid_from, '1900-01-01'::timestamp)
-        AND s.snapshot_timestamp < COALESCE(i.valid_to, '9999-12-31'::timestamp)
+        -- Hand-entered items only. An adopted ingredient names a concept, not
+        -- a product, and its concept was resolved today - pricing last
+        -- November's snapshot through today's resolution would retroactively
+        -- rewrite the chart every time someone corrected a match. An adopted
+        -- recipe therefore has no cost history until it accumulates one.
+        i.pinned_product_link IS NOT NULL
+        AND
+        -- valid_from/valid_to are naive timestamps; snapshot_timestamp is
+        -- tz-aware. Without an explicit zone Postgres resolves the naive side
+        -- against the session TimeZone, so a dbt run from a laptop in
+        -- Europe/Amsterdam would shift every SCD2 boundary by an hour.
+        s.snapshot_timestamp
+        >= (
+            COALESCE(i.valid_from, '1900-01-01'::timestamp)
+            AT TIME ZONE 'Europe/Amsterdam'
+        )
+        AND s.snapshot_timestamp
+        < (
+            COALESCE(i.valid_to, '9999-12-31'::timestamp)
+            AT TIME ZONE 'Europe/Amsterdam'
+        )
 ),
 
 priced AS (
@@ -41,7 +60,13 @@ agg AS (
     SELECT
         recipe_id,
         snapshot_timestamp,
-        ROUND(SUM(item_cost)::numeric, 2) AS total_cost_observed,
+        -- NULL when any item is unpriced. SUM skips NULLs, so this used to
+        -- publish a partial basket as though it were the whole recipe - and it
+        -- is the column the portal charts.
+        CASE
+            WHEN COUNT(price) = COUNT(*)
+                THEN ROUND(SUM(item_cost)::numeric, 2)
+        END AS total_cost_observed,
         COUNT(*) AS items_total,
         COUNT(price) AS items_priced,
         COUNT(price)::float / COUNT(*)::float AS price_coverage

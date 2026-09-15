@@ -2,7 +2,14 @@
 
 import pytest
 
-from bonuschef.config import DatabaseConfig, GitHubConfig
+from pathlib import Path
+
+from bonuschef.config import (
+    AHMarkdownConfig,
+    DagsterConfig,
+    DatabaseConfig,
+    GitHubConfig,
+)
 
 
 class TestGitHubConfig:
@@ -95,7 +102,36 @@ class TestGitHubConfig:
             max_pages=2,
         )
         with pytest.raises(AttributeError):
-            cfg.owner = "other"
+            setattr(cfg, "owner", "other")
+
+
+class TestDagsterConfig:
+    def test_defaults(self, monkeypatch):
+        monkeypatch.delenv("DAGSTER_HOST", raising=False)
+        monkeypatch.delenv("DAGSTER_PORT", raising=False)
+        cfg = DagsterConfig.from_env()
+        assert cfg.host == "localhost"
+        assert cfg.port == 3000
+
+    def test_from_env(self, monkeypatch):
+        monkeypatch.setenv("DAGSTER_HOST", "dagster-webserver")
+        monkeypatch.setenv("DAGSTER_PORT", "3100")
+        cfg = DagsterConfig.from_env()
+        assert cfg.host == "dagster-webserver"
+        assert cfg.port == 3100
+
+    def test_from_env_invalid_port(self, monkeypatch):
+        monkeypatch.setenv("DAGSTER_PORT", "http")
+        with pytest.raises(ValueError, match="DAGSTER_PORT"):
+            DagsterConfig.from_env()
+
+    def test_missing_host_raises(self):
+        with pytest.raises(ValueError, match="DAGSTER_HOST"):
+            DagsterConfig(host="", port=3000)
+
+    def test_port_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="DAGSTER_PORT"):
+            DagsterConfig(host="localhost", port=70000)
 
 
 class TestDatabaseConfig:
@@ -158,3 +194,34 @@ class TestDatabaseConfig:
         )
         assert cfg.sslmode == "prefer"
         assert "sslmode=prefer" in cfg.url
+
+
+class TestAHMarkdownConfig:
+    def test_defaults(self):
+        cfg = AHMarkdownConfig(store_id=1876)
+        assert cfg.refresh_token == ""
+        assert cfg.client_id == "appie"
+        assert cfg.token_file == Path("ah_tokens.json")
+
+    def test_store_id_must_be_positive(self):
+        with pytest.raises(ValueError, match="AH_STORE_ID"):
+            AHMarkdownConfig(store_id=0)
+
+    def test_from_env_defaults_to_eindhoven_and_token_file(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AH_TOKEN_FILE", str(tmp_path / "t.json"))
+        cfg = AHMarkdownConfig.from_env()
+        assert cfg.store_id == 1876
+        assert cfg.refresh_token == ""
+        assert cfg.token_file == tmp_path / "t.json"
+
+    def test_from_env_reads_values(self, monkeypatch):
+        monkeypatch.setenv("AH_STORE_ID", "42")
+        monkeypatch.setenv("AH_REFRESH_TOKEN", "r")
+        monkeypatch.setenv("AH_CLIENT_ID", "web")
+        cfg = AHMarkdownConfig.from_env()
+        assert (cfg.store_id, cfg.refresh_token, cfg.client_id) == (42, "r", "web")
+
+    def test_from_env_invalid_store_id(self, monkeypatch):
+        monkeypatch.setenv("AH_STORE_ID", "torenallee")
+        with pytest.raises(ValueError, match="positive integer"):
+            AHMarkdownConfig.from_env()

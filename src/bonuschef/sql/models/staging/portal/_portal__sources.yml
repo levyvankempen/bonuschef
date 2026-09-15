@@ -11,3 +11,23 @@ sources:
         description: "Recipe ingredient mappings with SCD2 validity windows."
       - name: product_images
         description: "Scraped product image URLs keyed by product_link."
+      # Adopted recipes. User-owned state with no load cadence - a recipe
+      # arrives when a person adopts one - so no freshness is declared.
+      - name: ah_recipes
+        description: "Recipes adopted from the Albert Heijn catalogue."
+      - name: ah_recipe_ingredients
+        description: >
+          Ingredient lines of an adopted recipe, keyed on AH's stable
+          ingredient-concept id. Quantity is NUMERIC because a recipe may ask
+          for 1.5 of something, and the unit is AH's own.
+      - name: ah_ingredient_products
+        description: >
+          Which products satisfy an ingredient concept. Many-to-many on
+          purpose: which is cheapest changes daily.
+      - name: ah_ingredient_aliases
+        description: "Duplicate concept ids folded onto a canonical one."
+      - name: ah_recipe_verdicts
+        description: >
+          A person's decision about a pool recipe. Keyed on recipe_id so that a
+          rejection survives the pool being refetched - dismissing something is
+          permanent until reversed, not until next Monday.

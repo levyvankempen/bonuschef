@@ -33,7 +33,21 @@ logs-postgres:
 ps:
 	docker compose ps
 
-clean:
+# Reclaim disk without touching data. Each `up --build` orphans the previous
+# image layers and BuildKit cache, and the deployment guide requires a rebuild
+# after any dbt ref() change - so this is the routine one.
+prune:
+	docker image prune -af
+	docker builder prune -f
+
+# Named for what it does. `down -v` destroys pg_data and dagster_home: the
+# append-only markdown curve that AH cannot re-serve, every hand-confirmed
+# ingredient resolution, and ah_tokens.json - whose only other recovery is an
+# interactive browser login behind hCaptcha. It used to be called `clean` and
+# sat directly under `down`, one tab-completion from the worst outcome here.
+destroy-everything:
+	@printf 'This deletes the database and the AH credential. Type DESTROY to confirm: ' \
+		&& read ans && [ "$$ans" = "DESTROY" ] || { echo "aborted"; exit 1; }
 	docker compose down -v
 	docker image prune -f
 

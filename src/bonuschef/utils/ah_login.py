@@ -19,9 +19,11 @@ Capturing the code (Firefox is easiest):
        "Navigeren naar 'appie://login-exit?code=...' is voorkomen ..."
   3. Copy that ``code`` value and pass it to step 2.
 
-The printed refresh token is long-lived; add it to ``.env`` as
-``AH_REFRESH_TOKEN`` and the pipeline never needs an interactive login again
-(until AH eventually expires the refresh token, at which point re-run this).
+The tokens are written straight to the token file the pipeline uses (see
+``ah_auth.default_token_file``), and the refresh token is printed so you can
+also keep it in ``.env`` as ``AH_REFRESH_TOKEN`` (the fallback when the token
+file is missing, e.g. on a fresh host). From then on the pipeline refreshes
+automatically; you only re-run this if every known refresh token is rejected.
 """
 
 from __future__ import annotations
@@ -30,7 +32,12 @@ import re
 import sys
 from urllib.parse import parse_qs, urlparse
 
-from bonuschef.utils.ah_auth import exchange_code
+from bonuschef.utils.ah_auth import (
+    AHTokenManager,
+    TokenStore,
+    default_token_file,
+    exchange_code,
+)
 
 CLIENT_ID = "appie"
 LOGIN_URL = (
@@ -78,11 +85,15 @@ def main(argv: list[str] | None = None) -> int:
         print("No refresh_token in response — did the code expire? Try again.")
         return 1
 
-    print("Login successful. Add this line to your .env:\n")
+    token_file = default_token_file()
+    AHTokenManager(TokenStore(token_file), client_id=CLIENT_ID).adopt(tokens)
+
+    print(f"Login successful. Tokens saved to {token_file}\n")
+    print("Also keep this line in your .env as a fallback for fresh hosts:\n")
     print(f"AH_REFRESH_TOKEN={refresh_token}\n")
     print(
         f"(access token valid ~{tokens.get('expires_in', '?')}s; the pipeline "
-        "refreshes automatically from the refresh token above.)"
+        "refreshes it automatically and keeps the token file up to date.)"
     )
     return 0
 

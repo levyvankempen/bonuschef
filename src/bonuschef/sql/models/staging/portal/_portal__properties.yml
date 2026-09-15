@@ -33,6 +33,15 @@ models:
         description: "Link slug to the product on the Albert Heijn website."
         tests:
           - not_null
+          # Typed by hand in the portal. An unresolvable slug silently removes
+          # the ingredient from its recipe's cost via an INNER JOIN downstream,
+          # so the recipe quietly gets cheaper. Warn rather than error: one bad
+          # entry must not block every other result.
+          - relationships:
+              to: ref('dim_product')
+              field: product_link
+              config:
+                severity: warn
       - name: quantity
         description: "Number of units needed of this ingredient."
         tests:

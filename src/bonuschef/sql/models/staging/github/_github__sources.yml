@@ -8,6 +8,11 @@ sources:
       - name: products
         identifier: github__products
         description: "Products from the Albert Heijn."
+        # Snapshot commits land weekly; two missed weeks is a real outage.
+        loaded_at_field: snapshot_at
+        freshness:
+          warn_after: {count: 10, period: day}
+          error_after: {count: 21, period: day}
         meta:
           dagster:
             asset_key: ["github__products"]

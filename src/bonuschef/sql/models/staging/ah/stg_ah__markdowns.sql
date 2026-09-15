@@ -14,6 +14,7 @@ renamed AS (
         title AS product_name,
         brand,
         sales_unit_size,
+        image_url,
         category_title,
         markdown_type,
         markdown_percentage,
@@ -21,7 +22,7 @@ renamed AS (
         stock,
         price_was,
         price_now,
-        scraped_at::timestamp AS scraped_at,
+        scraped_at::timestamptz AS scraped_at,
         ROUND((price_was - price_now)::numeric, 2) AS markdown_amount
 
     FROM source

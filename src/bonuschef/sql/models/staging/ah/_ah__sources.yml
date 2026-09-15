@@ -7,7 +7,13 @@ sources:
     tables:
       - name: bonus_products
         identifier: ah__bonus_products
-        description: "Currently discounted products from Albert Heijn."
+        description: "Promotional products from Albert Heijn, live and expired."
+        # This feed went 69 days without loading and nothing reported it; the
+        # marts served July promotions as current the whole time.
+        loaded_at_field: "loaded_at::timestamptz"
+        freshness:
+          warn_after: {count: 36, period: hour}
+          error_after: {count: 7, period: day}
         meta:
           dagster:
             asset_key: ["ah__bonus_products"]
@@ -17,6 +23,40 @@ sources:
           Append-only snapshots of store-specific markdowns ("laatste kans
           koopjes") — reduced-to-clear and discontinued stock. One row per
           item per scrape; the discount deepens intraday.
+        # Scraped hourly 11:00-20:00, so two hours inside the window is late.
+        loaded_at_field: scraped_at
+        freshness:
+          warn_after: {count: 3, period: hour}
+          error_after: {count: 24, period: hour}
         meta:
           dagster:
             asset_key: ["ah__store_markdowns"]
+      - name: pool_recipes
+        identifier: ah__pool_recipes
+        description: >
+          The bounded pool of well-regarded Allerhande recipes, merged weekly on
+          recipe_id. Refreshed rather than accumulated, so a recipe that falls
+          out of AH's popular listing leaves the pool - unless a person chose it.
+        loaded_at_field: "fetched_at::timestamptz"
+        freshness:
+          # Weekly job. Two weeks means one missed refresh, which is a warning;
+          # a month means the job has stopped and nobody noticed.
+          warn_after: {count: 14, period: day}
+          error_after: {count: 31, period: day}
+        meta:
+          dagster:
+            asset_key: ["ah__recipe_pool"]
+      - name: pool_recipe_ingredients
+        identifier: ah__pool_recipe_ingredients
+        description: >
+          Ingredient lines of a pool recipe, keyed on AH's stable
+          ingredient-concept id - the same key the adopted-recipe path uses, so
+          one confirmed resolution serves both.
+        # Loaded in the same run as its parent, so it ages on the same clock.
+        # Declared anyway rather than inherited: a silent divergence between the
+        # two - ingredients loading while recipes fail - is exactly the state
+        # worth catching, and inheritance would hide it.
+        loaded_at_field: "fetched_at::timestamptz"
+        freshness:
+          warn_after: {count: 14, period: day}
+          error_after: {count: 31, period: day}

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n -B2 -A40 'fct_store_clearance$' src/bonuschef/sql/models/marts/inventory/_inventory_models.yml)",
+      "Bash(gh run *)",
+      "Bash(git switch *)"
+    ]
+  }
+}

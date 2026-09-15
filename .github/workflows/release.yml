@@ -22,9 +22,29 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
+          # Full history and tags, or semantic-release cannot see the last
+          # release and computes the next version from nothing. The default
+          # shallow clone fetches one commit and no tags at all.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Reset to workflow SHA
         run: git reset --hard ${{ github.sha }}
+
+      # A push to main cuts a release. CI only runs on pull requests, so
+      # without this a direct push - or a merge that silently broke something -
+      # would be tagged and published untested.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Verify before releasing
+        run: |
+          uv python install 3.12
+          uvx nox -s lint_python
+          uvx nox -s types
+          uvx nox -s tests
 
       - name: Semantic version release
         id: release

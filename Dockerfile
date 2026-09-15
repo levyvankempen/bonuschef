@@ -11,6 +11,10 @@ RUN uv sync --frozen --no-dev
 # Copy application source
 COPY src/ src/
 
+# The Streamlit theme. Without this the container falls back to the stock
+# white-and-slate look and nothing reports it - the app just looks wrong.
+COPY .streamlit/ .streamlit/
+
 # Install the project itself
 RUN uv sync --frozen --no-dev
 

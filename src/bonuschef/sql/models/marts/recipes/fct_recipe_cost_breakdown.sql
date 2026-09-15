@@ -15,8 +15,14 @@ recipe_totals AS (
 SELECT
     d.recipe_id,
     d.recipe_name,
+    i.item_key,
+    -- What the recipe asked for, kept beside what we would buy. The portal fell
+    -- back to product_name without it, so an adopted recipe's "aardappel" was
+    -- displayed as "AH Aardappels" and an unresolved line had nothing to show.
+    i.item_label,
     i.product_name,
     i.product_link,
+    i.is_unresolved,
     i.quantity,
     i.price,
     ROUND(i.item_cost::numeric, 2) AS item_cost,
