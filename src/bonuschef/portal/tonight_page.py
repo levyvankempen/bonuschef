@@ -33,8 +33,10 @@ from bonuschef.portal.review import (
     render_resolution_result,
 )
 from bonuschef.portal.db import (
+    CREDENTIAL_JOB,
     get_engine,
     read_bonus_feed_loaded_at,
+    read_pipeline_health,
     read_recipe_opportunity,
     read_recipe_opportunity_items,
     read_rejected_recipes,
@@ -388,6 +390,54 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
             open_review(engine)
 
 
+def _render_pipeline_health(engine) -> None:
+    """Say when the work behind the page has stopped, and nothing otherwise.
+
+    This is the only surface on which a failure can be noticed: alerting is
+    deliberately unsubscribed, and the failures that matter most emit no event
+    to alert on anyway - a run never launched, a sensor tick that threw, a
+    schedule that stopped evaluating.
+
+    Nothing renders while everything is succeeding. A health indicator that is
+    always present is furniture, and furniture stops being read.
+    """
+    health = read_pipeline_health(engine)
+    if health.empty:
+        return
+    overdue = health[health["is_overdue"]]
+    if overdue.empty:
+        return
+
+    # The credential first and separately: every other failure recovers by
+    # re-running a job, and this one needs a browser behind hCaptcha.
+    credential = overdue[overdue["job_name"] == CREDENTIAL_JOB]
+    if not credential.empty:
+        row = credential.iloc[0]
+        when = (
+            "nog nooit"
+            if pd.isna(row["last_success"])
+            else f"{int(row['overdue_h'])} uur geleden"
+        )
+        st.error(
+            f"De AH-inlog is {when} voor het laatst ververst. Zonder dat "
+            "verloopt hij, en herstellen kan alleen met een browser.",
+            icon=":material/key_off:",
+        )
+
+    rest = overdue[overdue["job_name"] != CREDENTIAL_JOB]
+    for _, row in rest.iterrows():
+        when = (
+            "nog nooit gelukt"
+            if pd.isna(row["last_success"])
+            else f"{int(row['overdue_h'])} uur geleden voor het laatst gelukt"
+        )
+        st.warning(
+            f"**{row['job_name']}** is {when} — {row['what']} is mogelijk niet "
+            "bijgewerkt.",
+            icon=":material/sync_problem:",
+        )
+
+
 def render_tonight() -> None:
     st.title("Vanavond")
 
@@ -402,6 +452,9 @@ def render_tonight() -> None:
     except Exception as e:
         st.error(f"Geen verbinding met de database: {e}")
         return
+
+    # Before the answers: whether the machinery that produces them is running.
+    _render_pipeline_health(engine)
 
     df, problem = _load(engine)
     if problem == "unbuilt":

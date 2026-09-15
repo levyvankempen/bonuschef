@@ -83,4 +83,12 @@ matched AS (
 
 )
 
-SELECT * FROM matched
+-- When this answer was computed. The portal's freshness banner used to read
+-- the source table's loaded_at, so a successful dlt load followed by a failed
+-- dbt rebuild left the banner quiet while every figure on the page was frozen
+-- at the last good build. An answer is only as fresh as the older of the feed
+-- it came from and the build that produced it.
+SELECT
+    *,
+    CURRENT_TIMESTAMP AS built_at
+FROM matched

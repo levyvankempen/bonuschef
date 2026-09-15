@@ -8,7 +8,6 @@ nothing reported it" - described the present rather than the past.
 
 import json
 
-import pytest
 import yaml
 from pathlib import Path
 

@@ -26,7 +26,11 @@ PORTAL = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "portal"
 
 # Which reader feeds which page module. A page may read from several.
 PAGE_READERS: dict[str, tuple[str, ...]] = {
-    "tonight_page.py": ("read_recipe_opportunity", "read_recipe_opportunity_items"),
+    "tonight_page.py": (
+        "read_recipe_opportunity",
+        "read_recipe_opportunity_items",
+        "read_pipeline_health",
+    ),
     "recipes_page.py": (
         "read_recipe_summary",
         "read_recipe_breakdown_bonus",
@@ -113,6 +117,14 @@ def _selected_by(readers: tuple[str, ...]) -> set[str]:
         # cannot vouch for a column the query does not return.
         for clause in re.findall(r"\bselect\b(.*?)\bfrom\b", code, re.S | re.I):
             names.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", clause))
+        # A reader may also build a column rather than select it - overdue_h and
+        # is_overdue are computed from last_success in pandas. Assigning one is
+        # providing it just as much as selecting is.
+        names.update(
+            re.findall(r"""\bdf\[["']([A-Za-z_][A-Za-z0-9_]*)["']\]\s*=""", code)
+        )
+        for frame in re.findall(r"pd\.DataFrame\((.*?)\)", code, re.S):
+            names.update(re.findall(r"""["']([A-Za-z_][A-Za-z0-9_]*)["']\s*:""", frame))
     return {n.lower() for n in names}
 
 

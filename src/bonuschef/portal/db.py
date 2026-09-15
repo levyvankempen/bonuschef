@@ -764,7 +764,20 @@ def read_bonus_feed_loaded_at(_engine) -> pd.Timestamp | None:
     clearance scrape. Reporting one page's staleness using the other's rule
     would call the page stale every day of the week but one.
     """
-    sql = text('SELECT MAX(loaded_at) AS loaded_at FROM public."ah__bonus_products"')
+    # The OLDER of the feed's load time and the mart's build time. Reading only
+    # the source meant a successful dlt load followed by a failed dbt rebuild
+    # left loaded_at fresh, the banner quiet, and every promotional figure on
+    # the page frozen at whatever the last good build produced. The question
+    # the banner answers is "how old is this answer", and an answer is only as
+    # fresh as the older of the two.
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT LEAST(
+            (SELECT MAX(loaded_at)::timestamptz FROM public."ah__bonus_products"),
+            (SELECT MAX(built_at)::timestamptz
+             FROM "{schema}"."fct_bonus_price_comparison")
+        ) AS loaded_at
+    """)
     try:
         with _engine.begin() as conn:
             value = pd.read_sql_query(sql, conn)["loaded_at"].iloc[0]
@@ -866,3 +879,93 @@ def read_rejected_recipes(_engine) -> pd.DataFrame:
             "decided_at": [],
         }
         return pd.DataFrame(empty)
+
+
+# How long each scheduled job may go without succeeding before its silence is
+# worth reporting. Derived from its own cadence rather than one global number:
+# an hourly scrape two hours quiet is a problem, a weekly pool refresh two
+# hours "late" is not.
+#
+# The heartbeat is listed at 36 hours - two missed cycles against the 24h
+# access-token cap the twice-daily schedule was sized for.
+_JOB_TOLERANCE_HOURS: dict[str, tuple[float, str]] = {
+    "markdowns_refresh": (3, "de laatste kans-koopjes"),
+    "daily_refresh": (30, "de bonusfolder en de receptprijzen"),
+    "token_heartbeat": (36, "de AH-inlog"),
+    "recipe_pool_refresh": (8 * 24, "de receptenlijst"),
+    "source_freshness": (30, "de versheidscontrole"),
+}
+
+# Recovery needs an interactive browser login behind hCaptcha, which is the one
+# thing here that cannot be done unattended - and it has expired twice already.
+CREDENTIAL_JOB = "token_heartbeat"
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_pipeline_health(_engine) -> pd.DataFrame:
+    """Which scheduled jobs have stopped succeeding, and for how long.
+
+    Read from Dagster's own run table, which lives in this same Postgres. That
+    is a deliberate coupling to Dagster's schema: the alternative is its
+    GraphQL API, a second network dependency that fails exactly when something
+    is already broken.
+
+    "No successful run since" is a fact about *absence*, which is why this
+    exists. Every event-driven path - the failure sensor, ntfy - can only
+    report things that happened. A run that was never launched, a sensor whose
+    tick threw, a schedule that stopped evaluating: none of those emit
+    anything, and all of them leave the answers on screen quietly frozen.
+    """
+    sql = text("""
+        SELECT
+            pipeline_name AS job_name,
+            MAX(create_timestamp) FILTER (WHERE status = 'SUCCESS') AS last_success,
+            COUNT(*) FILTER (
+                WHERE status = 'FAILURE'
+                  AND create_timestamp > now() - interval '24 hours'
+            ) AS failures_today
+        FROM runs
+        WHERE pipeline_name = ANY(:jobs)
+        GROUP BY pipeline_name
+    """)
+    try:
+        with _engine.begin() as conn:
+            df = pd.read_sql_query(
+                sql, conn, params={"jobs": list(_JOB_TOLERANCE_HOURS)}
+            )
+    except Exception:
+        # Fail soft. A schema change on a Dagster upgrade, or a database that
+        # cannot be read, degrades this page to what it did before this existed
+        # rather than replacing an answer with an error.
+        return pd.DataFrame(
+            {"job_name": [], "last_success": [], "failures_today": [], "overdue_h": []}
+        )
+
+    known = set(df["job_name"]) if not df.empty else set()
+    # A job that has never run at all is missing from the table entirely, which
+    # is exactly the state worth reporting after a fresh deployment.
+    missing = [j for j in _JOB_TOLERANCE_HOURS if j not in known]
+    if missing:
+        df = pd.concat(
+            [
+                df,
+                pd.DataFrame(
+                    {
+                        "job_name": missing,
+                        "last_success": [pd.NaT] * len(missing),
+                        "failures_today": [0] * len(missing),
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
+
+    now = pd.Timestamp.now(tz="UTC")
+    last = pd.to_datetime(df["last_success"], utc=True, errors="coerce")
+    df["last_success"] = last
+    df["overdue_h"] = (now - last).dt.total_seconds() / 3600
+    df["tolerance_h"] = df["job_name"].map(lambda j: _JOB_TOLERANCE_HOURS[j][0])
+    df["what"] = df["job_name"].map(lambda j: _JOB_TOLERANCE_HOURS[j][1])
+    # NaT overdue means never succeeded, which is overdue by definition.
+    df["is_overdue"] = df["overdue_h"].isna() | (df["overdue_h"] > df["tolerance_h"])
+    return df.sort_values("job_name").reset_index(drop=True)

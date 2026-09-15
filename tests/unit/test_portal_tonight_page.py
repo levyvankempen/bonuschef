@@ -66,6 +66,20 @@ def _opportunity(**overrides) -> pd.DataFrame:
     return pd.DataFrame(base)
 
 
+def _healthy(**overrides) -> pd.DataFrame:
+    base = {
+        "job_name": ["markdowns_refresh", "token_heartbeat"],
+        "last_success": [FRESH_NOW, FRESH_NOW],
+        "failures_today": [0, 0],
+        "overdue_h": [1.0, 2.0],
+        "tolerance_h": [3.0, 36.0],
+        "what": ["de laatste kans-koopjes", "de AH-inlog"],
+        "is_overdue": [False, False],
+    }
+    base.update(overrides)
+    return pd.DataFrame(base)
+
+
 def _items() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -110,6 +124,7 @@ def wired(monkeypatch):
     monkeypatch.setattr(page, "read_recipe_opportunity_items", lambda e, r: _items())
     monkeypatch.setattr(page, "read_rejected_recipes", lambda e: pd.DataFrame())
     monkeypatch.setattr(page, "read_bonus_feed_loaded_at", lambda e: FRESH_NOW)
+    monkeypatch.setattr(page, "read_pipeline_health", lambda e: _healthy())
     monkeypatch.setattr(page.freshness, "now", lambda: FRESH_NOW)
     return monkeypatch
 
@@ -630,3 +645,56 @@ class TestFeedbackAfterACorrection:
         at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
         at.run()
         assert not at.error
+
+
+class TestPipelineHealth:
+    """With no notification channel subscribed, this page is the only surface
+    on which a broken pipeline can be noticed - and the failures that matter
+    most emit no event to alert on anyway."""
+
+    def test_nothing_is_shown_while_everything_succeeds(self, wired):
+        """A health indicator that is always present is furniture."""
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "sync_problem" not in body
+        assert "mogelijk niet bijgewerkt" not in body
+
+    def test_an_overdue_job_is_named_with_when_it_last_worked(self, wired, monkeypatch):
+        health = _healthy(is_overdue=[True, False], overdue_h=[14.0, 2.0])
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "markdowns_refresh" in body
+        assert "14 uur geleden" in body
+        assert "laatste kans-koopjes" in body
+
+    def test_the_credential_is_called_out_separately(self, wired, monkeypatch):
+        """Every other failure recovers by re-running a job. This one needs a
+        browser behind hCaptcha, and it has already expired twice."""
+        health = _healthy(is_overdue=[False, True], overdue_h=[1.0, 50.0])
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "AH-inlog" in body
+        assert "alleen met een browser" in body
+        assert at.error, "the credential warrants an error, not a warning"
+
+    def test_a_job_that_has_never_run_is_overdue(self, wired, monkeypatch):
+        """Missing entirely from the run table is the state after a fresh
+        deployment, and it is exactly what should be reported."""
+        health = _healthy(
+            last_success=[pd.NaT, FRESH_NOW],
+            overdue_h=[float("nan"), 2.0],
+            is_overdue=[True, False],
+        )
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_tonight).run()
+        assert "nog nooit gelukt" in _texts(at)
+
+    def test_an_unreadable_run_table_does_not_break_the_page(self, wired, monkeypatch):
+        """A Dagster upgrade that moves the schema must degrade this to what the
+        page did before, not replace an answer with an error."""
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: pd.DataFrame())
+        at = run_app(page.render_tonight).run()
+        assert not at.error
+        assert "Zuurkoolstamppot" in _texts(at)
