@@ -40,8 +40,14 @@ ARG BONUSCHEF_COMMIT=unknown
 ENV BONUSCHEF_VERSION=${BONUSCHEF_VERSION} \
     BONUSCHEF_COMMIT=${BONUSCHEF_COMMIT}
 
+# title/description/url are overridden, not just set: without them the image
+# inherits the uv base image's labels, so `docker inspect` answers "what is
+# this image?" with "uv - an extremely fast Python package manager".
 LABEL org.opencontainers.image.version="${BONUSCHEF_VERSION}" \
       org.opencontainers.image.revision="${BONUSCHEF_COMMIT}" \
-      org.opencontainers.image.source="https://github.com/levyvankempen/bonuschef"
+      org.opencontainers.image.source="https://github.com/levyvankempen/bonuschef" \
+      org.opencontainers.image.url="https://github.com/levyvankempen/bonuschef" \
+      org.opencontainers.image.title="bonuschef" \
+      org.opencontainers.image.description="Albert Heijn bonus and clearance tracking"
 
 CMD ["uv", "run", "dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-m", "bonuschef.dags.definitions"]

@@ -23,3 +23,9 @@ ah_tokens.json
 .coverage
 coverage.xml
 htmlcov/
+
+# Local Claude Code settings. Untracked and machine-specific: one of these was
+# rsynced onto the deployment host, where it made `git describe` report the
+# checkout dirty -- so a clean v1.3.0 deployment announced itself as "geen
+# release" on account of an editor preference file.
+.claude/settings.local.json

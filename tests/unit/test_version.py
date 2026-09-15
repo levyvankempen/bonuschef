@@ -179,3 +179,15 @@ def test_the_portal_renders_the_version():
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
     }
     assert "describe" in called, "the portal does not show which version it runs"
+
+
+def test_the_image_labels_identify_this_image_not_the_base():
+    """Without an explicit override the image inherits the uv base image's
+    labels, so `docker inspect` answers "what is this?" with "uv - an extremely
+    fast Python package manager". That was the state when v1.3.0 first
+    deployed."""
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    for label in ("title", "description", "url", "version", "revision", "source"):
+        assert f"org.opencontainers.image.{label}=" in dockerfile, (
+            f"image.{label} is inherited from the base image"
+        )
