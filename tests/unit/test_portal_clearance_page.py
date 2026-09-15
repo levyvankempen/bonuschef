@@ -104,7 +104,9 @@ def stubs(monkeypatch):
     monkeypatch.setattr(page, "read_last_scrape_time", state["last_scrape"])
     monkeypatch.setattr(page, "_now", lambda: state["now"])
     monkeypatch.setattr(page, "trigger_job", trigger)
-    monkeypatch.setattr(page, "wait_for_run", lambda run_id, timeout_s: state["status"])
+    # The refresh no longer waits; it records a run id and reads its status on
+    # each render, which is what survives a dropped phone session.
+    monkeypatch.setattr(page, "get_run_status", lambda run_id: state["status"])
     return state
 
 
@@ -229,12 +231,46 @@ def test_refresh_run_failure_mentions_run_and_token(stubs):
     assert stubs["read"].cleared == 0
 
 
-def test_refresh_timeout_warns(stubs):
+def test_a_running_refresh_says_it_is_scanning(stubs):
+    """It no longer blocks, so a run still going is a state the page reports
+    rather than a timeout it apologises for."""
     stubs["status"] = DagsterRunStatus.STARTED
     at = _run()
     at.button[0].click().run()
-    assert "loopt nog" in at.warning[0].value
-    assert stubs["read"].cleared == 0
+    assert any("gescand" in i.value for i in at.info)
+    assert stubs["read"].cleared == 0, "nothing to clear until it finishes"
+
+
+def test_a_queued_refresh_is_not_described_as_scanning(stubs):
+    """Runs are serialised instance-wide on purpose, so waiting is normal. The
+    old spinner said "de winkel wordt gescand" while a run sat 44th in a queue,
+    which sent an hour of debugging at the wrong component."""
+    stubs["status"] = DagsterRunStatus.QUEUED
+    at = _run()
+    at.button[0].click().run()
+    assert any("wachtrij" in i.value for i in at.info)
+    assert not any("gescand" in i.value for i in at.info)
+
+
+def test_the_outcome_survives_a_session_that_did_no_waiting(stubs):
+    """A phone that backgrounded the tab drops its websocket and the session
+    resets. The run id is what survives that; a pending wait is not."""
+    at = run_app(render_clearance, default_timeout=10)
+    at.session_state[page._RUN_KEY] = "run-1234567890"
+    at.run()
+    assert stubs["read"].cleared == 1, "a finished run must reach a fresh session"
+
+
+def test_losing_sight_of_the_run_is_not_an_error(stubs, monkeypatch):
+    def gone(run_id):
+        raise DagsterTriggerError("no such run")
+
+    monkeypatch.setattr(page, "get_run_status", gone)
+    at = run_app(render_clearance, default_timeout=10)
+    at.session_state[page._RUN_KEY] = "run-1234567890"
+    at.run()
+    assert not at.error, "the scrape either happened or did not; the banner reads it"
+    assert page._RUN_KEY not in at.session_state
 
 
 def _utc(value: str) -> pd.Timestamp:

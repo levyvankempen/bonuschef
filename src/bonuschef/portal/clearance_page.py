@@ -7,9 +7,10 @@ from sqlalchemy.exc import ProgrammingError
 
 from bonuschef.portal.dagster_client import (
     MARKDOWNS_REFRESH_JOB,
+    TERMINAL_STATUSES,
     DagsterTriggerError,
+    get_run_status,
     trigger_job,
-    wait_for_run,
 )
 from bonuschef.portal import freshness
 from bonuschef.portal.db import (
@@ -23,8 +24,9 @@ _MARKDOWN_LABELS = {
     "OUT_OF_ASSORTMENT": "Uit het assortiment",
 }
 _LOCAL_TZ = freshness.LOCAL_TZ
-_REFRESH_TIMEOUT_S = 180
 _REFRESHED_KEY = "clearance_refreshed_at"
+# The run being watched. An id survives a session reset; a pending wait does not.
+_RUN_KEY = "clearance_refresh_run"
 _SNAPSHOT_BEFORE_KEY = "clearance_snapshot_before"
 _FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
 
@@ -65,38 +67,78 @@ def _resolve_snapshot(last_scrape, df: pd.DataFrame) -> pd.Timestamp | None:
     return None
 
 
-def _run_refresh(before: pd.Timestamp | None = None) -> None:
-    """Trigger the markdowns job in Dagster and block until it finishes."""
+def _start_refresh(before: pd.Timestamp | None = None) -> None:
+    """Ask Dagster to scrape, and return immediately.
+
+    This used to block on wait_for_run behind a spinner, which failed three
+    ways at once. It could not tell a queued run from a running one, so it said
+    "de winkel wordt gescand" for three minutes while the run sat 44th in a
+    queue. Backgrounding a phone tab drops Streamlit's websocket, so the session
+    and its pending wait died together leaving no result and no error. And the
+    caches were cleared only by the session that did the waiting.
+
+    The run id is the state now. It is what survives a session reset; a pending
+    network wait is precisely what does not.
+    """
     try:
         run_id = trigger_job(MARKDOWNS_REFRESH_JOB)
     except DagsterTriggerError as exc:
+        # Failing to *start* is synchronous and needs no run id.
         st.error(f"{exc}\n\nDraait de Dagster-webserver en is die bereikbaar?")
         return
+    st.session_state[_RUN_KEY] = run_id
+    # Kept so the banner can check the snapshot actually moved. A Dagster run
+    # that succeeds having scraped nothing new is still a SUCCESS.
+    st.session_state[_SNAPSHOT_BEFORE_KEY] = before
+    st.rerun()
 
-    with st.spinner("De winkel wordt gescand…"):
-        try:
-            status = wait_for_run(run_id, timeout_s=_REFRESH_TIMEOUT_S)
-        except DagsterTriggerError as exc:
-            st.error(str(exc))
-            return
 
+def _render_refresh_progress() -> None:
+    """Report the run, until it reaches a terminal state.
+
+    Read from Dagster on every render rather than remembered, so a phone that
+    slept through the scrape still learns how it went.
+    """
+    run_id = st.session_state.get(_RUN_KEY)
+    if not run_id:
+        return
+    try:
+        status = get_run_status(run_id)
+    except DagsterTriggerError:
+        # Losing sight of the run is not an error: the scrape either happened or
+        # it did not, and the freshness caption reads the snapshot itself.
+        st.session_state.pop(_RUN_KEY, None)
+        return
+
+    if status not in TERMINAL_STATUSES:
+        # Waiting is a normal state, not an anomaly - runs are serialised
+        # instance-wide on purpose. Calling it "scanning" is what sent an hour
+        # of debugging at the wrong component.
+        label = (
+            "In de wachtrij — een andere taak is nog bezig…"
+            if status == DagsterRunStatus.QUEUED
+            else "De winkel wordt gescand…"
+        )
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.info(label, icon=":material/hourglass_top:")
+            if st.button("Ververs", key="clearance_poll", icon=":material/refresh:"):
+                st.rerun()
+        return
+
+    st.session_state.pop(_RUN_KEY, None)
     if status == DagsterRunStatus.SUCCESS:
+        # Cleared by whichever session observes completion, not by whichever one
+        # waited. st.cache_data.clear() is global, which is the point: a phone
+        # that slept through the run must not keep serving a stale mart.
         read_store_clearance.clear()
         read_last_scrape_time.clear()
         st.session_state[_REFRESHED_KEY] = _now()
-        # Kept so the banner can check the snapshot actually moved. A Dagster
-        # run that succeeds having scraped nothing new is still a SUCCESS.
-        st.session_state[_SNAPSHOT_BEFORE_KEY] = before
         st.rerun()
     elif status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        st.session_state.pop(_SNAPSHOT_BEFORE_KEY, None)
         st.error(
-            f"Het ophalen is mislukt (run {run_id[:8]}, status {status.value}). "
+            f"Het ophalen is mislukt (run {str(run_id)[:8]}, status {status.value}). "
             "Kijk in Dagster; meestal is het een verlopen AH-token."
-        )
-    else:
-        st.warning(
-            f"Het ophalen loopt nog ({run_id[:8]}) na "
-            f"{_REFRESH_TIMEOUT_S // 60} minuten. Laad de pagina zo opnieuw."
         )
 
 
@@ -109,9 +151,13 @@ def _render_refresh_banner(latest: pd.Timestamp | None) -> None:
     staleness this page now guards against.
     """
     refreshed = st.session_state.pop(_REFRESHED_KEY, None)
-    before = st.session_state.pop(_SNAPSHOT_BEFORE_KEY, None)
     if refreshed is None:
+        # Crucially without touching _SNAPSHOT_BEFORE_KEY. It is set when the
+        # run starts and read when it finishes, which is several renders later;
+        # popping it on every render destroyed the comparison and made every
+        # refresh claim success, including ones that found nothing new.
         return
+    before = st.session_state.pop(_SNAPSHOT_BEFORE_KEY, None)
     moved = before is None or (latest is not None and latest > before)
     if moved:
         st.success(f"Opgehaald om {refreshed:%H:%M}.")
@@ -128,6 +174,7 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
     with col_caption:
         st.caption(caption)
         _render_refresh_banner(latest)
+        _render_refresh_progress()
     with col_button:
         clicked = st.button(
             "Nu ophalen",
@@ -135,7 +182,7 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
             width="stretch",
         )
     if clicked:
-        _run_refresh(latest)
+        _start_refresh(latest)
 
 
 def _render_stale(
