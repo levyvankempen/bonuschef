@@ -54,7 +54,7 @@ Two tables would mean two definitions of "eligible" that can drift, and "records
 
 ### 3. Clearance is kept out of the cost history by dependency shape
 
-`store_id` is manufactured in exactly one model (`int_store`) and introduced by exactly one `CROSS JOIN`, in `int_recipe_item_opportunity`. Nothing upstream knows a store exists. `int_recipe_items_priced`, `fct_recipe_cost_latest`, `fct_recipe_cost_history` and the breakdown marts are untouched and keep their `recipe_id`-only grain, so clearance is *structurally unable* to reach them.
+`store_id` is manufactured in exactly one model (`int_store`) and reached by exactly two: `int_product_offer_today`, which must give a national promotion a store before it can be unioned with clearance, and `int_recipe_item_opportunity`, the grain where recipes become store-scoped. Nothing on the cost path knows a store exists. (The first draft of this design claimed one cross join; writing the test that enforced it is what showed the offer layer needs one too.) `int_recipe_items_priced`, `fct_recipe_cost_latest`, `fct_recipe_cost_history` and the breakdown marts are untouched and keep their `recipe_id`-only grain, so clearance is *structurally unable* to reach them.
 
 ```
 int_recipe_items_priced ──┬─> fct_recipe_cost_latest   (grain: recipe_id)   ← no store, no clearance
@@ -80,11 +80,22 @@ Six explosions; five collapse, and the sixth is disclosed rather than hidden.
 
 **The sixth: two ingredient lines resolving to the same product.** `_recipes_models.yml` already documents "ui" and "rode ui" both confirmed against a generic onion pack. Two lines are two shopping decisions, so the grain is right — but one clearance unit with stock 1 would be claimed twice. No uniqueness test can see it. A window function carries `lines_claiming_offer_product` to the item row and a `severity: warn` test asserts `stock >= lines_claiming_offer_product`. Zero violations today, because nothing is on clearance; the test exists for the day something is.
 
-### 5. Multibuy is excluded from the saving
+### 5. Multibuy is excluded from the saving — and the premise turned out to be false
 
-`bonus_price` on `1 + 1 gratis` is a per-unit price **conditional on buying two**. A recipe needing one unit does not get it. **57% of live matched promotions are multibuy**, which makes this a larger source of overstatement than the staleness problem the spec was already careful about.
+The review warned that `bonus_price` on a `1 + 1 gratis` is a per-unit price **conditional on buying two**, that a recipe needing one unit does not get it, and that **57% of live matched promotions are multibuy** — making this a larger source of overstatement than the staleness problem the spec was already careful about.
 
-`requires_multibuy` is derived from `bonus_mechanism`, and such offers are excluded from `saving_total` and reported as `conditional_saving` with the condition stated. This is a deliberate departure from the original spec's unqualified "the cheaper of the two counts".
+Checked against the warehouse rather than taken on trust, the two sets are **exactly complementary**:
+
+| | `bonus_price` NULL | priced |
+|---|---|---|
+| multibuy mechanism | **153** | 0 |
+| single-unit mechanism | 0 | **103** |
+
+AH does not publish a per-unit price for a multibuy deal at all. There was no overstatement to fix, because those rows never carried a number to overstate with. The reviewer's 146-of-256 was counting rows, not priced rows.
+
+`requires_multibuy` is still derived and still excluded from `saving_total`, and `tests/assert_multibuy_offers_carry_no_unit_price.sql` pins the correlation. The machinery is currently inert and kept deliberately: it is cheap, it is correct, and that test is what tells us if AH ever starts pricing a `2 voor 4.99` per unit — at which point the exclusion begins doing real work instead of silently not needing to.
+
+**What this does cost us:** those 153 promotions are invisible to the opportunity page, because the offer layer takes priced offers only. "1 + 1 gratis on the courgette" is real information to someone deciding what to cook, even without a computable saving. The spec says such an offer **MAY** be reported, so not surfacing it is compliant — but it is a deliberate omission rather than an oversight, and worth revisiting.
 
 ### 6. Stale clearance withdraws one source; it does not blank the page
 
@@ -105,10 +116,12 @@ The feasibility work established the full crawl is affordable — ~900 requests,
 | step | requests |
 |---|---|
 | enumerate top 2,000 by POPULAR, `size: 100` | 20 |
-| fetch them, 200 aliases per request | 10 |
-| **total, weekly** | **30** |
+| fetch them, 120 aliases per request | 17 |
+| **total, weekly** | **37** |
 
-Thirty requests a week against a measured tolerance of ~420 a day. The facet sweep, the incremental `modifiedAt` diff, the 500-alias lean batch and the resumable-crawl machinery all become unnecessary — the pool is small enough to refetch whole. That is a large amount of design deleted by one field probe.
+Thirty-seven requests a week against a measured tolerance of ~420 a day.
+
+The batch size is 120, not the 200 this design first assumed. The token ceiling moves with the field set, and adding `rating { average count }` and `modifiedAt` moved it: the first 200-batch attempted after that change failed with *"parsing error: token limit reached, aborting lexing"*. Re-measured, 160 fails and 150 passes, so 120 leaves about 20% headroom — enough that the next field added costs four extra requests rather than breaking the pool build outright. The facet sweep, the incremental `modifiedAt` diff, the 500-alias lean batch and the resumable-crawl machinery all become unnecessary — the pool is small enough to refetch whole. That is a large amount of design deleted by one field probe.
 
 Verified: `POPULAR` is genuinely rating-ordered — the top ten are 5-star with 7 to 18 votes each — and it is distinct from `TRENDING`, which returned results identical to `NEWEST` and is therefore not a popularity signal at all.
 

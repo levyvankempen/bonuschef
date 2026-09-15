@@ -138,3 +138,76 @@ models:
         description: "Savings AH claims: (price_before_bonus - bonus_price) * quantity. May be inflated."
       - name: real_savings
         description: "Actual savings vs tracked price: (price - bonus_price) * quantity."
+
+  - name: fct_recipe_opportunity
+    description: >
+      What is worth cooking today, at one store. Every recipe in the pool keeps
+      a row: opportunity_rank is NULL for the ones that are not ranked, and
+      exclusion_reason says why. COUNT(*) is the honest size of the pool.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, recipe_id]
+      # Ranked exactly when rankable and actually cheaper.
+      - dbt_utils.expression_is_true:
+          expression: >
+            (opportunity_rank IS NOT NULL)
+            = (is_rankable AND COALESCE(saving_total, 0) > 0)
+      # Excluded exactly when not ranked. The two must not drift apart.
+      - dbt_utils.expression_is_true:
+          expression: >
+            (exclusion_reason IS NULL) = (opportunity_rank IS NOT NULL)
+      # A total is published only for a fully priced basket - the same guarantee
+      # fct_recipe_cost_latest makes.
+      - dbt_utils.expression_is_true:
+          expression: "cost_ordinary IS NULL OR items_priced = items_total"
+      - dbt_utils.expression_is_true:
+          expression: "cost_today IS NULL OR cost_today <= cost_ordinary"
+      - dbt_utils.expression_is_true:
+          expression: "saving_total >= 0"
+      - dbt_utils.expression_is_true:
+          expression: "saving_bonus_only <= saving_total"
+      # A lower bound is exactly an incompletely priced basket.
+      - dbt_utils.expression_is_true:
+          expression: "saving_is_lower_bound = (items_priced < items_total)"
+      # Urgency must come from a clearance line or not at all.
+      - dbt_utils.expression_is_true:
+          expression: >
+            items_discounted_clearance > 0
+            OR (min_stock_remaining IS NULL AND earliest_expiry IS NULL)
+      - dbt_utils.expression_is_true:
+          expression: "saving_pct IS NULL OR saving_pct <= 100"
+    columns:
+      - name: store_id
+        tests: [not_null]
+      - name: recipe_id
+        # Deliberately no relationship to dim_recipe: a pool recipe is ranked
+        # without being one of the person's own, and that absence is the point.
+        tests: [not_null]
+      - name: is_rankable
+        tests: [not_null]
+      - name: saving_is_lower_bound
+        tests: [not_null]
+      - name: exclusion_reason
+        tests:
+          - accepted_values:
+              values: ['no_ingredients', 'no_priced_ingredient', 'no_discount_today']
+      - name: clearance_scraped_at
+        tests: [not_null]
+
+  - name: fct_recipe_opportunity_items
+    description: >
+      The named ingredients behind a ranking row, at full grain so that an
+      excluded recipe's unresolved line stays visible.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, recipe_id, item_key]
+    columns:
+      - name: offer_product_link
+        description: >
+          The candidate the discount was found on. May differ from
+          ordinary_product_link: a sibling product of the same concept can be
+          cheapest today without being cheapest ordinarily.
+        tests:
+          - relationships:
+              to: ref('dim_product')
+              field: product_link

@@ -100,10 +100,17 @@ def _copy_in(path: Path) -> list[tuple[int, str]]:
 
 
 def _english_words(text: str) -> set[str]:
+    """Words a Dutch reader would not recognise.
+
+    ``_`` counts as a word character so that a snake_case identifier stays one
+    token: telling someone to start the ``recipe_pool_refresh`` job is naming a
+    thing they must type into Dagster, not writing English at them. Ordinary
+    prose never contains an underscore, so this cannot hide a real offence.
+    """
     word = ""
     words: set[str] = set()
     for char in text.lower():
-        if char.isalpha():
+        if char.isalpha() or char == "_":
             word += char
             continue
         if word in ENGLISH_ONLY:

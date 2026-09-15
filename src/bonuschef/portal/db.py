@@ -2,6 +2,8 @@
 
 import os
 
+from typing import cast
+
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
@@ -670,3 +672,175 @@ def upsert_product_image(_engine, product_link: str, image_url: str) -> None:
             """),
             {"product_link": product_link, "image_url": image_url},
         )
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_recipe_opportunity(_engine) -> pd.DataFrame:
+    """What is worth cooking today, and why every other recipe is not.
+
+    Reads the whole table rather than filtering to the ranked rows. The mart
+    keeps a row for every recipe in the pool precisely so the page can show how
+    many it holds against how many it can rank, and a `WHERE opportunity_rank
+    IS NOT NULL` here would throw that away at the last step.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            store_id, clearance_scraped_at, clearance_is_current,
+            recipe_id, recipe_name, servings, source_kind, image_url,
+            is_rankable, exclusion_reason, opportunity_rank,
+            cost_ordinary, cost_today, cost_today_bonus_only,
+            saving_total, saving_bonus_only, conditional_saving,
+            advertised_saving_total, saving_is_lower_bound,
+            saving_covers_whole_packs, saving_pct, cost_today_per_serving,
+            items_total, items_priced, items_unresolved, items_discounted,
+            items_discounted_clearance, items_offer_withheld_stale,
+            items_conditional_offer,
+            min_stock_remaining, clearance_items_stock_unknown,
+            earliest_expiry, clearance_items_expiry_unknown,
+            has_insufficient_stock
+        FROM "{schema}"."fct_recipe_opportunity"
+        ORDER BY opportunity_rank ASC NULLS LAST, recipe_name ASC
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn)
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_recipe_opportunity_items(_engine, recipe_id: int) -> pd.DataFrame:
+    """The ingredients behind one recipe's ranking, discounted or not.
+
+    Not filtered to discounted lines: "the rest of the basket did not move" is
+    itself the answer to why a recipe is cheap by only so much, and an
+    unresolved line is why it cannot be costed at all.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            item_key, item_label, product_name,
+            ordinary_product_link, offer_product_link,
+            units, sales_unit_size, price_ordinary, price_today,
+            item_cost_ordinary, item_cost_today, item_saving,
+            item_conditional_saving, item_advertised_saving,
+            offer_kind, offer_price, bonus_mechanism, conditional_mechanism,
+            stock, expires_on, is_discounted, is_unresolved,
+            reference_is_comparable, offer_withheld_stale_reference,
+            ordinary_price_age_days
+        FROM "{schema}"."fct_recipe_opportunity_items"
+        WHERE recipe_id = CAST(:recipe_id AS bigint)
+        ORDER BY item_saving DESC NULLS LAST, item_label ASC
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"recipe_id": int(recipe_id)})
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_bonus_feed_loaded_at(_engine) -> pd.Timestamp | None:
+    """When the promotional feed last loaded.
+
+    The bonus feed is weekly, so it ages on a different clock from the hourly
+    clearance scrape. Reporting one page's staleness using the other's rule
+    would call the page stale every day of the week but one.
+    """
+    sql = text('SELECT MAX(loaded_at) AS loaded_at FROM public."ah__bonus_products"')
+    try:
+        with _engine.begin() as conn:
+            value = pd.read_sql_query(sql, conn)["loaded_at"].iloc[0]
+    except Exception:
+        return None
+    if pd.isna(value):
+        return None
+    return cast("pd.Timestamp", pd.Timestamp(value))
+
+
+def ensure_verdict_table(_engine) -> None:
+    """The table that remembers a person's decision about a pool recipe.
+
+    Keyed on ``recipe_id`` and portal-owned, so a rejection survives the weekly
+    pool refetch. Dismissing a recipe is permanent until reversed, not until
+    next Monday — and a recipe that reappears in AH's popular listing must not
+    quietly come back after someone has said no to it.
+
+    Only rejections live here. Keeping a recipe *adopts* it, which is one
+    action rather than two and puts it on the same footing as anything else the
+    person chose: exempt from eviction by construction, not by a second flag
+    that could disagree with the first.
+    """
+    with _engine.begin() as conn:
+        conn.execute(
+            text("""
+            CREATE TABLE IF NOT EXISTS public.ah_recipe_verdicts (
+                recipe_id   BIGINT PRIMARY KEY,
+                verdict     TEXT NOT NULL CHECK (verdict IN ('rejected')),
+                decided_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        )
+
+
+def reject_recipe(_engine, recipe_id: int) -> None:
+    """Never show this recipe again, until the person says otherwise."""
+    ensure_verdict_table(_engine)
+    with _engine.begin() as conn:
+        conn.execute(
+            text("""
+            INSERT INTO public.ah_recipe_verdicts (recipe_id, verdict)
+            VALUES (CAST(:rid AS bigint), 'rejected')
+            ON CONFLICT (recipe_id) DO UPDATE
+                SET verdict = 'rejected', decided_at = now()
+        """),
+            {"rid": int(recipe_id)},
+        )
+    read_recipe_opportunity.clear()
+
+
+def reinstate_recipe(_engine, recipe_id: int) -> None:
+    """Undo a rejection, so a dismissal is not a trap."""
+    ensure_verdict_table(_engine)
+    with _engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM public.ah_recipe_verdicts "
+                "WHERE recipe_id = CAST(:rid AS bigint)"
+            ),
+            {"rid": int(recipe_id)},
+        )
+    read_recipe_opportunity.clear()
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_rejected_recipes(_engine) -> pd.DataFrame:
+    """What has been dismissed, so it can be reviewed and reversed.
+
+    Joined to the pool rather than to dim_recipe: a rejected recipe is excluded
+    from dim_recipe by design, so reading its name from there would return
+    nothing and the list would look empty rather than populated.
+    """
+    ensure_verdict_table(_engine)
+    sql = text("""
+        SELECT
+            v.recipe_id,
+            COALESCE(p.title, 'Recept ' || v.recipe_id::text) AS recipe_name,
+            p.image_url,
+            p.rating_average,
+            p.rating_count,
+            v.decided_at
+        FROM public.ah_recipe_verdicts AS v
+        LEFT JOIN public."ah__pool_recipes" AS p ON v.recipe_id = p.recipe_id
+        WHERE v.verdict = 'rejected'
+        ORDER BY v.decided_at DESC
+    """)
+    try:
+        with _engine.begin() as conn:
+            return pd.read_sql_query(sql, conn)
+    except Exception:
+        # The pool table does not exist until the first refresh has run.
+        empty: dict[str, list] = {
+            "recipe_id": [],
+            "recipe_name": [],
+            "image_url": [],
+            "rating_average": [],
+            "rating_count": [],
+            "decided_at": [],
+        }
+        return pd.DataFrame(empty)

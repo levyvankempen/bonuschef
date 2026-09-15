@@ -8,7 +8,7 @@ Defines what the warehouse is entitled to assert about prices, savings and promo
 
 ### Requirement: A promotion is reported as live only while it is running
 
-Promotional pricing SHALL be reported as current only when the promotion's period includes the present date. A promotion that has ended SHALL NOT be presented as an offer, and a sentinel far-future end date SHALL NOT be treated as an indefinite promotion.
+Promotional pricing SHALL be reported as current only when the promotion's period includes the present date. A promotion that has ended SHALL NOT be presented as an offer. A sentinel far-future end date SHALL be distinguishable from a dated campaign, because the two are different propositions and a consumer must be able to tell them apart — but it SHALL NOT be excluded, because such offers are real standing shelf discounts.
 
 #### Scenario: A promotion that ended weeks ago
 
@@ -22,8 +22,8 @@ Promotional pricing SHALL be reported as current only when the promotion's perio
 
 #### Scenario: A far-future sentinel end date
 
-- **WHEN** a promotion carries an end date so distant that it cannot be a real campaign
-- **THEN** it is not treated as permanently live merely because that date has not yet passed
+- **WHEN** a promotion carries an end date so distant that it cannot be a dated campaign
+- **THEN** it is still reported as on offer, because it is a standing discount rather than a stale row, and it is marked as ongoing so that it is never mistaken for a campaign ending this week
 
 #### Scenario: The promotional feed has stopped loading
 

@@ -43,6 +43,8 @@ _RECIPE_QUERY = """query AHRecipe($id: Int!, $canary: Int!) {
   recipe(id: $id) {
     id title description href courses
     cookTime ovenTime waitTime
+    modifiedAt
+    rating { average count }
     servings { number type }
     images { url width height }
     ingredients {
@@ -53,6 +55,35 @@ _RECIPE_QUERY = """query AHRecipe($id: Int!, $canary: Int!) {
   }
   canary: recipe(id: $canary) { id }
 }"""
+
+# One recipe's field selection, reused by the alias-batched fetch. Kept as a
+# fragment body rather than duplicated: the batch and the single fetch must
+# return the same shape or _parse_recipe would succeed on one and refuse the
+# other.
+_RECIPE_FIELDS = """
+    id title description href courses
+    cookTime ovenTime waitTime
+    modifiedAt
+    rating { average count }
+    servings { number type }
+    images { url width height }
+    ingredients {
+      id quantity text
+      quantityUnit { singular plural }
+      name { singular plural }
+    }
+"""
+
+# Alias batching caps on a GraphQL lexer token budget, not on an alias count,
+# so the ceiling moves whenever the field set changes. It was measured at 238
+# before `rating` and `modifiedAt` were added; with them, 160 fails and 150
+# passes - the first 200-batch attempted after adding two fields died with
+# "parsing error: token limit reached, aborting lexing".
+#
+# 120 is the operating point: roughly 20% below the measured ceiling, so the
+# next field added does not turn a working pool build into a total failure.
+# Cost of the headroom is 17 requests per refresh instead of 13.
+MAX_BATCH_SIZE = 120
 
 # `size` is a custom scalar, not an Int - declaring it Int fails validation
 # with "PageSize cannot represent value". `start` really is an Int.
@@ -123,6 +154,12 @@ class Recipe:
     image_url: str = ""
     description: str = ""
     cook_time_min: int | None = None
+    # Both, never just the average: five stars from three votes is not the same
+    # claim as five stars from three hundred, and a pool ordered by rating alone
+    # would put the former first.
+    rating_average: float | None = None
+    rating_count: int | None = None
+    modified_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -213,6 +250,27 @@ def _parse_ingredient(payload: object, line_no: int) -> Ingredient:
     )
 
 
+def _rating_field(payload: dict, key: str) -> float | None:
+    """Read one half of the rating, tolerating its absence.
+
+    Deliberately not fatal, unlike the shape checks below. A recipe nobody has
+    voted on is a real recipe; refusing it would drop new entries from the pool
+    for no better reason than that they are new.
+    """
+    node = payload.get("rating")
+    if not isinstance(node, dict):
+        return None
+    value = node.get(key)
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _rating_count(payload: dict) -> int | None:
+    """Votes are a count. Coerced rather than widening the field: a fractional
+    vote count reaching the warehouse would be nonsense that nothing rejects."""
+    value = _rating_field(payload, "count")
+    return None if value is None else int(value)
+
+
 def _parse_recipe(payload: object) -> Recipe:
     """Build a Recipe, or refuse.
 
@@ -250,6 +308,9 @@ def _parse_recipe(payload: object) -> Recipe:
         cook_time_min=payload.get("cookTime")
         if isinstance(payload.get("cookTime"), int)
         else None,
+        rating_average=_rating_field(payload, "average"),
+        rating_count=_rating_count(payload),
+        modified_at=str(payload.get("modifiedAt") or ""),
     )
 
 
@@ -354,3 +415,104 @@ def facet_values(group: str, *, manager: AHTokenManager | None = None) -> list[s
                 str(v["name"]) for v in values if isinstance(v, dict) and v.get("name")
             ]
     return []
+
+
+# --------------------------------------------------------------------------
+# The pool: the well-regarded recipes, fetched in batches
+# --------------------------------------------------------------------------
+
+# recipeSearch refuses start + size > 2000 with "Subgraph errors redacted" -
+# the same opaque message a dead subgraph gives, so it must be respected rather
+# than discovered. Here that ceiling is the feature: the top 2,000 by rating is
+# exactly the bounded pool we want, and it costs 20 search requests.
+MAX_SEARCH_OFFSET = 2000
+
+
+def enumerate_popular(
+    limit: int = MAX_SEARCH_OFFSET, *, manager: AHTokenManager | None = None
+) -> list[RecipeHit]:
+    """The best-regarded recipes AH publishes, in its own order.
+
+    POPULAR only. TRENDING was measured returning results identical to NEWEST,
+    so it is not a popularity signal at all and using it would quietly fill the
+    pool with whatever was published last.
+    """
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    limit = min(int(limit), MAX_SEARCH_OFFSET)
+    manager = manager or manager_from_env()
+
+    hits: list[RecipeHit] = []
+    seen: set[int] = set()
+    start = 0
+    while start < limit:
+        size = min(MAX_SEARCH_SIZE, limit - start)
+        page = search_recipes(
+            None, size=size, start=start, sort_by="POPULAR", manager=manager
+        )
+        if not page.hits:
+            break
+        for hit in page.hits:
+            # AH's own ordering is not guaranteed to be a partition; a duplicate
+            # across page boundaries would otherwise be fetched twice.
+            if hit.recipe_id not in seen:
+                seen.add(hit.recipe_id)
+                hits.append(hit)
+        start += size
+    return hits
+
+
+def fetch_recipes(
+    recipe_ids: list[int], *, manager: AHTokenManager | None = None
+) -> tuple[list[Recipe], list[int]]:
+    """Fetch many recipes in alias-batched requests.
+
+    Returns the recipes that parsed and the ids that did not, rather than
+    raising on one bad recipe: a single unparseable entry must not cost the
+    whole pool. An unreachable AH still raises, because that is not a property
+    of any one recipe.
+
+    Measured at 200 aliases: 7,555 recipes in 38 requests, 67 seconds.
+    """
+    manager = manager or manager_from_env()
+    recipes: list[Recipe] = []
+    failed: list[int] = []
+
+    for offset in range(0, len(recipe_ids), MAX_BATCH_SIZE):
+        chunk = recipe_ids[offset : offset + MAX_BATCH_SIZE]
+        aliases = "\n".join(
+            f"  r{i}: recipe(id: {int(rid)}) {{{_RECIPE_FIELDS}}}"
+            for i, rid in enumerate(chunk)
+        )
+        query = (
+            "query AHRecipeBatch($canary: Int!) {\n"
+            f"{aliases}\n"
+            "  canary: recipe(id: $canary) { id }\n"
+            "}"
+        )
+        _pace()
+        try:
+            data, errors = manager.graphql_partial(query, {"canary": CANARY_RECIPE_ID})
+        except AHAuthError as exc:
+            raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+        except Exception as exc:
+            raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+
+        # The canary tells a dead subgraph apart from a batch of unknown ids.
+        # Without it a broken backend looks exactly like 200 retired recipes.
+        if not (data.get("canary") or {}).get("id"):
+            raise AHRecipeUnavailable(
+                "Albert Heijn answered without the canary recipe; "
+                f"the recipe backend is not serving ({len(errors)} errors)"
+            )
+
+        for i, rid in enumerate(chunk):
+            payload = data.get(f"r{i}")
+            if payload is None:
+                failed.append(int(rid))
+                continue
+            try:
+                recipes.append(_parse_recipe(payload))
+            except AHRecipeShapeError:
+                failed.append(int(rid))
+    return recipes, failed

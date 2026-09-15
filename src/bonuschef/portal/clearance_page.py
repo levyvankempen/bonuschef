@@ -1,7 +1,5 @@
 """Laatste kans page — store-specific clearance (reduced-to-clear) items."""
 
-from zoneinfo import ZoneInfo
-
 import pandas as pd
 import streamlit as st
 from dagster import DagsterRunStatus
@@ -13,20 +11,22 @@ from bonuschef.portal.dagster_client import (
     trigger_job,
     wait_for_run,
 )
-from bonuschef.portal.db import get_engine, read_last_scrape_time, read_store_clearance
+from bonuschef.portal import freshness
+from bonuschef.portal.db import (
+    get_engine,
+    read_last_scrape_time,
+    read_store_clearance,
+)
 
 _MARKDOWN_LABELS = {
     "EXPIRATION": "Bijna over datum",
     "OUT_OF_ASSORTMENT": "Uit het assortiment",
 }
-_LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
+_LOCAL_TZ = freshness.LOCAL_TZ
 _REFRESH_TIMEOUT_S = 180
 _REFRESHED_KEY = "clearance_refreshed_at"
 _SNAPSHOT_BEFORE_KEY = "clearance_snapshot_before"
-# Mirrors the markdowns_refresh cron "0 11-20 * * *": before the first scrape of
-# the day there is legitimately no data for today, which is a different fact
-# from the pipeline being broken.
-_FIRST_SCRAPE_HOUR = 11
+_FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
 
 
 def _load(engine) -> pd.DataFrame | None:
@@ -42,48 +42,14 @@ def _latest_snapshot(df: pd.DataFrame) -> pd.Timestamp:
     return pd.to_datetime(df["scraped_at"], utc=True).max().tz_convert(_LOCAL_TZ)
 
 
-def _now() -> pd.Timestamp:
-    """Current instant in Dutch local time. Test seam: monkeypatched in tests."""
-    return pd.Timestamp.now(tz=_LOCAL_TZ)
-
-
-def _is_current(snapshot: pd.Timestamp | None, now: pd.Timestamp) -> bool:
-    """True when the snapshot falls on the current trading day in Amsterdam.
-
-    Clock distance is the wrong measure: 19:00 yesterday is worthless at 09:00
-    (14h later) while 09:00 today is still the best data available at 23:00
-    (also 14h later). What matters is whether the store has restocked and
-    re-marked since.
-
-    Both sides are converted rather than assumed local. Comparing UTC dates
-    would silently misclassify every snapshot between 22:00 and midnight local
-    in summer, when the local date has already rolled over and the UTC one has
-    not. A missing snapshot is never current.
-    """
-    if snapshot is None or pd.isna(snapshot):
-        return False
-    return snapshot.tz_convert(_LOCAL_TZ).date() == now.tz_convert(_LOCAL_TZ).date()
-
-
-def _describe_age(snapshot: pd.Timestamp, now: pd.Timestamp) -> str:
-    """Coarse, glanceable age. Precision below the decision is noise."""
-    hours = (now - snapshot).total_seconds() / 3600
-    if hours < 1:
-        return "minder dan een uur oud"
-    if hours < 48:
-        count = round(hours)
-        return f"{count} uur oud" if count == 1 else f"{count} uur oud"
-    days = round(hours / 24)
-    if days < 60:
-        return "1 dag oud" if days == 1 else f"{days} dagen oud"
-    return f"{round(days / 30)} maanden oud"
-
-
-def _format_local(snapshot: pd.Timestamp | None) -> str:
-    """Timestamp for the caption, or a word when there is none."""
-    if snapshot is None:
-        return "een onbekend moment"
-    return f"{snapshot.tz_convert(_LOCAL_TZ):%Y-%m-%d %H:%M}"
+# These four were this page's own; a second page now needs the same judgement,
+# and two pages deciding separately what "current" means is how two surfaces
+# come to disagree about the same snapshot. The definitions live in
+# portal.freshness; the names stay here so the page reads unchanged.
+_now = freshness.now
+_is_current = freshness.is_current
+_describe_age = freshness.describe_age
+_format_local = freshness.format_local
 
 
 def _resolve_snapshot(last_scrape, df: pd.DataFrame) -> pd.Timestamp | None:

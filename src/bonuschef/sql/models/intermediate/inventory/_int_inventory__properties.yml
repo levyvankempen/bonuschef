@@ -25,3 +25,57 @@ models:
         description: "Timestamp of the latest snapshot."
         tests:
           - not_null
+
+  - name: int_store
+    description: >
+      The store spine. The only model that manufactures store_id, and the only
+      one int_recipe_item_opportunity may CROSS JOIN. That restriction is what
+      keeps clearance out of the comparable cost history structurally.
+    columns:
+      - name: store_id
+        tests: [unique, not_null]
+      - name: clearance_scraped_at
+        tests: [not_null]
+
+  - name: int_product_offer_today
+    description: >
+      Every discount on a tracked product at a store today, collapsed to one row
+      per (store, product). Clearance and bonus meet here and nowhere else.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, product_link]
+      # An "offer" dearer than the price it claims to discount is not an offer.
+      - dbt_utils.expression_is_true:
+          expression: >
+            advertised_before_price IS NULL
+            OR offer_price <= advertised_before_price
+      # Clearance carries stock and expiry; a promotion carries neither. If a
+      # bonus row ever arrives with stock, the urgency filter in
+      # fct_recipe_opportunity is silently wrong.
+      - dbt_utils.expression_is_true:
+          expression: >
+            offer_kind = 'clearance'
+            OR (stock IS NULL AND expires_on IS NULL)
+      # Only a promotion can be conditional on buying more than one.
+      - dbt_utils.expression_is_true:
+          expression: "offer_kind = 'bonus' OR NOT requires_multibuy"
+    columns:
+      - name: product_link
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_link
+      - name: offer_kind
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['clearance', 'bonus']
+      - name: offer_price
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: requires_multibuy
+        tests: [not_null]

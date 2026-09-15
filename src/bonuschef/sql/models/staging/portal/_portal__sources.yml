@@ -26,3 +26,8 @@ sources:
           purpose: which is cheapest changes daily.
       - name: ah_ingredient_aliases
         description: "Duplicate concept ids folded onto a canonical one."
+      - name: ah_recipe_verdicts
+        description: >
+          A person's decision about a pool recipe. Keyed on recipe_id so that a
+          rejection survives the pool being refetched - dismissing something is
+          permanent until reversed, not until next Monday.

@@ -52,8 +52,37 @@ adopted AS (
         ON r.ah_recipe_id = i.ah_recipe_id
     GROUP BY r.ah_recipe_id, i.concept_id
 
+),
+
+-- The pool path. Identical in shape to `adopted` because it is the same key:
+-- AH's concept id. One confirmed resolution therefore serves a pool recipe and
+-- an adopted one alike, which is what makes the review queue worth working
+-- through - the effort compounds across every recipe that uses the ingredient.
+--
+-- int_pool_recipes_available has already applied the adopted/rejected rules;
+-- joining to it rather than re-deriving them keeps one definition.
+pool AS (
+
+    SELECT
+        r.recipe_id,
+        'c:' || CAST(i.concept_id AS text) AS item_key,
+        'concept' AS source_kind,
+        i.concept_id,
+        MIN(i.concept_name) AS item_label,
+        CAST(NULL AS text) AS pinned_product_link,
+        1 AS quantity,
+        STRING_AGG(i.raw_text, ' + ' ORDER BY i.line_no) AS quantity_text,
+        CAST(NULL AS timestamp) AS valid_from,
+        CAST(NULL AS timestamp) AS valid_to
+    FROM {{ ref('int_pool_recipes_available') }} AS r
+    INNER JOIN {{ ref('stg_ah__pool_recipe_ingredients') }} AS i
+        ON r.recipe_id = i.ah_recipe_id
+    GROUP BY r.recipe_id, i.concept_id
+
 )
 
 SELECT * FROM hand_entered
 UNION ALL
 SELECT * FROM adopted
+UNION ALL
+SELECT * FROM pool

@@ -60,6 +60,18 @@ markdowns_refresh_job = define_asset_job(
 )
 
 
+# The recipe pool refreshes weekly and is never urgent, so it gets its own job
+# rather than riding the nightly rebuild. Selecting the asset and its downstream
+# keeps the opportunity marts in step with the pool that feeds them.
+recipe_pool_refresh_job = define_asset_job(
+    name="recipe_pool_refresh",
+    selection=AssetSelection.assets("ah__recipe_pool").downstream(),
+    # One retry. The pool is never urgent and the AH credential is the scarce
+    # thing; retrying a rejected credential is how it gets burned.
+    op_retry_policy=RetryPolicy(max_retries=1, delay=120),
+)
+
+
 # The AH member refresh credential expired twice from disuse: the clearance
 # scrape was the only thing that ever refreshed it, so whenever the stack sat
 # idle - or the scrape broke for an unrelated reason - AH eventually rejected it
@@ -118,6 +130,7 @@ __all__ = [
     "dbt_job",
     "daily_refresh_job",
     "markdowns_refresh_job",
+    "recipe_pool_refresh_job",
     "recipes_rebuild_job",
     "refresh_ah_credential",
     "token_heartbeat_job",

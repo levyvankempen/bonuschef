@@ -55,10 +55,21 @@ def test_all_jobs_registered(defs):
         "markdowns_refresh",
         "token_heartbeat",
         "recipes_rebuild",
+        "recipe_pool_refresh",
     }
 
 
 def test_markdowns_refresh_only_touches_clearance_lineage(defs, asset_graph):
+    """Hourly, so it must stay narrow - but "narrow" means clearance's lineage,
+    not a frozen list.
+
+    The opportunity marts joined that lineage when they started reading
+    clearance, and they belong in this job: the whole point of Vanavond is that
+    at 17:30 it reflects the scrape that just ran, not last night's rebuild.
+    They are small - the offer layer is a few hundred rows - so the hourly cost
+    is negligible. What must never appear here is the GitHub feed or the recipe
+    pool, which would turn an hourly job into a bulk load.
+    """
     job = next(j for j in defs.jobs if j.name == "markdowns_refresh")
     keys = _keys(job, asset_graph)
     assert keys == {
@@ -66,7 +77,14 @@ def test_markdowns_refresh_only_touches_clearance_lineage(defs, asset_graph):
         "stg_ah__markdowns",
         "marts/fct_store_clearance",
         "marts/fct_store_clearance_history",
+        "int_store",
+        "int_product_offer_today",
+        "int_recipe_item_opportunity",
+        "marts/fct_recipe_opportunity",
+        "marts/fct_recipe_opportunity_items",
     }
+    assert "github__products" not in keys
+    assert "ah__recipe_pool" not in keys
 
 
 def test_dbt_models_job_excludes_dlt_sources(defs, asset_graph):
@@ -90,6 +108,7 @@ def test_schedules_run_in_amsterdam_time(defs):
         "daily_refresh_schedule",
         "markdowns_refresh_schedule",
         "token_heartbeat_schedule",
+        "recipe_pool_refresh_schedule",
     }
     assert all(s.execution_timezone == "Europe/Amsterdam" for s in by_name.values())
     assert by_name["daily_refresh_schedule"].cron_schedule == "30 17 * * *"
@@ -163,3 +182,35 @@ def test_the_dbt_executable_is_resolved_absolutely():
 
     assert dbt.dbt_executable != "dbt", "resolving through PATH is what broke"
     assert Path(dbt.dbt_executable).is_absolute()
+
+
+def test_the_recipe_pool_stays_out_of_the_nightly_rebuild(defs, asset_graph):
+    """daily_refresh_job selects everything except the "dlt" group. An asset
+    outside that group would refetch the whole pool every night at 17:30, inside
+    the dbt rebuild and against the only concurrency slot."""
+    job = next(j for j in defs.jobs if j.name == "daily_refresh")
+    assert "ah__recipe_pool" not in _keys(job, asset_graph)
+
+
+def test_the_pool_refresh_runs_weekly_clear_of_everything_urgent(defs):
+    """Three constraints pick 04:00 Monday, and each one matters."""
+    schedule = next(
+        s for s in defs.schedules if s.name == "recipe_pool_refresh_schedule"
+    )
+    minute, hour, _, _, weekday = schedule.cron_schedule.split()
+    assert weekday != "*", "the pool is weekly; daily would be 7x the requests"
+    hour_i = int(hour)
+    # After the 03:30 heartbeat has already proven the credential, so a crawl is
+    # never what discovers a dead one.
+    assert hour_i >= 4
+    # Outside 11:00-20:00, which is unbackfillable and has absolute priority.
+    assert not (11 <= hour_i <= 20)
+    assert schedule.execution_timezone == "Europe/Amsterdam"
+
+
+def test_the_pool_refresh_does_not_retry_into_the_auth_chain(defs):
+    """The pool is never urgent and the AH credential is the scarce thing.
+    Retrying a rejected credential is how it gets burned."""
+    job = next(j for j in defs.jobs if j.name == "recipe_pool_refresh")
+    assert job.op_retry_policy is not None
+    assert job.op_retry_policy.max_retries <= 1

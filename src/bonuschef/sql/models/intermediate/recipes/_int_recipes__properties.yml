@@ -84,3 +84,69 @@ models:
         description: "True when no product satisfies this ingredient."
         tests:
           - not_null
+
+  - name: int_recipe_item_candidates
+    description: >
+      The exploded candidate set. Deliberately NOT unique on
+      (recipe_id, item_key) - that explosion is the model's purpose, and
+      int_recipe_item_opportunity is where it collapses.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, item_key, product_link]
+    columns:
+      - name: product_link
+        tests: [not_null]
+      - name: recipe_id
+        tests: [not_null]
+      - name: item_key
+        tests: [not_null]
+
+  - name: int_recipe_item_opportunity
+    description: >
+      One row per ingredient line per store. The last grain before aggregation,
+      and the only model that manufactures a store-scoped recipe row.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [store_id, recipe_id, item_key]
+      # THE test. A saving may never be claimed against a reference price older
+      # than the threshold - the one defect that would put a wrong number in
+      # front of a person with no way for them to tell.
+      - dbt_utils.expression_is_true:
+          expression: "NOT is_discounted OR reference_is_comparable"
+      # A discount cannot make an ingredient dearer, and cannot be negative.
+      - dbt_utils.expression_is_true:
+          expression: >
+            price_ordinary IS NULL OR price_today <= price_ordinary
+      - dbt_utils.expression_is_true:
+          expression: "item_saving IS NULL OR item_saving >= 0"
+      # Withdrawing clearance may only ever cost a saving, never create one.
+      - dbt_utils.expression_is_true:
+          expression: >
+            item_saving IS NULL
+            OR item_saving_bonus_only <= item_saving
+      # An unpriced ingredient can be neither discounted nor comparable.
+      - dbt_utils.expression_is_true:
+          expression: >
+            price_ordinary IS NOT NULL
+            OR (NOT is_discounted AND NOT reference_is_comparable)
+      # A conditional saving is a saving you could have; it is still a saving.
+      - dbt_utils.expression_is_true:
+          expression: >
+            item_conditional_saving IS NULL OR item_conditional_saving >= 0
+      # The chosen offer is never a multibuy one - best_offer filters them out -
+      # so a line whose only discount is conditional keeps its ordinary price.
+      - dbt_utils.expression_is_true:
+          expression: >
+            conditional_offer_price IS NULL
+            OR offer_price IS NULL
+            OR offer_price <> conditional_offer_price
+            OR offer_kind = 'clearance'
+    columns:
+      - name: store_id
+        tests: [not_null]
+      - name: recipe_id
+        tests: [not_null]
+      - name: item_key
+        tests: [not_null]
+      - name: is_discounted
+        tests: [not_null]

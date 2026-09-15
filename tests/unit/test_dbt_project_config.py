@@ -85,6 +85,27 @@ def test_open_ended_offers_are_not_mistaken_for_stale_rows():
     # Consumers still get to tell a standing discount from a campaign ending
     # Sunday - they are different propositions.
     assert "bonus_is_ongoing" in staging
+    # The distinction is the whole reason keeping these rows is honest rather
+    # than sloppy, and the price-intelligence spec now says so in those terms.
+    # Without the flag, "not excluded" would just mean "not distinguished".
+    assert "2100-01-01" in staging, (
+        "the sentinel must still be recognised, only not dropped"
+    )
+
+    spec = (
+        Path(__file__).resolve().parents[2]
+        / "openspec"
+        / "specs"
+        / "price-intelligence"
+        / "spec.md"
+    )
+    if spec.exists():
+        text = spec.read_text()
+        assert "SHALL be distinguishable" in text, (
+            "the spec once said a sentinel SHALL NOT be treated as an indefinite "
+            "promotion, which the model deliberately contradicts; if that wording "
+            "returns, code and spec disagree again"
+        )
 
 
 def test_the_product_crosswalk_exists_once():
@@ -118,3 +139,110 @@ def test_sources_declare_freshness():
             for table in source["tables"]:
                 assert "freshness" in table, f"{table['name']} has no freshness"
                 assert "loaded_at_field" in table
+
+
+def test_only_one_model_manufactures_a_store_scoped_recipe_row():
+    """Clearance is store-scoped and perishable within the day, and the spec
+    forbids it from entering the comparable cost history.
+
+    That is enforced by dependency shape rather than by a filter someone can
+    forget: exactly one model CROSS JOINs the store spine, and no cost model
+    references clearance or the offer layer at all.
+    """
+    cross_joiners = sorted(
+        p.name
+        for p in MODELS.rglob("*.sql")
+        if "int_store" in (text := p.read_text()) and "CROSS JOIN" in text.upper()
+    )
+    # Two models are entitled to a store, and only two. int_product_offer_today
+    # needs one because a promotion is national and must be given a store before
+    # it can be unioned with clearance; int_recipe_item_opportunity needs one
+    # because it is the grain where recipes become store-scoped. A third would
+    # mean some other part of the project had grown a store dimension.
+    assert cross_joiners == [
+        "int_product_offer_today.sql",
+        "int_recipe_item_opportunity.sql",
+    ], f"a third model reaching the store spine: {cross_joiners}"
+
+    for name in (
+        "marts/recipes/fct_recipe_cost_latest.sql",
+        "marts/recipes/fct_recipe_cost_history.sql",
+        "marts/recipes/fct_recipe_cost_breakdown.sql",
+        "intermediate/recipes/int_recipe_items_priced.sql",
+    ):
+        sql = (MODELS / name).read_text()
+        assert "fct_store_clearance" not in sql, f"{name} reaches clearance"
+        assert "int_product_offer_today" not in sql, f"{name} reaches clearance"
+
+
+def test_the_opportunity_gates_savings_on_price_age():
+    sql = (MODELS / "intermediate/recipes/int_recipe_item_opportunity.sql").read_text()
+    assert "var('max_price_age_days')" in sql
+    # LEAST, not the offer price: a sibling candidate of the same concept can be
+    # on clearance and still be dearer than the product we would ordinarily buy,
+    # and a discount must never make an ingredient more expensive.
+    assert "LEAST(price_ordinary, offer_price)" in sql
+
+
+def test_multibuy_offers_are_kept_out_of_the_ranked_saving():
+    """bonus_price on a "1 + 1 gratis" is the per-unit price you get only by
+    buying two. A recipe needing one unit does not get it, and over half of live
+    matched promotions are of this kind - a larger source of overstatement than
+    the staleness rule the spec was already careful about."""
+    offers = (MODELS / "intermediate/inventory/int_product_offer_today.sql").read_text()
+    assert "requires_multibuy" in offers
+
+    opportunity = (
+        MODELS / "intermediate/recipes/int_recipe_item_opportunity.sql"
+    ).read_text()
+    # The chosen offer excludes them, and they are reported in their own column.
+    assert "WHERE NOT o.requires_multibuy" in opportunity
+    assert "item_conditional_saving" in opportunity
+
+
+def test_the_opportunity_publishes_both_totals_for_read_time_degrading():
+    """CURRENT_DATE in a dbt model is evaluated when the model is built, so a
+    mart that filtered stale clearance away would grow more confidently wrong
+    the longer it went unbuilt. The mart hands the portal both totals and the
+    snapshot time; the portal decides. That redundancy is load-bearing."""
+    mart = (MODELS / "marts/recipes/fct_recipe_opportunity.sql").read_text()
+    for column in ("saving_total", "saving_bonus_only", "clearance_scraped_at"):
+        assert column in mart, f"{column} is what lets the portal withdraw clearance"
+
+
+def test_the_pool_stays_out_of_the_users_own_recipes():
+    """dim_recipe means "the recipes this person has", and the cost history
+    exists to track how *their* meals move in price.
+
+    Folding a 2,000-recipe suggestion pool into it would put strangers' recipes
+    on the Mijn recepten page and record 2,000 extra rows per snapshot in a
+    history nobody asked for. The opportunity mart unions the two for itself.
+    """
+    dim = (MODELS / "marts/recipes/dim_recipe.sql").read_text()
+    assert "pool" not in dim.split("--")[0] or "int_pool_recipes_available" not in dim, (
+        "dim_recipe must not read the pool"
+    )
+    assert "stg_ah__pool_recipes" not in dim
+
+    for name in (
+        "marts/recipes/fct_recipe_cost_latest.sql",
+        "marts/recipes/fct_recipe_cost_history.sql",
+    ):
+        sql = (MODELS / name).read_text()
+        assert "int_pool_recipes_available" not in sql, f"{name} would cost the pool"
+        assert "stg_ah__pool_recipes" not in sql, f"{name} would cost the pool"
+
+    # And the opportunity mart does reach it, or nothing would be rankable.
+    opportunity = (MODELS / "marts/recipes/fct_recipe_opportunity.sql").read_text()
+    assert "int_pool_recipes_available" in opportunity
+
+
+def test_a_rejected_recipe_cannot_reappear_after_a_refetch():
+    """The pool is refetched whole every week. A rejection keyed on anything
+    that the refetch rewrites would silently expire, and a recipe someone said
+    no to would come back."""
+    pool = (MODELS / "intermediate/recipes/int_pool_recipes_available.sql").read_text()
+    assert "stg_portal__ah_recipe_verdicts" in pool
+    # Adopted recipes are exempt from eviction for the same reason: the person
+    # chose them, and that outranks AH's ordering.
+    assert "stg_portal__ah_recipes" in pool
