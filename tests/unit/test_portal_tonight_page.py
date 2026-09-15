@@ -255,11 +255,21 @@ class TestHonestyAboutCoverage:
     def test_unresolved_ingredients_point_at_the_work_that_helps(
         self, wired, monkeypatch
     ):
+        """Resolutions are keyed on AH's concept id, so confirming one counts
+        for every recipe that uses it. That compounding is why the review queue
+        is the action offered here rather than "add more recipes"."""
         df = _opportunity()
         df.loc[1, "items_unresolved"] = 3
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
         at = run_app(page.render_tonight).run()
         assert "gekoppeld ingrediënt" in _texts(at)
+        assert [b for b in at.button if "koppelen" in b.label], (
+            "the page names the work but never offers it"
+        )
+
+    def test_the_review_is_not_offered_when_there_is_nothing_to_review(self, wired):
+        at = run_app(page.render_tonight).run()
+        assert not [b for b in at.button if "koppelen" in b.label]
 
     def test_an_unknown_stock_is_never_shown_as_a_bound(self, wired, monkeypatch):
         """MIN skips NULLs, so all-unknown stock would otherwise read as plenty."""

@@ -352,3 +352,78 @@ class TestBrowsing:
         http_post.queue(FakeResponse(200, {"data": {"recipeSearch": {}}}))
         with pytest.raises(AHRecipeShapeError):
             facet_values("seizoen", manager=manager)
+
+
+class TestTheCuratedPool:
+    """The pool is curated by construction, because approving 900 recipes one
+    at a time is not a process anyone will complete."""
+
+    def test_it_asks_only_for_main_courses(self):
+        from bonuschef.utils import ah_recipes as R
+
+        assert R._MAIN_COURSE == {"group": "menugang", "values": ["hoofdgerecht"]}
+
+    def test_it_uses_ahs_own_everyday_dinner_tag(self):
+        """ "wat eten we vandaag" is literally this page's question, and ordering
+        it by rating is what keeps the unloved outliers out."""
+        from bonuschef.utils import ah_recipes as R
+
+        assert R._EVERYDAY["values"] == ["wat-eten-we-vandaag"]
+
+    def test_one_request_per_magazine_issue_is_deliberate(self, monkeypatch):
+        """Values within a filter group INTERSECT, they do not union.
+
+        Asking for two magazine issues at once returns recipes appearing in
+        both, which is zero - measured against the live API, and the opposite of
+        what the shape of the argument suggests. Batching them would silently
+        empty the pool's recency half.
+        """
+        from bonuschef.utils import ah_recipes as R
+
+        seen: list[list[dict]] = []
+
+        def fake_search(text=None, **kw):
+            seen.append(kw.get("filters") or [])
+            return R.SearchPage(total=0, hits=())
+
+        monkeypatch.setattr(R, "search_recipes", fake_search)
+        monkeypatch.setattr(
+            R, "facet_values", lambda g, **kw: ["2025-nr-01-a", "2026-nr-02-b"]
+        )
+        monkeypatch.setattr(R, "manager_from_env", lambda: None)
+        R.enumerate_pool()
+
+        magazine_calls = [
+            f for call in seen for f in call if f["group"] == "allerhande-magazine"
+        ]
+        assert magazine_calls, "the recency half of the pool never ran"
+        assert all(len(f["values"]) == 1 for f in magazine_calls), (
+            "two issues in one filter intersect and return nothing"
+        )
+
+    def test_only_recent_magazine_years_are_drawn_on(self, monkeypatch):
+        from bonuschef.utils import ah_recipes as R
+
+        monkeypatch.setattr(
+            R,
+            "facet_values",
+            lambda g, **kw: ["2012-nr-12-kerst", "2025-nr-01-a", "2026-nr-02-b"],
+        )
+        monkeypatch.setattr(R, "manager_from_env", lambda: None)
+        issues = R.recent_magazine_issues()
+        assert issues == ["2026-nr-02-b", "2025-nr-01-a"]
+        assert not any(i.startswith("2012") for i in issues)
+
+    def test_the_two_slices_are_unioned_without_duplicates(self, monkeypatch):
+        from bonuschef.utils import ah_recipes as R
+
+        hit = R.RecipeHit(recipe_id=7, title="Pasta")
+
+        def fake_search(text=None, **kw):
+            return R.SearchPage(total=1, hits=(hit,))
+
+        monkeypatch.setattr(R, "search_recipes", fake_search)
+        monkeypatch.setattr(R, "facet_values", lambda g, **kw: ["2025-nr-01-a"])
+        monkeypatch.setattr(R, "manager_from_env", lambda: None)
+        pool = R.enumerate_pool()
+        assert [h.recipe_id for h in pool] == [7]

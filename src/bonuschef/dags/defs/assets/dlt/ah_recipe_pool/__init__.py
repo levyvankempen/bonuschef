@@ -23,7 +23,7 @@ from dagster import AssetExecutionContext, RetryPolicy, asset
 
 from bonuschef.utils.ah_recipes import (
     AHRecipeUnavailable,
-    enumerate_popular,
+    enumerate_pool,
     fetch_recipes,
 )
 
@@ -31,8 +31,6 @@ from bonuschef.utils.ah_recipes import (
 # is ~37 requests; this is an order of magnitude of headroom and still far under
 # what AH tolerates. Its purpose is to stop a loop, not to ration.
 MAX_REQUESTS_PER_REFRESH = 500
-
-POOL_SIZE = 2000
 
 
 @dlt.source(name="ah_recipe_pool")
@@ -102,7 +100,7 @@ def recipe_pool_source(recipes, fetched_at: str):
 def ah__recipe_pool_asset(context: AssetExecutionContext) -> None:
     """Refresh the pool of well-regarded recipes."""
     try:
-        hits = enumerate_popular(limit=POOL_SIZE)
+        hits = enumerate_pool()
     except AHRecipeUnavailable as exc:
         # Abort rather than retry-loop. The auth layer has already tried one
         # forced refresh; going round again through the fallback chain is
@@ -113,7 +111,7 @@ def ah__recipe_pool_asset(context: AssetExecutionContext) -> None:
             "the cause is understood."
         ) from exc
 
-    context.log.info("Enumerated %d popular recipes", len(hits))
+    context.log.info("Enumerated %d curated main courses", len(hits))
 
     recipes, failed = fetch_recipes([h.recipe_id for h in hits])
     if failed:

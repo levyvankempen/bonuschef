@@ -168,6 +168,26 @@ Shred both staging copies. `.env`'s `AH_REFRESH_TOKEN` is only a bootstrap seed;
 the file on the volume is the live credential. If it is lost, the only recovery is
 an interactive browser login — it cannot be recovered unattended.
 
+### Copying source into a running container does not update the asset graph
+
+Dagster builds its asset graph from `src/bonuschef/sql/target/manifest.json`,
+parsed when the code location loads. `docker compose cp` of the source tree does
+not touch it, and `target/` is excluded from rsync because it is build output.
+
+The symptom is a job failing on a dependency that no longer exists:
+
+```
+DagsterInvariantViolationError: Asset "marts/dim_recipe" was yielded before its
+dependency "stg_ah__pool_recipes"
+```
+
+That edge had been removed from the model an hour earlier. dbt was running fine
+against the new SQL; Dagster was orchestrating the old graph.
+
+After changing any model's `ref()`s, run `dbt parse` (or any `dbt build`, which
+rewrites the manifest) **inside the container**, then restart the webserver and
+daemon so the code location reloads it. Rebuilding the image does both.
+
 ## 6. Prove it, rather than configuring it
 
 **Reboot the guest** and confirm the stack returns with nobody logging in. Measured:

@@ -214,3 +214,27 @@ def test_the_pool_refresh_does_not_retry_into_the_auth_chain(defs):
     job = next(j for j in defs.jobs if j.name == "recipe_pool_refresh")
     assert job.op_retry_policy is not None
     assert job.op_retry_policy.max_retries <= 1
+
+
+def test_the_pool_refresh_also_proposes_products(defs, asset_graph):
+    """A refreshed pool with no product matches ranks nothing.
+
+    Fetching 900 recipes is the cheap half; knowing which product an ingredient
+    can be bought as is what makes them rankable. A job that did the first and
+    not the second would report success having achieved nothing.
+    """
+    job = next(j for j in defs.jobs if j.name == "recipe_pool_refresh")
+    keys = _keys(job, asset_graph)
+    assert "ah__recipe_pool" in keys
+    assert "ah__ingredient_proposals" in keys
+
+
+def test_the_proposal_step_is_not_in_the_credential_spending_group(defs, asset_graph):
+    """group_name="dlt" exists to keep AH-spending assets out of the nightly
+    rebuild. The matcher spends nothing - it is a local regex against
+    dim_product - and should run whenever the catalogue moves, because a product
+    that appeared today may resolve an ingredient that failed yesterday."""
+    job = next(j for j in defs.jobs if j.name == "daily_refresh")
+    keys = _keys(job, asset_graph)
+    assert "ah__ingredient_proposals" in keys
+    assert "ah__recipe_pool" not in keys

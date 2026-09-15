@@ -219,9 +219,9 @@ def test_the_pool_stays_out_of_the_users_own_recipes():
     history nobody asked for. The opportunity mart unions the two for itself.
     """
     dim = (MODELS / "marts/recipes/dim_recipe.sql").read_text()
-    assert "pool" not in dim.split("--")[0] or "int_pool_recipes_available" not in dim, (
-        "dim_recipe must not read the pool"
-    )
+    assert (
+        "pool" not in dim.split("--")[0] or "int_pool_recipes_available" not in dim
+    ), "dim_recipe must not read the pool"
     assert "stg_ah__pool_recipes" not in dim
 
     for name in (

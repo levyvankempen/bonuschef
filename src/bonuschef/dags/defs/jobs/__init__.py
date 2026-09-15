@@ -65,7 +65,13 @@ markdowns_refresh_job = define_asset_job(
 # keeps the opportunity marts in step with the pool that feeds them.
 recipe_pool_refresh_job = define_asset_job(
     name="recipe_pool_refresh",
-    selection=AssetSelection.assets("ah__recipe_pool").downstream(),
+    # Includes the proposal step. A refreshed pool with no product matches
+    # ranks nothing at all, so a job that fetched recipes and stopped would
+    # report success having achieved nothing.
+    selection=(
+        AssetSelection.assets("ah__recipe_pool").downstream()
+        | AssetSelection.assets("ah__ingredient_proposals").downstream()
+    ),
     # One retry. The pool is never urgent and the AH credential is the scarce
     # thing; retrying a rejected credential is how it gets burned.
     op_retry_policy=RetryPolicy(max_retries=1, delay=120),

@@ -189,3 +189,41 @@ def test_a_person_can_attach_a_product_the_matcher_never_proposed(engine):
     )
     confirm_resolution(engine, _CONCEPT, ["z"])
     assert _attached(engine, _CONCEPT) == {"z": True}
+
+
+class TestAutomaticProposals:
+    """The pool is inert without these. 900 recipes priced 3.3% of their
+    ingredients and ranked nothing until the matcher ran across them."""
+
+    def test_unresolved_concepts_are_taken_most_used_first(self):
+        """Concept frequency is steep - a few hundred cover most ingredient
+        lines - so an interrupted run should have done the work that mattered."""
+        from bonuschef.dags.defs.assets.resolution import _UNRESOLVED_CONCEPTS
+
+        assert "ORDER BY uses DESC" in _UNRESOLVED_CONCEPTS
+        # Only concepts nobody has resolved yet; re-proposing over a decision is
+        # what propose_products' WHERE clause exists to prevent, but not asking
+        # in the first place is cheaper.
+        assert "p.concept_id IS NULL" in _UNRESOLVED_CONCEPTS
+
+    def test_proposals_never_overwrite_a_persons_decision(self):
+        """The guard lives in propose_products, and this job depends on it: the
+        matcher re-runs whenever the catalogue moves, so without it every
+        correction would be reverted on the next product load."""
+        import inspect
+
+        from bonuschef.portal.db import propose_products
+
+        source = inspect.getsource(propose_products)
+        assert "WHERE p.confirmed_at IS NULL" in source
+
+    def test_the_matcher_needs_no_network(self):
+        """It runs against dim_product, not AH. That is what makes it safe to
+        re-run freely and what keeps it off the credential budget."""
+        import inspect
+
+        from bonuschef.portal import matching
+
+        source = inspect.getsource(matching)
+        for network in ("requests", "urllib", "graphql", "manager_from_env"):
+            assert network not in source, f"the matcher must not reach {network}"

@@ -428,38 +428,91 @@ def facet_values(group: str, *, manager: AHTokenManager | None = None) -> list[s
 MAX_SEARCH_OFFSET = 2000
 
 
-def enumerate_popular(
-    limit: int = MAX_SEARCH_OFFSET, *, manager: AHTokenManager | None = None
+# The pool is curated by construction rather than by anyone approving recipes
+# one at a time. Three constraints do that work:
+#
+#   * main courses only - a ranking full of borrelhapjes and nagerechten does
+#     not answer "what shall I cook tonight";
+#   * "wat eten we vandaag", AH's own everyday-dinner tag, sorted by rating, so
+#     the unloved outliers never enter;
+#   * this year's and last year's magazine issues, so the pool is current.
+#
+# Measured: 908 distinct main courses in 19 search requests, 4.9 seconds.
+_MAIN_COURSE = {"group": "menugang", "values": ["hoofdgerecht"]}
+_EVERYDAY = {"group": "momenten", "values": ["wat-eten-we-vandaag"]}
+
+# How many of the everyday main courses to take, best-rated first. The magazine
+# slice is added on top of this.
+EVERYDAY_POOL_SIZE = 600
+
+# Which magazine years count as current.
+RECENT_MAGAZINE_YEARS = ("2025-", "2026-")
+
+
+def _search_all(
+    filters: list[dict], limit: int, manager: AHTokenManager
 ) -> list[RecipeHit]:
-    """The best-regarded recipes AH publishes, in its own order.
-
-    POPULAR only. TRENDING was measured returning results identical to NEWEST,
-    so it is not a popularity signal at all and using it would quietly fill the
-    pool with whatever was published last.
-    """
-    if limit < 1:
-        raise ValueError("limit must be at least 1")
-    limit = min(int(limit), MAX_SEARCH_OFFSET)
-    manager = manager or manager_from_env()
-
+    """Page through one filtered search, best-rated first."""
     hits: list[RecipeHit] = []
     seen: set[int] = set()
     start = 0
+    limit = min(limit, MAX_SEARCH_OFFSET)
     while start < limit:
         size = min(MAX_SEARCH_SIZE, limit - start)
         page = search_recipes(
-            None, size=size, start=start, sort_by="POPULAR", manager=manager
+            None,
+            size=size,
+            start=start,
+            sort_by="POPULAR",
+            filters=filters,
+            manager=manager,
         )
         if not page.hits:
             break
         for hit in page.hits:
-            # AH's own ordering is not guaranteed to be a partition; a duplicate
-            # across page boundaries would otherwise be fetched twice.
             if hit.recipe_id not in seen:
                 seen.add(hit.recipe_id)
                 hits.append(hit)
         start += size
     return hits
+
+
+def recent_magazine_issues(*, manager: AHTokenManager | None = None) -> list[str]:
+    """This year's and last year's Allerhande issues, newest first."""
+    manager = manager or manager_from_env()
+    return sorted(
+        (
+            v
+            for v in facet_values("allerhande-magazine", manager=manager)
+            if v.startswith(RECENT_MAGAZINE_YEARS)
+        ),
+        reverse=True,
+    )
+
+
+def enumerate_pool(*, manager: AHTokenManager | None = None) -> list[RecipeHit]:
+    """The curated pool: popular everyday main courses, plus current magazines.
+
+    One request per magazine issue, which looks wasteful and is not optional:
+    **values within a filter group intersect rather than union**. Asking for two
+    issues at once returns recipes in *both*, which is 0 - measured, and exactly
+    the opposite of what the shape of the argument suggests.
+    """
+    manager = manager or manager_from_env()
+
+    hits: dict[int, RecipeHit] = {}
+    for hit in _search_all([_MAIN_COURSE, _EVERYDAY], EVERYDAY_POOL_SIZE, manager):
+        hits[hit.recipe_id] = hit
+
+    for issue in recent_magazine_issues(manager=manager):
+        for hit in _search_all(
+            [_MAIN_COURSE, {"group": "allerhande-magazine", "values": [issue]}],
+            MAX_SEARCH_SIZE,
+            manager,
+        ):
+            hits.setdefault(hit.recipe_id, hit)
+
+    return list(hits.values())
 
 
 def fetch_recipes(

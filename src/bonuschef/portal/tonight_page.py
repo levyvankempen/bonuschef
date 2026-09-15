@@ -26,6 +26,7 @@ import streamlit as st
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness
+from bonuschef.portal.review import open_review
 from bonuschef.portal.db import (
     get_engine,
     read_bonus_feed_loaded_at,
@@ -265,8 +266,14 @@ def _render_rejected(engine) -> None:
                         st.rerun()
 
 
-def _render_coverage(df: pd.DataFrame) -> None:
-    """How much the page can see. The gap is the honest state of the system."""
+def _render_coverage(engine, df: pd.DataFrame) -> None:
+    """How much the page can see, and the one action that widens it.
+
+    The gap between the two numbers is the honest state of the system, and the
+    button is what closes it. Resolutions are keyed on AH's ingredient concept,
+    so confirming one counts for every recipe that uses it - which is why this
+    is the action offered rather than "add more recipes".
+    """
     pool = len(df)
     rankable = int(df["opportunity_rank"].notna().sum())
     unresolved = int((df["items_unresolved"] > 0).sum())
@@ -280,6 +287,8 @@ def _render_coverage(df: pd.DataFrame) -> None:
             "Elk ingrediënt dat je koppelt telt meteen mee voor élk recept dat "
             "het gebruikt."
         )
+        if st.button("Ingrediënten koppelen", icon=":material/link:"):
+            open_review(engine)
 
 
 def render_tonight() -> None:
@@ -350,7 +359,7 @@ def render_tonight() -> None:
             "antwoord, geen storing."
         )
         _render_cheapest_anyway(df)
-        _render_coverage(df)
+        _render_coverage(engine, df)
         _render_rejected(engine)
         return
 
@@ -360,7 +369,7 @@ def render_tonight() -> None:
         for _, row in ranked.iloc[1:6].iterrows():
             _render_brief(row)
 
-    _render_coverage(df)
+    _render_coverage(engine, df)
     _render_rejected(engine)
 
 
