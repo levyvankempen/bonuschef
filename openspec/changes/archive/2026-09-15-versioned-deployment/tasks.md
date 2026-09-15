@@ -35,5 +35,5 @@
 
 ## 6. Convert the guest and prove it
 
-- [ ] 6.1 Convert `/opt/bonuschef` to a git checkout, `.env` intact
-- [ ] 6.2 Deploy a tag and confirm the portal reports that version
+- [x] 6.1 Convert `/opt/bonuschef` to a git checkout, `.env` intact
+- [x] 6.2 Deploy a tag and confirm the portal reports that version
