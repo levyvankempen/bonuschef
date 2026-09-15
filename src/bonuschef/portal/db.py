@@ -709,9 +709,11 @@ def read_recipe_opportunity(_engine) -> pd.DataFrame:
     sql = text(f"""
         SELECT
             store_id, clearance_scraped_at, clearance_is_current,
-            recipe_id, recipe_name, servings, source_kind, image_url,
+            recipe_id, recipe_name, servings, source_kind, image_url, url,
+            rating_average, rating_count,
             is_rankable, exclusion_reason, opportunity_rank,
             cost_ordinary, cost_today, cost_today_bonus_only,
+            partial_cost_ordinary, partial_cost_today,
             saving_total, saving_bonus_only, conditional_saving,
             advertised_saving_total, saving_is_lower_bound,
             saving_covers_whole_packs, saving_pct, cost_today_per_serving,
@@ -739,7 +741,7 @@ def read_recipe_opportunity_items(_engine, recipe_id: int) -> pd.DataFrame:
     schema = _get_schema()
     sql = text(f"""
         SELECT
-            item_key, item_label, product_name,
+            item_key, concept_id, item_label, product_name,
             ordinary_product_link, offer_product_link,
             units, sales_unit_size, price_ordinary, price_today,
             item_cost_ordinary, item_cost_today, item_saving,

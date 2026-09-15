@@ -445,3 +445,52 @@ class TestTheIngredientList:
         )
         at = run_app(page.render_tonight).run()
         assert "geen ingrediënten bekend" in _texts(at)
+
+
+class TestTheQueriesCarryWhatThePageReads:
+    """The gap that let two bugs ship at once.
+
+    The mart grew `partial_cost_today` and `concept_id`, the page read them, and
+    the SELECT lists in between were never updated. Nothing failed: pandas
+    returns None for a missing column, so the page reported "van geen enkel
+    ingrediënt is de prijs bekend" over a fully priced recipe, and the "Klopt
+    niet" button silently never rendered.
+
+    AppTest fixtures build DataFrames by hand, so they cannot catch this. These
+    compare the fixtures - which are the page's contract - against the real SQL.
+    """
+
+    @staticmethod
+    def _selected(sql: str) -> str:
+        return sql.lower()
+
+    def test_the_opportunity_query_selects_every_column_the_page_uses(self):
+        import inspect
+
+        from bonuschef.portal import db
+
+        sql = self._selected(inspect.getsource(db.read_recipe_opportunity))
+        missing = [c for c in _opportunity().columns if c.lower() not in sql]
+        assert not missing, f"the page reads these but the query omits them: {missing}"
+
+    def test_the_items_query_selects_every_column_the_page_uses(self):
+        import inspect
+
+        from bonuschef.portal import db
+
+        sql = self._selected(inspect.getsource(db.read_recipe_opportunity_items))
+        missing = [c for c in _items().columns if c.lower() not in sql]
+        assert not missing, f"the page reads these but the query omits them: {missing}"
+
+    def test_a_price_is_shown_when_the_partial_columns_arrive(self, wired, monkeypatch):
+        """The exact symptom reported: products listed with prices, and a
+        heading claiming none were known."""
+        df = _opportunity()
+        df.loc[0, "cost_today"] = None
+        df.loc[0, "cost_ordinary"] = None
+        df.loc[0, "items_priced"] = 6
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "geen enkel ingrediënt" not in body
+        assert "±€15.30" in body
