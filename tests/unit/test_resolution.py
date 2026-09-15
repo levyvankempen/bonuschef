@@ -302,3 +302,100 @@ class TestAHProductSearch:
         source = _Path(resolution.__file__).read_text()
         body = source[source.index("def ah__ingredient_proposals_asset") :]
         assert body.index("propose_for(engine") < body.index("_propose_from_ah(")
+
+
+class TestAHLookupResilience:
+    """A read timeout is not a rejection, and treating them alike cost a whole
+    run's budget on the first live pass: 101 lookups in, one request timed out,
+    the run gave up - and the same pace managed 40 for 40 minutes later."""
+
+    def test_a_credential_rejection_stops_immediately(self, monkeypatch):
+        """Retrying through the auth fallback chain is how a refresh token dies."""
+        from dagster import build_asset_context
+
+        from bonuschef.dags.defs.assets import resolution
+        from bonuschef.utils.ah_auth import AHAuthError
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        calls = []
+
+        def reject(term):
+            calls.append(term)
+            raise AHRecipeUnavailable("nope") from AHAuthError("401")
+
+        monkeypatch.setattr(resolution, "search_products", reject)
+        monkeypatch.setattr(resolution, "_webshop_id_to_product", lambda e: {})
+        _, spent, unreachable = resolution._propose_from_ah(
+            object(), {1: "ui", 2: "prei", 3: "kaas"}, build_asset_context()
+        )
+        assert len(calls) == 1, "a rejected credential must not be retried"
+        assert spent == 0 and unreachable
+
+    def test_a_transient_timeout_does_not_end_the_run(self, monkeypatch):
+        from dagster import build_asset_context
+
+        from bonuschef.dags.defs.assets import resolution
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable, ProductHit
+
+        seen = []
+
+        def flaky(term):
+            seen.append(term)
+            if len(seen) == 1:
+                raise AHRecipeUnavailable("Read timed out")
+            return [ProductHit(webshop_id=4164, title="AH Courgette")]
+
+        monkeypatch.setattr(resolution, "search_products", flaky)
+        monkeypatch.setattr(
+            resolution,
+            "_webshop_id_to_product",
+            lambda e: {4164: ("/x", "AH Courgette")},
+        )
+        proposals, spent, unreachable = resolution._propose_from_ah(
+            object(), {1: "ui", 2: "prei", 3: "kaas"}, build_asset_context()
+        )
+        assert not unreachable, "one timeout must not abandon the budget"
+        assert spent == 2, "it carried on after the blip"
+        assert len(proposals) == 2
+
+    def test_repeated_failures_do_give_up(self, monkeypatch):
+        from dagster import build_asset_context
+
+        from bonuschef.dags.defs.assets import resolution
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        def always_fail(term):
+            raise AHRecipeUnavailable("Read timed out")
+
+        monkeypatch.setattr(resolution, "search_products", always_fail)
+        monkeypatch.setattr(resolution, "_webshop_id_to_product", lambda e: {})
+        _, spent, unreachable = resolution._propose_from_ah(
+            object(), {i: "x" for i in range(10)}, build_asset_context()
+        )
+        assert unreachable and spent == 0
+
+    def test_a_product_ah_sells_but_we_cannot_price_is_not_proposed(self, monkeypatch):
+        """Putting an unpriceable product in front of someone as an answer is
+        worse than leaving the ingredient unresolved."""
+        from dagster import build_asset_context
+
+        from bonuschef.dags.defs.assets import resolution
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        monkeypatch.setattr(
+            resolution,
+            "search_products",
+            lambda term: [
+                ProductHit(webshop_id=4164, title="AH Courgette"),
+                ProductHit(webshop_id=999999, title="Iets wat wij niet volgen"),
+            ],
+        )
+        monkeypatch.setattr(
+            resolution,
+            "_webshop_id_to_product",
+            lambda e: {4164: ("/x", "AH Courgette")},
+        )
+        proposals, _, _ = resolution._propose_from_ah(
+            object(), {1: "courgette"}, build_asset_context()
+        )
+        assert [p["product_link"] for p in proposals] == ["/x"]

@@ -20,6 +20,7 @@ from sqlalchemy import text
 
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
+from bonuschef.utils.ah_auth import AHAuthError
 from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
 
 # What one run may spend on AH. The first pass over a fresh pool has ~1,400
@@ -27,6 +28,13 @@ from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
 # than in one burst - and clearance, which is unbackfillable, keeps its priority.
 # Concepts are taken most-used first, so the budget always buys the most.
 MAX_AH_LOOKUPS_PER_RUN = 300
+
+# A read timeout is not a rejection. The first live run gave up its whole budget
+# after 101 lookups because one request timed out - and the same pace ran 40 for
+# 40 minutes later, so it was a blip, not throttling. Tolerate a few in a row;
+# only a credential rejection aborts immediately, because that is the failure
+# where retrying does damage.
+MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 
 # Most-used concepts first. Concept frequency is steep - a few hundred cover
 # most ingredient lines - so if this is ever interrupted, the work that has
@@ -133,17 +141,39 @@ def _propose_from_ah(
     crosswalk = _webshop_id_to_product(engine)
     proposals: list[dict] = []
     spent = 0
+    consecutive_failures = 0
     for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
         try:
             hits = search_products(name)
         except AHRecipeUnavailable as exc:
+            if isinstance(exc.__cause__, AHAuthError):
+                # The credential, not the connection. Stop at once: retrying
+                # through the auth fallback chain is how a refresh token dies.
+                context.log.warning(
+                    "AH rejected the credential after %d lookups: %s. "
+                    "%d concepts deferred.",
+                    spent,
+                    exc,
+                    len(concepts) - spent,
+                )
+                return proposals, spent, True
+            consecutive_failures += 1
             context.log.warning(
-                "AH search stopped after %d lookups: %s. %d concepts deferred.",
-                spent,
-                exc,
-                len(concepts) - spent,
+                "AH lookup %d failed (%d in a row): %s",
+                spent + 1,
+                consecutive_failures,
+                str(exc)[:120],
             )
-            return proposals, spent, True
+            if consecutive_failures >= MAX_CONSECUTIVE_TRANSPORT_FAILURES:
+                context.log.warning(
+                    "Giving up after %d consecutive failures; %d concepts "
+                    "deferred to the next run.",
+                    consecutive_failures,
+                    len(concepts) - spent,
+                )
+                return proposals, spent, True
+            continue
+        consecutive_failures = 0
         spent += 1
         for hit in hits:
             known = crosswalk.get(hit.webshop_id)
