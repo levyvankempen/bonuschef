@@ -11,6 +11,7 @@ from bonuschef.dags.defs.jobs import (
     markdowns_refresh_job,
     recipe_pool_refresh_job,
     recipes_rebuild_job,
+    source_freshness_job,
     token_heartbeat_job,
 )
 from bonuschef.dags.defs.resources.configured_resources import resources
@@ -18,6 +19,7 @@ from bonuschef.dags.defs.schedules import (
     daily_refresh_schedule,
     markdowns_refresh_schedule,
     recipe_pool_refresh_schedule,
+    source_freshness_schedule,
     token_heartbeat_schedule,
 )
 from bonuschef.dags.defs.sensors import (
@@ -37,12 +39,14 @@ defs = Definitions(
         markdowns_refresh_job,
         recipe_pool_refresh_job,
         recipes_rebuild_job,
+        source_freshness_job,
         token_heartbeat_job,
     ],
     schedules=[
         daily_refresh_schedule,
         markdowns_refresh_schedule,
         recipe_pool_refresh_schedule,
+        source_freshness_schedule,
         token_heartbeat_schedule,
     ],
     sensors=[

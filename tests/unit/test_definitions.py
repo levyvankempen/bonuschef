@@ -56,6 +56,7 @@ def test_all_jobs_registered(defs):
         "token_heartbeat",
         "recipes_rebuild",
         "recipe_pool_refresh",
+        "source_freshness",
     }
 
 
@@ -109,6 +110,7 @@ def test_schedules_run_in_amsterdam_time(defs):
         "markdowns_refresh_schedule",
         "token_heartbeat_schedule",
         "recipe_pool_refresh_schedule",
+        "source_freshness_schedule",
     }
     assert all(s.execution_timezone == "Europe/Amsterdam" for s in by_name.values())
     assert by_name["daily_refresh_schedule"].cron_schedule == "30 17 * * *"

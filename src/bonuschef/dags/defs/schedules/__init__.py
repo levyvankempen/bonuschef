@@ -6,6 +6,7 @@ from bonuschef.dags.defs.jobs import (
     daily_refresh_job,
     markdowns_refresh_job,
     recipe_pool_refresh_job,
+    source_freshness_job,
     token_heartbeat_job,
 )
 
@@ -49,6 +50,18 @@ token_heartbeat_schedule = ScheduleDefinition(
 recipe_pool_refresh_schedule = ScheduleDefinition(
     job=recipe_pool_refresh_job,
     cron_schedule="0 4 * * 1",
+    execution_timezone=LOCAL_TIMEZONE,
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+
+# Daily at 09:45, in the gap between the credential heartbeat and the first
+# clearance scrape at 11:00. Late enough that a weekly feed loading overnight
+# has landed, early enough that a stale feed is known before the day's answers
+# are read. Not hourly: the tightest declared threshold is 3 hours, and a check
+# that fires more often than the thing it checks only adds noise.
+source_freshness_schedule = ScheduleDefinition(
+    job=source_freshness_job,
+    cron_schedule="45 9 * * *",
     execution_timezone=LOCAL_TIMEZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
