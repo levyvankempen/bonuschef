@@ -5,6 +5,8 @@ release. Everything that decides what version comes out lives in config nobody
 looks at until it is wrong.
 """
 
+import ast
+import re
 from pathlib import Path
 
 import yaml
@@ -12,6 +14,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
+NOXFILE = ROOT / "noxfile.py"
 PYPROJECT = ROOT / "pyproject.toml"
 
 
@@ -41,12 +44,69 @@ def test_main_is_verified_before_it_is_released():
     assert verify < release, "verification must precede the release, not follow it"
 
 
-def test_the_verification_runs_the_same_checks_as_ci():
-    """Two definitions of "green" that can drift is worse than one that is
-    stricter than needed."""
+def _default_sessions() -> list[str]:
+    """nox.options.sessions, read without executing the noxfile."""
+    tree = ast.parse(NOXFILE.read_text())
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.targets[0], ast.Attribute)
+            and node.targets[0].attr == "sessions"
+            and isinstance(node.value, (ast.List, ast.Tuple))
+        ):
+            return [ast.literal_eval(e) for e in node.value.elts]
+    raise AssertionError("noxfile.py does not set nox.options.sessions")
+
+
+def test_the_release_gate_runs_every_default_session():
+    """The previous version of this test hardcoded ("lint_python", "types",
+    "tests") and, despite its name, never opened ci.yml. So it did not compare
+    anything - it pinned the subset in place.
+
+    That subset omitted lint_sql, the session that runs `dbt parse` and writes
+    target/manifest.json. The suite imports the Dagster definitions, which need
+    that manifest, so `nox -s tests` died during collection and no v1.3.0 was
+    ever tagged. CI passed throughout, because CI ran lint_sql first.
+
+    The fix is for the release to name no sessions at all: bare `nox` runs
+    nox.options.sessions, so the list cannot be a second, weaker definition of
+    green.
+    """
     step = next(s for s in _release_steps() if "Verify" in s.get("name", ""))
-    for session in ("lint_python", "types", "tests"):
-        assert session in step["run"], f"release does not run nox -s {session}"
+    run = step["run"]
+
+    invocations = [
+        ln.strip() for ln in run.splitlines() if re.match(r"^\s*uvx?\s+nox\b", ln)
+    ]
+    assert invocations, "the verification step does not run nox at all"
+    for line in invocations:
+        assert not re.search(r"(^|\s)(-s|--session)(\s|=)", line), (
+            f"the release gate names sessions ({line!r}); bare `nox` runs the "
+            "default list, so it cannot drift from CI"
+        )
+
+
+def test_ci_runs_only_sessions_that_are_in_the_default_list():
+    """CI names its sessions as separate steps so a red X says which check
+    failed. That is a presentation choice over the same list - it must not
+    become a second list. A session CI runs but the default list omits would
+    never run before a release."""
+    ci_steps = yaml.safe_load(CI.read_text())["jobs"]
+    runs = [
+        step.get("run", "")
+        for job in ci_steps.values()
+        for step in job.get("steps", [])
+    ]
+    named = {
+        m.group(1)
+        for r in runs
+        for m in re.finditer(r"nox\s+-s\s+([A-Za-z_][A-Za-z0-9_]*)", r)
+    }
+    missing = named - set(_default_sessions())
+    assert not missing, (
+        f"CI runs {sorted(missing)}, which nox.options.sessions omits, so they "
+        "would not run before a release"
+    )
 
 
 def test_ci_guards_pull_requests_into_main():

@@ -6,6 +6,7 @@ from bonuschef.portal.clearance_page import render_clearance
 from bonuschef.portal.tonight_page import render_tonight
 from bonuschef.portal.add_recipe_page import render_add_recipe
 from bonuschef.portal.recipes_page import render_recipes
+from bonuschef.version import describe, get_commit
 
 st.set_page_config(
     page_title="BonusChef",
@@ -30,3 +31,15 @@ pg = st.navigation(
     position="top",
 )
 pg.run()
+
+# The version, after the page, so it reads as a footnote rather than chrome
+# competing with the answer. "Is the fix live?" is usually asked by the person
+# looking at the page, not by an operator with a shell -- before this, they had
+# no way to tell, because the deployment carried no provenance at all.
+#
+# The commit goes in the tooltip: it is what you need when the answer is "that
+# is not the version I expected", and noise the rest of the time.
+st.caption(
+    f":gray[BonusChef {describe()}]",
+    help=f"commit {get_commit()[:12]}",
+)

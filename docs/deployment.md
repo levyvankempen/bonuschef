@@ -75,12 +75,35 @@ in the compose file is inert and the stack silently never returns from a power c
 
 ## 3. Application
 
-Copy the repository to `/opt/bonuschef` (clone once the branch is pushed; the first
-deployment rsynced a working tree with 33 unpushed commits).
+**Clone it. Do not copy it.**
 
-**Exclude `.nox`.** The first rsync copied 3.3 GB of nox virtualenvs before anyone
-noticed. Also exclude `.venv`, `__pycache__`, `.idea`, `.tmp_dagster_home_*`,
-`src/bonuschef/sql/target`, `src/bonuschef/sql/dbt_packages`.
+```bash
+git clone https://github.com/levyvankempen/bonuschef.git /opt/bonuschef
+cd /opt/bonuschef && ./scripts/deploy.sh v1.3.0
+```
+
+The first deployment rsynced a working tree — with 33 unpushed commits, as it
+turned out — and for months afterwards nothing on the host could say what it was
+running. A clone can be asked. `git describe` becomes the version stamped into
+the image and shown in the portal footer, so "is the fix live?" is answerable
+from the page rather than by reading source inside a container.
+
+`deploy.sh` takes a **tag**, and refuses anything else. A branch names something
+different tomorrow while the image stamp claims to describe a fixed thing, which
+is the confusion this whole arrangement exists to remove. It also refuses to
+rebuild while a run is in flight (§ below), and refuses to start without `.env`.
+
+To migrate a host that was rsynced, convert it in place rather than moving it —
+`.env` is untracked and must survive, and the Docker volumes are not in this
+directory at all, so the data is not at risk:
+
+```bash
+cd /opt/bonuschef
+git init -q && git remote add origin https://github.com/levyvankempen/bonuschef.git
+git fetch --tags origin
+git reset --hard v1.3.0     # .env is untracked and is left alone
+git status --short          # leftovers from the rsync era, now visible
+```
 
 Then `.env`: copy `.env.example`, fill every key. Generate a **new**
 `POSTGRES_PASSWORD` on the guest rather than reusing the laptop's, and set the

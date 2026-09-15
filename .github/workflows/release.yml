@@ -39,12 +39,16 @@ jobs:
         with:
           enable-cache: true
 
+      # `uvx nox` with no -s runs nox.options.sessions from noxfile.py, which
+      # is the same list CI runs. Naming sessions here instead is what broke
+      # the v1.3.0 release: this list omitted lint_sql, the session that runs
+      # `dbt parse`, so the suite could not import the Dagster definitions and
+      # died during collection. Two gates drifted and the weaker one guarded
+      # the tag. Do not reintroduce -s here.
       - name: Verify before releasing
         run: |
           uv python install 3.12
-          uvx nox -s lint_python
-          uvx nox -s types
-          uvx nox -s tests
+          uvx nox
 
       - name: Semantic version release
         id: release
