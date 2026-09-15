@@ -182,8 +182,14 @@ SELECT
         RANK() OVER (
             PARTITION BY c.store_id
             ORDER BY
+                -- NULLS LAST is load-bearing. Postgres sorts NULLs first under
+                -- DESC, so the 2,002 unranked recipes sorted ahead of the one
+                -- real opportunity and it came back as rank 1988 instead of 1.
+                -- Relative order among ranked rows was still right, which is
+                -- exactly why this survived until an end-to-end check read the
+                -- number itself.
                 CASE WHEN c.is_rankable AND c.saving_total > 0
-                    THEN c.saving_total END DESC,
+                    THEN c.saving_total END DESC NULLS LAST,
                 c.recipe_id ASC
         )
     END AS opportunity_rank

@@ -124,11 +124,14 @@ models:
           expression: >
             item_saving IS NULL
             OR item_saving_bonus_only <= item_saving
-      # An unpriced ingredient can be neither discounted nor comparable.
+      # An unpriced ingredient can be neither discounted nor comparable. Note
+      # this must hold as FALSE, not NULL: SQL three-valued logic made the
+      # comparison NULL for every unpriced line, which a not_null test caught
+      # only once the pool arrived and most ingredients were unresolved.
       - dbt_utils.expression_is_true:
           expression: >
             price_ordinary IS NOT NULL
-            OR (NOT is_discounted AND NOT reference_is_comparable)
+            OR (is_discounted = FALSE AND reference_is_comparable = FALSE)
       # A conditional saving is a saving you could have; it is still a saving.
       - dbt_utils.expression_is_true:
           expression: >

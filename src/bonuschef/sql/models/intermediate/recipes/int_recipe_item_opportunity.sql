@@ -199,7 +199,12 @@ SELECT
                 (units * (advertised_before_price - offer_price))::numeric, 2
             )
     END AS item_advertised_saving,
-    (price_today < price_ordinary) AS is_discounted,
+    -- COALESCE, because an unpriced ingredient makes the comparison NULL
+    -- rather than false. With three fully priced recipes that never showed;
+    -- against a 2,000-recipe pool it left is_discounted NULL on 16,781 rows,
+    -- and "we do not know whether this got cheaper" is not a third state the
+    -- ranking has any use for. No price means not discounted.
+    COALESCE(price_today < price_ordinary, FALSE) AS is_discounted,
     -- An offer we had to ignore. Published so that "why is this not cheaper"
     -- has an answer other than silence.
     (

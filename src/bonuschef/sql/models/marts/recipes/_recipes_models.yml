@@ -176,6 +176,15 @@ models:
             OR (min_stock_remaining IS NULL AND earliest_expiry IS NULL)
       - dbt_utils.expression_is_true:
           expression: "saving_pct IS NULL OR saving_pct <= 100"
+      # The best opportunity is rank 1. Obvious, and it was not true: NULLs sort
+      # first under DESC in Postgres, so every unranked recipe counted ahead of
+      # the ranked ones and the top row came back as 1988.
+      - dbt_utils.expression_is_true:
+          expression: >
+            opportunity_rank IS NULL OR opportunity_rank <= (
+                SELECT COUNT(*) FROM {{ ref('fct_recipe_opportunity') }}
+                WHERE opportunity_rank IS NOT NULL
+            )
     columns:
       - name: store_id
         tests: [not_null]

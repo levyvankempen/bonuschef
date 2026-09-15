@@ -83,8 +83,8 @@
 
 ## 8. Verification
 
-- [ ] 8.1 Full `dbt build` on the live warehouse; every new test green
-- [ ] 8.2 Inject a known clearance offer and confirm the arithmetic end to end, including a stale-reference ingredient being discarded and a clearance/bonus overlap counting once
-- [ ] 8.3 Confirm `fct_recipe_cost_latest` is byte-identical before and after — the cost history must not have moved
+- [x] 8.1 Full `dbt build` on the live warehouse; every new test green
+- [x] 8.2 Inject a known clearance offer and confirm the arithmetic end to end, including a stale-reference ingredient being discarded and a clearance/bonus overlap counting once
+- [x] 8.3 Confirm `fct_recipe_cost_latest` is byte-identical before and after — the cost history must not have moved
 - [ ] 8.4 Run the page against today's genuinely empty state and confirm it reads as an answer rather than a failure
-- [ ] 8.5 `ruff check`, `ruff format`, `ty check`, full pytest suite DB- and network-free
+- [x] 8.5 `ruff check`, `ruff format`, `ty check`, full pytest suite DB- and network-free
