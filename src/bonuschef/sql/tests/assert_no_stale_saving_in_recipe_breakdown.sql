@@ -16,7 +16,8 @@ SELECT
 FROM {{ ref('fct_recipe_cost_breakdown_bonus') }} AS b
 INNER JOIN {{ ref('int_product_crosswalk') }} AS cw
     ON b.product_link = cw.product_link
-WHERE b.real_savings IS NOT NULL
+WHERE
+    b.real_savings IS NOT NULL
     AND (
         cw.price_age_days IS NULL
         OR cw.price_age_days > {{ var('max_price_age_days') }}

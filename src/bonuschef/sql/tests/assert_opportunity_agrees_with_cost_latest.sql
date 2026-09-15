@@ -15,5 +15,6 @@ SELECT
 FROM {{ ref('fct_recipe_opportunity') }} AS o
 INNER JOIN {{ ref('fct_recipe_cost_latest') }} AS l
     ON o.recipe_id = l.recipe_id
-WHERE o.cost_ordinary IS DISTINCT FROM l.total_cost
+WHERE
+    o.cost_ordinary IS DISTINCT FROM l.total_cost
     OR o.items_total <> l.items_total

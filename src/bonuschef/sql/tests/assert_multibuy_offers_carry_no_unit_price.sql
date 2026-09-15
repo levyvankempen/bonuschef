@@ -12,9 +12,12 @@
 -- changes: the day AH starts pricing a "2 voor 4.99" per unit, this fails and
 -- the exclusion starts doing real work instead of silently not needing to.
 
-SELECT bonus_mechanism, bonus_price
+SELECT
+    bonus_mechanism,
+    bonus_price
 FROM {{ ref('fct_bonus_price_comparison') }}
-WHERE bonus_price IS NOT NULL
+WHERE
+    bonus_price IS NOT NULL
     AND (
         bonus_mechanism ~ '^\s*\d+\s*\+\s*\d+'
         OR bonus_mechanism ~* '^\s*[2-9][0-9]*\s+voor\y'

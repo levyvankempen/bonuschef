@@ -24,7 +24,8 @@ SELECT
     i.item_key,
     i.pinned_product_link AS product_link
 FROM {{ ref('int_recipe_items_resolved') }} AS i
-WHERE i.source_kind = 'direct'
+WHERE
+    i.source_kind = 'direct'
     AND i.valid_to IS NULL
     AND i.pinned_product_link IS NOT NULL
 

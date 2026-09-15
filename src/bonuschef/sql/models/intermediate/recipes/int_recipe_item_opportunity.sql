@@ -137,17 +137,20 @@ joined AS (
     LEFT JOIN reference AS r
         ON p.product_link = r.product_link
     LEFT JOIN best_offer AS b
-        ON b.store_id = s.store_id
-        AND b.recipe_id = p.recipe_id
-        AND b.item_key = p.item_key
+        ON
+            s.store_id = b.store_id
+            AND p.recipe_id = b.recipe_id
+            AND p.item_key = b.item_key
     LEFT JOIN best_bonus_offer AS bb
-        ON bb.store_id = s.store_id
-        AND bb.recipe_id = p.recipe_id
-        AND bb.item_key = p.item_key
+        ON
+            s.store_id = bb.store_id
+            AND p.recipe_id = bb.recipe_id
+            AND p.item_key = bb.item_key
     LEFT JOIN best_conditional_offer AS bc
-        ON bc.store_id = s.store_id
-        AND bc.recipe_id = p.recipe_id
-        AND bc.item_key = p.item_key
+        ON
+            s.store_id = bc.store_id
+            AND p.recipe_id = bc.recipe_id
+            AND p.item_key = bc.item_key
 
 ),
 
@@ -187,11 +190,13 @@ SELECT
     -- What the recipe would save if the larger purchase were made. Reported
     -- beside the saving, never added into it.
     CASE
-        WHEN reference_is_comparable
+        WHEN
+            reference_is_comparable
             AND conditional_offer_price IS NOT NULL
             AND conditional_offer_price < price_ordinary
             THEN ROUND(
-                (units * (price_ordinary - conditional_offer_price))::numeric, 2
+                (units * (price_ordinary - conditional_offer_price))::numeric,
+                2
             )
     END AS item_conditional_saving,
     -- AH's own claim, carried alongside and never substituted for the observed
@@ -222,7 +227,8 @@ SELECT
     SUM(
         CASE
             WHEN price_today < price_ordinary AND offer_kind = 'clearance'
-                THEN 1 ELSE 0
+                THEN 1
+            ELSE 0
         END
     ) OVER (PARTITION BY store_id, recipe_id, offer_product_link)
         AS lines_claiming_offer_product

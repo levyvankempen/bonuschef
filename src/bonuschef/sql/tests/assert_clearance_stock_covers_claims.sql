@@ -11,7 +11,8 @@ SELECT
     stock,
     lines_claiming_offer_product
 FROM {{ ref('fct_recipe_opportunity_items') }}
-WHERE is_discounted
+WHERE
+    is_discounted
     AND offer_kind = 'clearance'
     AND stock IS NOT NULL
     AND stock < lines_claiming_offer_product

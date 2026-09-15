@@ -6,6 +6,8 @@ who owns which table, and which models must not silently revert to a view.
 
 from __future__ import annotations
 
+import re
+
 from pathlib import Path
 
 import yaml
@@ -278,3 +280,27 @@ def test_every_published_saving_is_gated_on_price_age():
     # And the models that must never see clearance still do not.
     for name in ("marts/recipes/fct_recipe_cost_latest.sql",):
         assert "fct_store_clearance" not in (MODELS / name).read_text()
+
+
+def test_no_jinja_expression_has_been_given_a_table_alias():
+    """sqlfluff's auto-fix once "qualified" a Jinja variable, turning
+    `> {{ var('max_price_age_days') }}` into `> i.45` - valid-looking SQL that
+    fails to compile.
+
+    The python suite cannot catch this: it never compiles dbt. It surfaced only
+    on a live build, as a Database Error in the very test that guards the
+    project's most important invariant. Anything matching alias-dot-Jinja is
+    almost certainly the same fixer doing the same thing.
+    """
+    offenders = []
+    for folder in ("models", "tests"):
+        root = MODELS.parent / folder
+        if not root.exists():
+            continue
+        for path in root.rglob("*.sql"):
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                if re.search(r"[A-Za-z_][A-Za-z0-9_]*\.\{\{", line):
+                    offenders.append(f"{path.name}:{n}: {line.strip()[:70]}")
+    assert not offenders, "a table alias was attached to a Jinja expression:\n" + "\n".join(
+        offenders
+    )

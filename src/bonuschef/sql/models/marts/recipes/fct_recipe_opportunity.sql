@@ -23,9 +23,9 @@ WITH items AS (
 ),
 
 -- Everything that can be ranked: the person's own recipes and the pool. Unioned
--- here rather than in dim_recipe, which must stay the person's own - putting the
--- pool in there would show 2,000 strangers' recipes on "Mijn recepten" and
--- record their cost in a history that exists to track how *your* meals move.
+-- here rather than in dim_recipe, which must stay the person's own: putting
+-- the pool there would show 2,000 strangers' recipes on "Mijn recepten"
+-- and record their cost in a history tracking how *your* meals move.
 rankable_recipes AS (
 
     SELECT
@@ -48,8 +48,8 @@ rankable_recipes AS (
         source_kind,
         url,
         image_url,
-        rating_average::numeric AS rating_average,
-        rating_count::bigint AS rating_count
+        CAST(rating_average AS numeric) AS rating_average,
+        CAST(rating_count AS bigint) AS rating_count
     FROM {{ ref('int_pool_recipes_available') }}
 
 ),
@@ -72,15 +72,16 @@ agg AS (
 
         -- The saving. Summed over what is known, which is why it is a lower
         -- bound rather than an exact figure when coverage is partial.
-        ROUND(COALESCE(SUM(item_saving), 0)::numeric, 2) AS saving_total,
+        ROUND(CAST(COALESCE(SUM(item_saving), 0) AS numeric), 2)
+            AS saving_total,
         ROUND(
-            COALESCE(SUM(item_saving_bonus_only), 0)::numeric, 2
+            CAST(COALESCE(SUM(item_saving_bonus_only), 0) AS numeric), 2
         ) AS saving_bonus_only,
         ROUND(
-            COALESCE(SUM(item_conditional_saving), 0)::numeric, 2
+            CAST(COALESCE(SUM(item_conditional_saving), 0) AS numeric), 2
         ) AS conditional_saving,
         ROUND(
-            COALESCE(SUM(item_advertised_saving), 0)::numeric, 2
+            CAST(COALESCE(SUM(item_advertised_saving), 0) AS numeric), 2
         ) AS advertised_saving_total,
 
         -- What the priced part of the basket comes to, whatever the coverage.
@@ -89,29 +90,36 @@ agg AS (
         -- cheaper here than it is in the shop, and the page has to say so.
         -- Kept because a rough price on a recipe with one doubtful ingredient
         -- is more use than no price at all - which is the operator's call, and
-        -- the opposite of what fct_recipe_cost_latest does for the cost history.
-        ROUND(SUM(item_cost_ordinary)::numeric, 2) AS partial_cost_ordinary,
-        ROUND(SUM(item_cost_today)::numeric, 2) AS partial_cost_today,
+        -- the opposite of what fct_recipe_cost_latest does for the cost
+        -- history.
+        ROUND(CAST(SUM(item_cost_ordinary) AS numeric), 2)
+            AS partial_cost_ordinary,
+        ROUND(CAST(SUM(item_cost_today) AS numeric), 2) AS partial_cost_today,
         -- The same estimate with clearance withdrawn. It had no twin, so on a
         -- stale-clearance day the page swapped the exact total and left the
         -- estimate - which is what most recipes show - still clearance-priced.
         ROUND(
-            SUM(item_cost_today_bonus_only)::numeric, 2
+            CAST(SUM(item_cost_today_bonus_only) AS numeric), 2
         ) AS partial_cost_today_bonus_only,
 
         -- Totals are withheld unless the whole basket is priced. A partial sum
         -- is not a total.
-        CASE WHEN COUNT(price_ordinary) = COUNT(*)
-            THEN ROUND(SUM(item_cost_ordinary)::numeric, 2) END AS cost_ordinary,
-        CASE WHEN COUNT(price_ordinary) = COUNT(*)
-            THEN ROUND(SUM(item_cost_today)::numeric, 2) END AS cost_today,
-        CASE WHEN COUNT(price_ordinary) = COUNT(*)
-            THEN ROUND(SUM(item_cost_today_bonus_only)::numeric, 2)
+        CASE
+            WHEN COUNT(price_ordinary) = COUNT(*)
+                THEN ROUND(CAST(SUM(item_cost_ordinary) AS numeric), 2)
+        END AS cost_ordinary,
+        CASE
+            WHEN COUNT(price_ordinary) = COUNT(*)
+                THEN ROUND(CAST(SUM(item_cost_today) AS numeric), 2)
+        END AS cost_today,
+        CASE
+            WHEN COUNT(price_ordinary) = COUNT(*)
+                THEN ROUND(CAST(SUM(item_cost_today_bonus_only) AS numeric), 2)
         END AS cost_today_bonus_only,
 
         -- Urgency comes from clearance lines only. A promotion has neither
         -- stock nor an expiry, so an unfiltered COUNT of NULL stock would mark
-        -- every bonus line "unknown" and leave the banner permanently uncertain.
+        -- every bonus line "unknown" and leave the banner always uncertain.
         MIN(stock) FILTER (WHERE is_discounted AND offer_kind = 'clearance')
             AS min_stock_remaining,
         COUNT(*) FILTER (
@@ -122,7 +130,7 @@ agg AS (
         ) AS earliest_expiry,
         COUNT(*) FILTER (
             WHERE is_discounted AND offer_kind = 'clearance'
-                AND expires_on IS NULL
+            AND expires_on IS NULL
         ) AS clearance_items_expiry_unknown,
         BOOL_OR(
             is_discounted AND offer_kind = 'clearance'
@@ -176,15 +184,7 @@ SELECT
     c.advertised_saving_total,
     -- A saving over an incompletely priced recipe is a floor, not a figure, and
     -- the portal must not render the two the same way.
-    (c.items_priced < c.items_total) AS saving_is_lower_bound,
     c.saving_covers_whole_packs,
-    ROUND(
-        (c.saving_total / NULLIF(c.cost_ordinary, 0) * 100)::numeric, 1
-    ) AS saving_pct,
-    ROUND((c.cost_today / NULLIF(d.servings, 0))::numeric, 2)
-        AS cost_today_per_serving,
-    ROUND((c.cost_today_bonus_only / NULLIF(d.servings, 0))::numeric, 2)
-        AS cost_today_per_serving_bonus_only,
     c.items_total,
     c.items_priced,
     c.items_unresolved,
@@ -197,22 +197,35 @@ SELECT
     c.earliest_expiry,
     c.clearance_items_expiry_unknown,
     c.has_insufficient_stock,
+    (c.items_priced < c.items_total) AS saving_is_lower_bound,
+    ROUND(
+        CAST((c.saving_total / NULLIF(c.cost_ordinary, 0) * 100) AS numeric), 1
+    ) AS saving_pct,
+    ROUND(CAST((c.cost_today / NULLIF(d.servings, 0)) AS numeric), 2)
+        AS cost_today_per_serving,
+    ROUND(
+        CAST((c.cost_today_bonus_only / NULLIF(d.servings, 0)) AS numeric), 2
+    )
+        AS cost_today_per_serving_bonus_only,
     -- Non-null only for a recipe that is both rankable and actually cheaper.
     -- Everything else keeps its row and its reason.
-    CASE WHEN c.is_rankable AND c.saving_total > 0 THEN
-        RANK() OVER (
-            PARTITION BY c.store_id
-            ORDER BY
+    CASE
+        WHEN c.is_rankable AND c.saving_total > 0 THEN
+            RANK() OVER (
+                PARTITION BY c.store_id
+                ORDER BY
                 -- NULLS LAST is load-bearing. Postgres sorts NULLs first under
                 -- DESC, so the 2,002 unranked recipes sorted ahead of the one
                 -- real opportunity and it came back as rank 1988 instead of 1.
                 -- Relative order among ranked rows was still right, which is
                 -- exactly why this survived until an end-to-end check read the
                 -- number itself.
-                CASE WHEN c.is_rankable AND c.saving_total > 0
-                    THEN c.saving_total END DESC NULLS LAST,
-                c.recipe_id ASC
-        )
+                    CASE
+                        WHEN c.is_rankable AND c.saving_total > 0
+                            THEN c.saving_total
+                    END DESC NULLS LAST,
+                    c.recipe_id ASC
+            )
     END AS opportunity_rank
 FROM classified AS c
 INNER JOIN {{ ref('int_store') }} AS s ON c.store_id = s.store_id
