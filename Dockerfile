@@ -28,4 +28,20 @@ RUN PG_HOST=localhost PG_PORT=5432 PG_USER=postgres PG_PASSWORD=postgres PG_DB=p
     PG_HOST=localhost PG_PORT=5432 PG_USER=postgres PG_PASSWORD=postgres PG_DB=postgres ENVIRONMENT=default \
     uv run dbt parse --project-dir src/bonuschef/sql --profiles-dir src/bonuschef/sql
 
+# The version stamp goes last. It changes on every commit, so putting it
+# higher would invalidate the dependency and manifest layers on each build
+# and turn a redeploy into a full reinstall.
+ARG BONUSCHEF_VERSION=unknown
+ARG BONUSCHEF_COMMIT=unknown
+
+# ENV for a running container and `docker compose exec`; LABEL for
+# `docker inspect` without starting anything. Two audiences ask this
+# question in two different situations.
+ENV BONUSCHEF_VERSION=${BONUSCHEF_VERSION} \
+    BONUSCHEF_COMMIT=${BONUSCHEF_COMMIT}
+
+LABEL org.opencontainers.image.version="${BONUSCHEF_VERSION}" \
+      org.opencontainers.image.revision="${BONUSCHEF_COMMIT}" \
+      org.opencontainers.image.source="https://github.com/levyvankempen/bonuschef"
+
 CMD ["uv", "run", "dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-m", "bonuschef.dags.definitions"]

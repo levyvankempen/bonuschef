@@ -160,10 +160,19 @@ def test_dagster_storage_is_postgres_not_sqlite(dagster_instance):
 
 
 def test_env_example_covers_every_interpolated_variable(compose):
-    """`docker compose up` fails on a missing ${VAR}; the template must list it."""
+    """`docker compose up` fails on a missing ${VAR}; the template must list it.
+
+    Only variables without a default, though. `${VAR:-fallback}` cannot fail
+    that way, and some must NOT be in .env: the version and commit stamps are
+    derived per build from `git describe`, so a value written into .env would
+    outlive the build it described and report the wrong version indefinitely.
+    """
     referenced = {
         match.group(1)
-        for match in re.finditer(r"\$\{([A-Z_][A-Z0-9_]*)", COMPOSE_FILE.read_text())
+        for match in re.finditer(
+            r"\$\{([A-Z_][A-Z0-9_]*)(?![A-Z0-9_])(?!\s*:?[-?+])",
+            COMPOSE_FILE.read_text(),
+        )
     }
     documented = {
         line.split("=", 1)[0].strip()
