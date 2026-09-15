@@ -11,6 +11,7 @@ settles it for every recipe that will ever use it.
 from __future__ import annotations
 
 import streamlit as st
+from dagster import DagsterRunStatus
 
 from bonuschef.portal.db import (
     add_resolution_products,
@@ -24,6 +25,11 @@ from bonuschef.portal.db import (
     search_catalogue_products,
 )
 from bonuschef.portal.matching import candidates
+from bonuschef.portal.dagster_client import (
+    TERMINAL_STATUSES,
+    DagsterTriggerError,
+    get_run_status,
+)
 from bonuschef.portal.rebuild import start_recipe_rebuild
 
 
@@ -65,6 +71,37 @@ def _clear_reads() -> None:
         read_recipe_breakdown_bonus,
     ):
         reader.clear()
+
+
+# Carries the outcome of a confirmation across the rerun that follows it.
+RESOLUTION_RESULT_KEY = "resolution_result"
+# And the rebuild it started, so the page can report on it until it finishes.
+REBUILD_RUN_KEY = "resolution_rebuild_run"
+
+
+def render_resolution_result() -> None:
+    """What just happened, and what to expect next.
+
+    Called by the page rather than the dialog: st.rerun() closes a dialog, so a
+    message rendered inside it is never seen. The counts matter because "niets
+    aanvinken" is a legitimate answer that looks identical to having done
+    nothing at all.
+    """
+    result = st.session_state.pop(RESOLUTION_RESULT_KEY, None)
+    if not result:
+        return
+    if result.get("run_id"):
+        # Handed to the page so it can report on the rebuild until it finishes,
+        # rather than the notice vanishing on the next interaction.
+        st.session_state[REBUILD_RUN_KEY] = result["run_id"]
+    parts = []
+    if result["settled"]:
+        parts.append(f"{result['settled']} ingrediënt(en) gekoppeld")
+    if result["none_exists"]:
+        parts.append(f"{result['none_exists']} vastgelegd als 'geen passend product'")
+    st.success(" · ".join(parts) if parts else "Opgeslagen.")
+    if not result.get("run_id"):
+        st.caption("De prijzen worden bij de volgende berekening bijgewerkt.")
 
 
 def _render_body(engine, concepts) -> None:
@@ -138,8 +175,18 @@ def _render_body(engine, concepts) -> None:
             confirm_resolution(engine, concept_id, links)
         _clear_reads()
         # Fire-and-forget: blocking here would make settling five ingredients a
-        # five-minute wait, since runs are serialised instance-wide.
-        start_recipe_rebuild()
+        # five-minute wait, since runs are serialised instance-wide. But saying
+        # nothing is not part of that bargain - confirming used to rerun into
+        # the next batch with no sign anything had happened, which reads as the
+        # click not having registered.
+        run_id = start_recipe_rebuild()
+        settled = sum(1 for links in chosen.values() if links)
+        none_exists = len(chosen) - settled
+        st.session_state[RESOLUTION_RESULT_KEY] = {
+            "settled": settled,
+            "none_exists": none_exists,
+            "run_id": run_id,
+        }
         st.rerun()
 
 
@@ -171,3 +218,44 @@ def open_single(engine, concept_id: int, concept_name: str) -> None:
         engine,
         pd.DataFrame([{"concept_id": concept_id, "concept_name": concept_name}]),
     )
+
+
+def render_rebuild_status() -> None:
+    """Report on a recalculation the person started, until it finishes.
+
+    Read from Dagster rather than assumed: "we started a job" is not the same
+    claim as "the prices are updated", and the gap between them is where a
+    correction looks like it did not save. A queued run says so, because with
+    runs serialised instance-wide it may genuinely be waiting behind a scrape.
+    """
+    run_id = st.session_state.get(REBUILD_RUN_KEY)
+    if not run_id:
+        return
+    try:
+        status = get_run_status(run_id)
+    except DagsterTriggerError:
+        # Losing sight of the run is not worth an error: the write landed, and
+        # the next scheduled rebuild picks it up regardless.
+        st.session_state.pop(REBUILD_RUN_KEY, None)
+        return
+
+    if status in TERMINAL_STATUSES:
+        st.session_state.pop(REBUILD_RUN_KEY, None)
+        if status == DagsterRunStatus.SUCCESS:
+            st.success("De prijzen zijn bijgewerkt met je koppelingen.")
+        else:
+            st.warning(
+                "De prijsberekening is niet afgerond. Je koppelingen zijn wel "
+                f"bewaard (run {str(run_id)[:8]}, status {status.value})."
+            )
+        return
+
+    label = (
+        "De prijsberekening staat in de wachtrij…"
+        if status == DagsterRunStatus.QUEUED
+        else "De prijzen worden herberekend…"
+    )
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.info(label, icon=":material/hourglass_top:")
+        if st.button("Ververs", key="rebuild_poll", icon=":material/refresh:"):
+            st.rerun()

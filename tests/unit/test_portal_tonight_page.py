@@ -112,7 +112,15 @@ def wired(monkeypatch):
 def _texts(at) -> str:
     """Everything the page rendered, as one string."""
     parts = []
-    for block in (at.markdown, at.caption, at.info, at.warning, at.error, at.subheader):
+    for block in (
+        at.markdown,
+        at.caption,
+        at.info,
+        at.warning,
+        at.error,
+        at.success,
+        at.subheader,
+    ):
         parts += [el.value for el in block]
     parts += [el.value for el in at.title]
     return "\n".join(str(p) for p in parts)
@@ -494,3 +502,94 @@ class TestTheQueriesCarryWhatThePageReads:
         body = _texts(at)
         assert "geen enkel ingrediënt" not in body
         assert "±€15.30" in body
+
+
+class TestFeedbackAfterACorrection:
+    """Confirming used to be silent. A silent save is indistinguishable from a
+    click that never registered, which is how "I added the products but nothing
+    happened" comes about."""
+
+    def test_the_outcome_is_reported_on_the_page_not_in_the_dialog(self, wired):
+        """st.rerun() closes a dialog, so anything rendered inside it after a
+        confirmation is never seen."""
+        from bonuschef.portal import review
+
+        at = run_app(page.render_tonight)
+        at.session_state[review.RESOLUTION_RESULT_KEY] = {
+            "settled": 6,
+            "none_exists": 1,
+            "run_id": "abc12345",
+        }
+        at.run()
+        body = _texts(at)
+        assert "6 ingrediënt(en) gekoppeld" in body
+        assert "geen passend product" in body
+
+    def test_a_running_rebuild_is_reported_until_it_finishes(self, wired, monkeypatch):
+        from dagster import DagsterRunStatus
+
+        from bonuschef.portal import review
+
+        monkeypatch.setattr(
+            review, "get_run_status", lambda r: DagsterRunStatus.STARTED
+        )
+        at = run_app(page.render_tonight)
+        at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
+        at.run()
+        assert "herberekend" in _texts(at)
+
+    def test_a_queued_rebuild_says_it_is_queued(self, wired, monkeypatch):
+        """Runs are serialised instance-wide, so it may genuinely be waiting
+        behind a clearance scrape. Calling that "busy" hides a real cause."""
+        from dagster import DagsterRunStatus
+
+        from bonuschef.portal import review
+
+        monkeypatch.setattr(review, "get_run_status", lambda r: DagsterRunStatus.QUEUED)
+        at = run_app(page.render_tonight)
+        at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
+        at.run()
+        assert "wachtrij" in _texts(at)
+
+    def test_a_finished_rebuild_says_so_once_and_stops(self, wired, monkeypatch):
+        from dagster import DagsterRunStatus
+
+        from bonuschef.portal import review
+
+        monkeypatch.setattr(
+            review, "get_run_status", lambda r: DagsterRunStatus.SUCCESS
+        )
+        at = run_app(page.render_tonight)
+        at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
+        at.run()
+        assert "prijzen zijn bijgewerkt" in _texts(at)
+        assert review.REBUILD_RUN_KEY not in at.session_state
+
+    def test_a_failed_rebuild_does_not_imply_the_save_was_lost(
+        self, wired, monkeypatch
+    ):
+        from dagster import DagsterRunStatus
+
+        from bonuschef.portal import review
+
+        monkeypatch.setattr(
+            review, "get_run_status", lambda r: DagsterRunStatus.FAILURE
+        )
+        at = run_app(page.render_tonight)
+        at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
+        at.run()
+        assert "koppelingen zijn wel bewaard" in _texts(at)
+
+    def test_losing_sight_of_the_run_is_not_an_error(self, wired, monkeypatch):
+        """The write landed and the next scheduled rebuild picks it up."""
+        from bonuschef.portal import review
+        from bonuschef.portal.dagster_client import DagsterTriggerError
+
+        def gone(run_id):
+            raise DagsterTriggerError("no such run")
+
+        monkeypatch.setattr(review, "get_run_status", gone)
+        at = run_app(page.render_tonight)
+        at.session_state[review.REBUILD_RUN_KEY] = "abc12345"
+        at.run()
+        assert not at.error

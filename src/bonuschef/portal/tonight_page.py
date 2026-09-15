@@ -26,7 +26,12 @@ import streamlit as st
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness
-from bonuschef.portal.review import open_review, open_single
+from bonuschef.portal.review import (
+    open_review,
+    open_single,
+    render_rebuild_status,
+    render_resolution_result,
+)
 from bonuschef.portal.db import (
     get_engine,
     read_bonus_feed_loaded_at,
@@ -367,6 +372,12 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
 
 def render_tonight() -> None:
     st.title("Vanavond")
+
+    # Before anything else: what a just-finished correction did, and how the
+    # recalculation it started is getting on. Confirming used to be silent, and
+    # a silent save is indistinguishable from one that did not happen.
+    render_resolution_result()
+    render_rebuild_status()
 
     try:
         engine = get_engine()

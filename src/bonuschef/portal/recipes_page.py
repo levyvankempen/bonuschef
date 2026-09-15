@@ -3,7 +3,11 @@
 import pandas as pd
 import streamlit as st
 
-from bonuschef.portal.review import open_single
+from bonuschef.portal.review import (
+    open_single,
+    render_rebuild_status,
+    render_resolution_result,
+)
 from bonuschef.portal.db import (
     get_engine,
     read_recipe_bonus_summary,
@@ -176,6 +180,10 @@ def _render_recipe_detail(engine, summary_df):
 
 def render_recipes():
     st.title("Recepten")
+
+    # The same dialog runs from here, so the same feedback belongs here.
+    render_resolution_result()
+    render_rebuild_status()
 
     try:
         engine = get_engine()
