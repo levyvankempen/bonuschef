@@ -9,7 +9,7 @@ from bonuschef.portal.dagster_client import (
     MARKDOWNS_REFRESH_JOB,
     TERMINAL_STATUSES,
     DagsterTriggerError,
-    get_run_status,
+    get_run_progress,
     trigger_job,
 )
 from bonuschef.portal import freshness
@@ -27,6 +27,10 @@ _LOCAL_TZ = freshness.LOCAL_TZ
 _REFRESHED_KEY = "clearance_refreshed_at"
 # The run being watched. An id survives a session reset; a pending wait does not.
 _RUN_KEY = "clearance_refresh_run"
+_FAILED_KEY = "clearance_refresh_failed"
+# Two seconds: the job takes about twenty, so this is ten updates rather than
+# a spinner that tells you nothing, and it stops the moment the run ends.
+_POLL_SECONDS = 2
 _SNAPSHOT_BEFORE_KEY = "clearance_snapshot_before"
 _FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
 
@@ -93,53 +97,60 @@ def _start_refresh(before: pd.Timestamp | None = None) -> None:
     st.rerun()
 
 
+@st.fragment(run_every=_POLL_SECONDS)
 def _render_refresh_progress() -> None:
-    """Report the run, until it reaches a terminal state.
+    """Show how far the scrape has got, and keep showing it without being asked.
 
-    Read from Dagster on every render rather than remembered, so a phone that
-    slept through the scrape still learns how it went.
+    A fragment rather than a full rerun: only this block re-executes every two
+    seconds, so the page is not rebuilt underneath someone reading it, and the
+    polling stops the moment the parent stops calling this.
+
+    The phase comes from the run's own step stats. A bar advancing on elapsed
+    time would be a decoration - and it would have read "almost done" through
+    the three minutes a queued run once spent doing nothing whatsoever.
     """
     run_id = st.session_state.get(_RUN_KEY)
     if not run_id:
         return
     try:
-        status = get_run_status(run_id)
+        progress = get_run_progress(run_id)
     except DagsterTriggerError:
         # Losing sight of the run is not an error: the scrape either happened or
         # it did not, and the freshness caption reads the snapshot itself.
         st.session_state.pop(_RUN_KEY, None)
         return
 
-    if status not in TERMINAL_STATUSES:
-        # Waiting is a normal state, not an anomaly - runs are serialised
-        # instance-wide on purpose. Calling it "scanning" is what sent an hour
-        # of debugging at the wrong component.
-        label = (
-            "In de wachtrij — een andere taak is nog bezig…"
-            if status == DagsterRunStatus.QUEUED
-            else "De winkel wordt gescand…"
-        )
-        with st.container(horizontal=True, vertical_alignment="center"):
-            st.info(label, icon=":material/hourglass_top:")
-            if st.button("Ververs", key="clearance_poll", icon=":material/refresh:"):
-                st.rerun()
+    if progress.status not in TERMINAL_STATUSES:
+        st.progress(progress.fraction, text=progress.label)
         return
 
     st.session_state.pop(_RUN_KEY, None)
-    if status == DagsterRunStatus.SUCCESS:
+    if progress.status == DagsterRunStatus.SUCCESS:
         # Cleared by whichever session observes completion, not by whichever one
         # waited. st.cache_data.clear() is global, which is the point: a phone
         # that slept through the run must not keep serving a stale mart.
         read_store_clearance.clear()
         read_last_scrape_time.clear()
         st.session_state[_REFRESHED_KEY] = _now()
-        st.rerun()
-    elif status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+    else:
         st.session_state.pop(_SNAPSHOT_BEFORE_KEY, None)
-        st.error(
-            f"Het ophalen is mislukt (run {str(run_id)[:8]}, status {status.value}). "
-            "Kijk in Dagster; meestal is het een verlopen AH-token."
-        )
+        st.session_state[_FAILED_KEY] = (str(run_id)[:8], progress.status.value)
+    # scope="app": the whole page has to redraw, because the data behind it
+    # changed. Without this only the fragment would update and the list would
+    # still be the old one.
+    st.rerun(scope="app")
+
+
+def _render_refresh_failure() -> None:
+    """Report a failed run once, after the rerun that cleared it."""
+    failed = st.session_state.pop(_FAILED_KEY, None)
+    if not failed:
+        return
+    run_id, status = failed
+    st.error(
+        f"Het ophalen is mislukt (run {run_id}, status {status}). "
+        "Kijk in Dagster; meestal is het een verlopen AH-token."
+    )
 
 
 def _render_refresh_banner(latest: pd.Timestamp | None) -> None:
@@ -174,7 +185,11 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
     with col_caption:
         st.caption(caption)
         _render_refresh_banner(latest)
-        _render_refresh_progress()
+        _render_refresh_failure()
+        # Only while something is running: a fragment with run_every keeps
+        # polling for as long as it is rendered.
+        if st.session_state.get(_RUN_KEY):
+            _render_refresh_progress()
     with col_button:
         clicked = st.button(
             "Nu ophalen",

@@ -112,3 +112,87 @@ def test_wait_for_run_stops_on_failure(fake):
     status = wait_for_run("run-abc123", cfg=CFG, sleep=lambda _: None, clock=lambda: 0)
     assert status == DagsterRunStatus.FAILURE
     assert client.polled == 1
+
+
+class TestRunProgress:
+    """Phase comes from the run's own step stats. A bar advancing on elapsed
+    time is a decoration, and would have read "almost done" through the three
+    minutes a queued run once spent doing nothing at all."""
+
+    @staticmethod
+    def _payload(status, steps):
+        return {
+            "runOrError": {
+                "status": status,
+                "stepStats": [{"stepKey": k, "status": v} for k, v in steps],
+            }
+        }
+
+    def _progress(self, monkeypatch, payload):
+        from bonuschef.portal import dagster_client as dc
+
+        class FakeClient:
+            def _execute(self, query, variables=None):
+                return payload
+
+        monkeypatch.setattr(dc, "_client", lambda cfg=None: FakeClient())
+        return dc.get_run_progress("run-abcdef12")
+
+    def test_a_queued_run_reports_no_progress_at_all(self, monkeypatch):
+        p = self._progress(monkeypatch, self._payload("QUEUED", []))
+        assert p.fraction == 0.0
+        assert "wachtrij" in p.label
+
+    def test_a_started_run_with_no_steps_yet_says_it_is_starting(self, monkeypatch):
+        """Most of the wait is Dagster launching a process and importing the
+        code location. Reporting that honestly beats inventing a percentage."""
+        p = self._progress(monkeypatch, self._payload("STARTED", []))
+        assert p.fraction == 0.0
+        assert "Starten" in p.label
+
+    def test_the_label_names_the_step_actually_running(self, monkeypatch):
+        p = self._progress(
+            monkeypatch,
+            self._payload("STARTED", [("ah__store_markdowns", "IN_PROGRESS")]),
+        )
+        assert "gescand" in p.label
+
+    def test_progress_advances_as_steps_complete(self, monkeypatch):
+        p = self._progress(
+            monkeypatch,
+            self._payload(
+                "STARTED",
+                [("ah__store_markdowns", "SUCCESS"), ("dbt_assets", "IN_PROGRESS")],
+            ),
+        )
+        assert p.fraction == 0.5
+        assert "prijzen" in p.label
+
+    def test_success_is_complete(self, monkeypatch):
+        p = self._progress(
+            monkeypatch,
+            self._payload(
+                "SUCCESS",
+                [("ah__store_markdowns", "SUCCESS"), ("dbt_assets", "SUCCESS")],
+            ),
+        )
+        assert p.fraction == 1.0
+
+    def test_a_failure_does_not_report_a_full_bar(self, monkeypatch):
+        """Filling the bar on failure would say the work finished."""
+        p = self._progress(
+            monkeypatch,
+            self._payload(
+                "FAILURE",
+                [("ah__store_markdowns", "SUCCESS"), ("dbt_assets", "FAILURE")],
+            ),
+        )
+        assert p.fraction < 1.0
+
+    def test_an_unknown_run_raises_rather_than_reporting_zero(self, monkeypatch):
+        """Zero progress and "no such run" are different facts; conflating them
+        would leave a bar sitting at 0% forever."""
+        from bonuschef.portal.dagster_client import DagsterTriggerError
+
+        with pytest.raises(DagsterTriggerError):
+            self._progress(monkeypatch, {"runOrError": {}})

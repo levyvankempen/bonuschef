@@ -10,7 +10,12 @@ from streamlit.testing.v1 import AppTest
 
 from bonuschef.portal import clearance_page as page
 from bonuschef.portal.clearance_page import _latest_snapshot, render_clearance
-from bonuschef.portal.dagster_client import DagsterTriggerError
+from bonuschef.portal.dagster_client import (
+    REFRESH_PHASES,
+    TERMINAL_STATUSES,
+    DagsterTriggerError,
+    RunProgress,
+)
 from tests.conftest import run_app
 
 
@@ -104,9 +109,21 @@ def stubs(monkeypatch):
     monkeypatch.setattr(page, "read_last_scrape_time", state["last_scrape"])
     monkeypatch.setattr(page, "_now", lambda: state["now"])
     monkeypatch.setattr(page, "trigger_job", trigger)
-    # The refresh no longer waits; it records a run id and reads its status on
-    # each render, which is what survives a dropped phone session.
-    monkeypatch.setattr(page, "get_run_status", lambda run_id: state["status"])
+
+    # The refresh no longer waits; it records a run id and reads the run's own
+    # progress on each render, which is what survives a dropped phone session.
+    def progress(run_id, *a, **kw):
+        status = state["status"]
+        total = len(REFRESH_PHASES)
+        if status == DagsterRunStatus.QUEUED:
+            return RunProgress(status, "In de wachtrij…", 0, total)
+        if status in TERMINAL_STATUSES:
+            return RunProgress(status, "Klaar", total, total)
+        return RunProgress(
+            status, state.get("phase", "De winkel wordt gescand…"), 0, total
+        )
+
+    monkeypatch.setattr(page, "get_run_progress", progress)
     return state
 
 
@@ -231,13 +248,15 @@ def test_refresh_run_failure_mentions_run_and_token(stubs):
     assert stubs["read"].cleared == 0
 
 
-def test_a_running_refresh_says_it_is_scanning(stubs):
-    """It no longer blocks, so a run still going is a state the page reports
-    rather than a timeout it apologises for."""
+def test_a_running_refresh_shows_progress_not_a_timeout(stubs):
+    """It no longer blocks, so a run still going is a state the page reports."""
     stubs["status"] = DagsterRunStatus.STARTED
     at = _run()
     at.button[0].click().run()
-    assert any("gescand" in i.value for i in at.info)
+    bars = at.get("progress")
+    assert bars, "a run in flight must show its progress"
+    # AppTest exposes the caption on the proto, not on .value (an int percent).
+    assert "gescand" in bars[0].proto.text
     assert stubs["read"].cleared == 0, "nothing to clear until it finishes"
 
 
@@ -248,8 +267,20 @@ def test_a_queued_refresh_is_not_described_as_scanning(stubs):
     stubs["status"] = DagsterRunStatus.QUEUED
     at = _run()
     at.button[0].click().run()
-    assert any("wachtrij" in i.value for i in at.info)
-    assert not any("gescand" in i.value for i in at.info)
+    bars = at.get("progress")
+    assert bars and "wachtrij" in bars[0].proto.text
+    assert "gescand" not in bars[0].proto.text
+
+
+def test_the_bar_reflects_the_phase_not_the_clock(stubs):
+    """A bar advancing on elapsed time is a decoration, and would have read
+    "almost done" through three minutes of a queued run doing nothing."""
+    stubs["status"] = DagsterRunStatus.STARTED
+    stubs["phase"] = "De prijzen worden bijgewerkt…"
+    at = _run()
+    at.button[0].click().run()
+    bars = at.get("progress")
+    assert bars and "prijzen" in bars[0].proto.text
 
 
 def test_the_outcome_survives_a_session_that_did_no_waiting(stubs):
@@ -262,10 +293,10 @@ def test_the_outcome_survives_a_session_that_did_no_waiting(stubs):
 
 
 def test_losing_sight_of_the_run_is_not_an_error(stubs, monkeypatch):
-    def gone(run_id):
+    def gone(run_id, *a, **kw):
         raise DagsterTriggerError("no such run")
 
-    monkeypatch.setattr(page, "get_run_status", gone)
+    monkeypatch.setattr(page, "get_run_progress", gone)
     at = run_app(render_clearance, default_timeout=10)
     at.session_state[page._RUN_KEY] = "run-1234567890"
     at.run()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from dagster import DagsterRunStatus
 from dagster_graphql import DagsterGraphQLClient
@@ -75,3 +76,93 @@ def wait_for_run(
         if status in TERMINAL_STATUSES or clock() >= deadline:
             return status
         sleep(poll_s)
+
+
+# The two steps of markdowns_refresh, in order, with what each is doing in terms
+# a person waiting on it would recognise. Phase is read from the run rather than
+# estimated from elapsed time: a bar that advances on a timer is a decoration,
+# and it would have said "almost done" through the three minutes a queued run
+# spent doing nothing at all.
+REFRESH_PHASES: tuple[tuple[str, str], ...] = (
+    ("ah__store_markdowns", "De winkel wordt gescand…"),
+    ("dbt_assets", "De prijzen worden bijgewerkt…"),
+)
+
+
+@dataclass(frozen=True)
+class RunProgress:
+    """Where a run has got to, as far as Dagster will say."""
+
+    status: DagsterRunStatus
+    label: str
+    # Completed steps over total steps. Deliberately coarse: there are two, and
+    # inventing finer granularity would mean inventing the numbers.
+    completed: int
+    total: int
+
+    @property
+    def fraction(self) -> float:
+        return min(1.0, self.completed / self.total) if self.total else 0.0
+
+
+_STEP_STATS_QUERY = """query RunProgress($id: ID!) {
+  runOrError(runId: $id) {
+    ... on Run { status stepStats { stepKey status } }
+  }
+}"""
+
+
+def get_run_progress(
+    run_id: str,
+    phases: tuple[tuple[str, str], ...] = REFRESH_PHASES,
+    cfg: DagsterConfig | None = None,
+) -> RunProgress:
+    """How far a run has got, phrased for someone waiting on it.
+
+    Falls back to the run's own status when step stats are unavailable - during
+    the first seconds a run exists there are no steps yet, and Dagster spends
+    that time launching a process and importing the code location. Reporting
+    "starten" then is honest; reporting a percentage would not be.
+    """
+    cfg = cfg or DagsterConfig.from_env()
+    try:
+        payload = _client(cfg)._execute(_STEP_STATS_QUERY, {"id": run_id})
+    except Exception as exc:
+        raise DagsterTriggerError(
+            f"Could not read progress of run {run_id[:8]} from Dagster: {exc}"
+        ) from exc
+
+    node = (payload or {}).get("runOrError") or {}
+    raw_status = node.get("status")
+    if raw_status is None:
+        raise DagsterTriggerError(f"Dagster does not know run {run_id[:8]}")
+    status = DagsterRunStatus(raw_status)
+
+    by_key = {s.get("stepKey"): s.get("status") for s in node.get("stepStats") or []}
+    total = len(phases)
+
+    if status == DagsterRunStatus.QUEUED:
+        # Waiting is a normal state - runs are serialised instance-wide - and
+        # calling it "scanning" is what once sent an hour of debugging at the
+        # wrong component.
+        return RunProgress(status, "In de wachtrij…", 0, total)
+    if status in TERMINAL_STATUSES:
+        done = (
+            total
+            if status == DagsterRunStatus.SUCCESS
+            else len([v for v in by_key.values() if v == "SUCCESS"])
+        )
+        return RunProgress(status, "Klaar", done, total)
+
+    completed = sum(1 for key, _ in phases if by_key.get(key) == "SUCCESS")
+    for key, label in phases:
+        state = by_key.get(key)
+        if state in (None, "SKIPPED"):
+            continue
+        if state != "SUCCESS":
+            return RunProgress(status, label, completed, total)
+    if completed:
+        return RunProgress(status, "Afronden…", completed, total)
+    # A run exists but no step has started: Dagster is launching the process and
+    # importing the code location, which is most of the wait.
+    return RunProgress(status, "Starten…", 0, total)
