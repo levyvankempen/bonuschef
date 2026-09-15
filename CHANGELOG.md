@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.1 (2026-09-15)
+
+### Bug Fixes
+
+- Two papercuts found deploying v1.3.0 ([#46](https://github.com/levyvankempen/bonuschef/pull/46),
+  [`d37ffc6`](https://github.com/levyvankempen/bonuschef/commit/d37ffc6d111c31770eaa9cc2af2b4de9a380ab76))
+
+
 ## v1.3.0 (2026-09-15)
 
 ### Bug Fixes
