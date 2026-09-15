@@ -8,6 +8,7 @@ from dagster import (
     RetryPolicy,
     define_asset_job,
     job,
+    in_process_executor,
     multiprocess_executor,
     op,
 )
@@ -56,6 +57,17 @@ recipes_rebuild_job = define_asset_job(
 markdowns_refresh_job = define_asset_job(
     name="markdowns_refresh",
     selection=AssetSelection.assets("ah__store_markdowns").downstream(),
+    # In-process, not the default multiprocess executor. This is the one job a
+    # person waits on, and the wait was almost entirely overhead: of a measured
+    # 39 seconds, the AH scrape took 1 and dbt's actual work took 4. The rest
+    # was process spawning - a fresh subprocess per step, each re-importing
+    # dagster, dagster-dbt and the dbt manifest.
+    #
+    # The two steps here are strictly sequential anyway (scrape, then rebuild
+    # what the scrape fed), so there is no parallelism to lose. The isolation a
+    # subprocess buys matters for a long unattended batch; it is the wrong
+    # trade for a button someone is standing in a shop waiting on.
+    executor_def=in_process_executor,
     op_retry_policy=RetryPolicy(max_retries=2, delay=60),
 )
 

@@ -238,3 +238,35 @@ def test_the_proposal_step_is_not_in_the_credential_spending_group(defs, asset_g
     keys = _keys(job, asset_graph)
     assert "ah__ingredient_proposals" in keys
     assert "ah__recipe_pool" not in keys
+
+
+def test_the_refresh_a_person_waits_on_runs_in_process(defs):
+    """The clearance refresh is the one job someone stands in a shop waiting on.
+
+    Measured at 39s, of which the AH scrape was 1 second and dbt's actual work
+    was 4. The rest was process spawning: the multiprocess executor starts a
+    fresh subprocess per step, each re-importing dagster, dagster-dbt and the
+    dbt manifest. Its two steps are strictly sequential - scrape, then rebuild
+    what the scrape fed - so there is no parallelism to lose, and running them
+    in one process took it to ~23s.
+    """
+    from dagster._core.definitions.executor_definition import in_process_executor
+
+    job = next(j for j in defs.jobs if j.name == "markdowns_refresh")
+    assert job.executor_def is in_process_executor, (
+        "a subprocess per step doubles the wait on the only interactive job"
+    )
+
+
+def test_bulk_jobs_keep_process_isolation(defs):
+    """The trade is deliberate and does not generalise. A long unattended batch
+    wants a subprocess it can lose without taking the run with it; a button
+    someone is waiting on does not."""
+    from dagster._core.definitions.executor_definition import in_process_executor
+
+    for name in ("github_products", "all_assets"):
+        job = next((j for j in defs.jobs if j.name == name), None)
+        if job is not None:
+            assert job.executor_def is not in_process_executor, (
+                f"{name} is a bulk job and should keep its isolation"
+            )
