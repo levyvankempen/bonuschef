@@ -184,9 +184,27 @@ dependency "stg_ah__pool_recipes"
 That edge had been removed from the model an hour earlier. dbt was running fine
 against the new SQL; Dagster was orchestrating the old graph.
 
-After changing any model's `ref()`s, run `dbt parse` (or any `dbt build`, which
-rewrites the manifest) **inside the container**, then restart the webserver and
-daemon so the code location reloads it. Rebuilding the image does both.
+**Every container has its own copy**, and the daemon is the one that executes
+jobs. Running `dbt build` inside `dagster-webserver` refreshes only that one - the
+job then fails in exactly the same way it did before, which reads as the fix not
+working rather than as having been applied to the wrong container.
+
+So after changing any model's `ref()`s, rebuild:
+
+```
+docker compose up -d --build
+```
+
+The Dockerfile runs `dbt deps` and `dbt parse` at build time, so this regenerates
+the manifest once and every container gets the same one. Verify rather than
+assume, in **both** long-running containers:
+
+```
+for c in dagster_daemon dagster_webserver; do
+  docker exec $c python -c "import json; m=json.load(open('/app/src/bonuschef/sql/target/manifest.json')); \
+    print('$c', [n.split('.')[-1] for n in m['nodes']['model.bonuschef.dim_recipe']['depends_on']['nodes']])"
+done
+```
 
 ## 6. Prove it, rather than configuring it
 
