@@ -86,5 +86,21 @@
 - [x] 8.1 Full `dbt build` on the live warehouse; every new test green
 - [x] 8.2 Inject a known clearance offer and confirm the arithmetic end to end, including a stale-reference ingredient being discarded and a clearance/bonus overlap counting once
 - [x] 8.3 Confirm `fct_recipe_cost_latest` is byte-identical before and after — the cost history must not have moved
-- [ ] 8.4 Run the page against today's genuinely empty state and confirm it reads as an answer rather than a failure
+- [x] 8.4 **Done — and the state stopped being empty.** Before the matcher ran, the page's own empty branch was what it showed: 83 recipes now rank out of 911, so the live page reads as an answer. The empty path did not stop mattering and is covered by test (`nothing discounted` renders the plain statement plus the cheapest-to-make fallback rather than a blank page). Run the page against today's genuinely empty state and confirm it reads as an answer rather than a failure
 - [x] 8.5 `ruff check`, `ruff format`, `ty check`, full pytest suite DB- and network-free
+
+## 9. Curating the pool, and making it rankable
+
+Added after the first live run: 908 recipes priced 3.3% of their ingredients and
+ranked nothing, because nothing ran the matcher in bulk. Fetching recipes is the
+cheap half; knowing what an ingredient can be bought as is what makes them
+rankable.
+
+- [x] 9.1 Curate by construction, not by approving recipes one at a time: main courses only (`menugang=hoofdgerecht`), from AH's own everyday-dinner tag (`momenten=wat-eten-we-vandaag`) sorted by rating, plus this year's and last year's magazine issues for currency. **908 distinct recipes in 19 search requests, 4.9s** — cheaper than the undifferentiated top 2,000 it replaces, and it keeps side dishes, desserts and unloved outliers out of the ranking entirely
+- [x] 9.2 One search request per magazine issue, which is not optional: **values within a filter group intersect rather than union**. Two issues in one filter returns recipes in *both*, which is 0 — measured, and the opposite of what the argument shape suggests (`hoofdgerecht AND bijgerecht` is 13 recipes). Pinned in a test, because batching would silently empty the pool's recency half rather than fail
+- [x] 9.3 `ah__ingredient_proposals`: run `matching.propose_for` across every unresolved pool concept, most-used first so an interrupted run has done the work that mattered. Local regex against `dim_product` — **zero AH requests**
+- [x] 9.4 Proposals never overwrite a decision (`propose_products`' `WHERE confirmed_at IS NULL`), so re-running after a catalogue refresh cannot revert a correction
+- [x] 9.5 The proposal step joins `recipe_pool_refresh` — a refreshed pool with no matches ranks nothing, so a job that fetched and stopped would report success having achieved nothing — and the nightly rebuild, since a product that appeared today may resolve an ingredient that failed yesterday
+- [x] 9.6 Offer the review queue from Vanavond, with a test that the page cannot name the work without offering it
+- [x] 9.7 Verified live: **561 of 1,926 concepts matched in 90s**, mean ingredient coverage **3.3% → 46.5%**, ranked recipes **0 → 83**
+- [ ] 9.8 **Open question for the operator.** Proposals are written unconfirmed, but costing does not yet distinguish proposed from confirmed, so unreviewed matches drive real prices. Either mark such recipes on the page or exclude unconfirmed matches from ranking — a judgement about how far to trust the matcher
