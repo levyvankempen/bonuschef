@@ -28,6 +28,14 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - pg_data:/var/lib/postgresql/data
+    # Docker's default /dev/shm is 64 MB. Postgres uses it for parallel query
+    # workers, which engage on the 1.2M-row product scans, and the failure -
+    # "could not resize shared memory segment" - reads as a full disk when the
+    # disk is fine.
+    shm_size: 256mb
+    # A slow checkpoint killed at compose's 10s default means WAL recovery on
+    # the next boot, on a host that reboots for power cuts rather than plans.
+    stop_grace_period: 60s
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

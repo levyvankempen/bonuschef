@@ -18,6 +18,7 @@ enriched AS (
         b.recipe_id,
         b.recipe_name,
         b.item_key,
+        b.item_label,
         b.is_unresolved,
         b.product_name,
         b.product_link,
@@ -44,17 +45,19 @@ enriched AS (
                     2
                 )
         END AS advertised_savings,
+        -- Taken from fct_bonus_price_comparison rather than recomputed. That
+        -- model withholds the figure when the tracked price it compares against
+        -- is older than max_price_age_days; recomputing it here from b.price -
+        -- which comes from int_product_latest_price at any age - silently threw
+        -- that guard away, and the two marts then gave two different answers
+        -- for the same offer. Vanavond refused to count it; Recepten said
+        -- "je bespaart EUR 0.70" against a price last seen 309 days ago.
+        --
+        -- Scaled by quantity here because bp.real_savings is per unit.
         CASE
-            WHEN
-                bp.product_link IS NOT NULL
-                AND b.price IS NOT NULL
-                AND bp.bonus_price IS NOT NULL
+            WHEN bp.real_savings IS NOT NULL
                 THEN ROUND(
-                    (
-                        (b.price - bp.bonus_price)
-                        * COALESCE(b.quantity, 1)
-                    )::numeric,
-                    2
+                    (bp.real_savings * COALESCE(b.quantity, 1))::numeric, 2
                 )
         END AS real_savings
     FROM breakdown AS b

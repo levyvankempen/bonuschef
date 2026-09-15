@@ -162,7 +162,7 @@ def _render_price(row) -> None:
         )
 
 
-def _render_lead(engine, row) -> None:
+def _render_lead(engine, row, clearance_counts: bool = True) -> None:
     """The best option, in full, with the ingredients responsible named."""
     with st.container(border=True):
         with st.container(horizontal=True, vertical_alignment="center"):
@@ -185,7 +185,7 @@ def _render_lead(engine, row) -> None:
         # have decided, and on a phone it would otherwise push everything else
         # off the screen.
         with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
-            _render_items(engine, int(row["recipe_id"]), row)
+            _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
 
         _render_verdict_controls(engine, row)
 
@@ -202,7 +202,7 @@ def _render_rating(row) -> None:
     st.caption(f"★ {float(average):.1f} · {votes} beoordelingen")
 
 
-def _render_items(engine, recipe_id: int, row) -> None:
+def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) -> None:
     """Every ingredient, not only the discounted ones.
 
     Showing only what got cheaper made an expander labelled "Ingrediënten (9)"
@@ -215,7 +215,7 @@ def _render_items(engine, recipe_id: int, row) -> None:
         return
 
     for _, item in items.iterrows():
-        _render_item(engine, recipe_id, item)
+        _render_item(engine, recipe_id, item, clearance_counts)
 
     withheld = items[items["offer_withheld_stale_reference"]]
     if not withheld.empty:
@@ -225,7 +225,7 @@ def _render_items(engine, recipe_id: int, row) -> None:
         )
 
 
-def _render_item(engine, recipe_id: int, item) -> None:
+def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) -> None:
     """One ingredient: what it costs, what it is matched to, and a way to say
     that match is wrong.
 
@@ -235,9 +235,22 @@ def _render_item(engine, recipe_id: int, item) -> None:
     """
     with st.container(horizontal=True, vertical_alignment="center"):
         with st.container():
+            # With clearance withdrawn, a line's saving and price are its
+            # bonus-only ones - otherwise the list contradicts the banner
+            # above it.
+            saving = item.get(
+                "item_saving" if clearance_counts else "item_saving_bonus_only"
+            )
+            shown_price = item.get(
+                "price_today" if clearance_counts else "price_today_bonus_only"
+            )
+            discounted = bool(item["is_discounted"]) and (
+                clearance_counts or (pd.notna(saving) and float(saving) > 0)
+            )
+
             label = str(item["item_label"])
-            if item["is_discounted"] and pd.notna(item.get("item_saving")):
-                st.markdown(f"**{label}** · :green[− {_euro(item['item_saving'])}]")
+            if discounted and pd.notna(saving) and float(saving) > 0:
+                st.markdown(f"**{label}** · :green[− {_euro(saving)}]")
             else:
                 st.markdown(label)
 
@@ -245,9 +258,9 @@ def _render_item(engine, recipe_id: int, item) -> None:
                 st.caption("nog geen product gekoppeld")
             else:
                 bits = [str(item.get("product_name") or "")]
-                if pd.notna(item.get("price_today")):
-                    price = _euro(item["price_today"])
-                    if item["is_discounted"] and pd.notna(item.get("price_ordinary")):
+                if pd.notna(shown_price):
+                    price = _euro(shown_price)
+                    if discounted and pd.notna(item.get("price_ordinary")):
                         price = f"{price} i.p.v. {_euro(item['price_ordinary'])}"
                     bits.append(price)
                 pack = item.get("sales_unit_size")
@@ -257,7 +270,12 @@ def _render_item(engine, recipe_id: int, item) -> None:
                     bits.append(f"hele verpakking: {pack}")
                 st.caption(" · ".join(b for b in bits if b))
 
-            if item.get("offer_kind") == "clearance" and pd.notna(item.get("stock")):
+            # No "laatste kans" badge when the scan it came from is not today's.
+            if (
+                clearance_counts
+                and item.get("offer_kind") == "clearance"
+                and pd.notna(item.get("stock"))
+            ):
                 st.badge(
                     f"laatste kans · nog {int(item['stock'])}",
                     color="orange",
@@ -283,7 +301,7 @@ def _render_item(engine, recipe_id: int, item) -> None:
                     )
 
 
-def _render_brief(engine, row) -> None:
+def _render_brief(engine, row, clearance_counts: bool = True) -> None:
     """A runner-up: enough to choose by, not enough to compete with the lead.
 
     Same two prices and the same foldable ingredient list, because "how much is
@@ -306,7 +324,7 @@ def _render_brief(engine, row) -> None:
         _render_price(row)
 
         with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
-            _render_items(engine, int(row["recipe_id"]), row)
+            _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
 
         _render_verdict_controls(engine, row)
 
@@ -411,10 +429,20 @@ def render_tonight() -> None:
     # national and week-scoped; it has not aged out just because the store scan
     # has, and at 09:00 you still want to know what to cook.
     if not clearance_current:
+        # Every clearance-derived figure, not three of them. Swapping only the
+        # headline left the per-serving price, the "±" estimate shown for most
+        # of the pool, and every ingredient line still clearance-priced -
+        # directly beneath a banner saying clearance did not count. A reader
+        # multiplying servings by the per-serving price got a different number
+        # from the total above it.
         df = df.assign(
             saving_total=df["saving_bonus_only"],
             cost_today=df["cost_today_bonus_only"],
+            partial_cost_today=df["partial_cost_today_bonus_only"],
+            cost_today_per_serving=df["cost_today_per_serving_bonus_only"],
             items_discounted_clearance=0,
+            min_stock_remaining=None,
+            earliest_expiry=pd.NaT,
         )
         df = df.assign(
             opportunity_rank=df["saving_total"]
@@ -448,11 +476,11 @@ def render_tonight() -> None:
         _render_rejected(engine)
         return
 
-    _render_lead(engine, ranked.iloc[0])
+    _render_lead(engine, ranked.iloc[0], clearance_current)
     if len(ranked) > 1:
         st.subheader("Ook de moeite waard")
         for _, row in ranked.iloc[1:6].iterrows():
-            _render_brief(engine, row)
+            _render_brief(engine, row, clearance_current)
 
     _render_coverage(engine, df)
     _render_rejected(engine)

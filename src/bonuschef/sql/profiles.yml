@@ -5,7 +5,10 @@ dbt_bonuschef:
       type: "postgres"
       host: "{{ env_var('PG_HOST', 'localhost') }}"
       user: "{{ env_var('PG_USER', 'postgres') }}"
-      password: "{{ env_var('PG_PASSWORD', 'postgres') }}"
+      # No default. Compose fails loudly on a missing POSTGRES_PASSWORD; dbt
+      # used to fall back to 'postgres' and fail later with an opaque auth
+      # error instead of naming the variable that was not set.
+      password: "{{ env_var('PG_PASSWORD') }}"
       port: "{{ env_var('PG_PORT', '5455') | int }}"
       dbname: "{{ env_var('PG_DB', 'postgres') }}"
       schema: "public"

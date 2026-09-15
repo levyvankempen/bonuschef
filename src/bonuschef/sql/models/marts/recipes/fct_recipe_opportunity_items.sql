@@ -18,9 +18,16 @@ SELECT
     sales_unit_size,
     price_ordinary,
     price_today,
+    -- Published so the portal can withdraw clearance on the ingredient lines
+    -- too. Without these it swapped the headline figures and left every line
+    -- showing its clearance price and "laatste kans" badge underneath a banner
+    -- saying clearance did not count.
+    price_today_bonus_only,
     item_cost_ordinary,
     item_cost_today,
+    item_cost_today_bonus_only,
     item_saving,
+    item_saving_bonus_only,
     item_conditional_saving,
     item_advertised_saving,
     offer_kind,

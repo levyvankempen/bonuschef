@@ -27,6 +27,10 @@ backfill_job = define_asset_job(
 dbt_job = define_asset_job(
     name="dbt_models",
     selection=AssetSelection.all() - AssetSelection.groups("dlt"),
+    # The only job that had none. dbt_after_backfill_sensor fires this, so a
+    # transient Postgres lock after a backfill dropped the rebuild silently -
+    # the data loaded, nothing recomputed, and no one was told.
+    op_retry_policy=RetryPolicy(max_retries=2, delay=120),
 )
 
 # Rebuilds every dbt model, so it is a superset of markdowns_refresh. Runs are

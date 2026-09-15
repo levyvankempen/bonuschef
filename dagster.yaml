@@ -26,6 +26,21 @@ run_monitoring:
   enabled: true
   max_runtime_seconds: 3600
 
+# Dagster's own bookkeeping is the fastest-growing thing on this disk - faster
+# than the product feed it exists to orchestrate. Schedule ticks default to
+# never being purged, and with ~13 runs a day on a 16 GB rootfs that is a few
+# GB a year. The first symptom is not a full disk: it is daily_refresh failing
+# to spill its temp files while the smaller hourly scrape keeps working, which
+# reads as "the recipe prices seem stuck".
+#
+# This bounds the ticks. event_logs have no retention setting in Dagster OSS at
+# all and need pruning outside it - see docs/deployment.md.
+retention:
+  schedule:
+    purge_after_days: 30
+  sensor:
+    purge_after_days: 30
+
 # Run, event and schedule storage in Postgres rather than the default SQLite on
 # the shared dagster_home volume, which the webserver, the daemon and every run
 # subprocess would otherwise write concurrently from two containers.

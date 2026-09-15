@@ -71,41 +71,6 @@ def read_recipe_cost_history(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_breakdown(_engine, recipe_id: int) -> pd.DataFrame:
-    """Fetch ingredient breakdown for a recipe, joined with dim_product for images."""
-    schema = _get_schema()
-    sql = text(f"""
-        SELECT
-            b.recipe_id,
-            b.recipe_name,
-            b.item_key,
-            b.is_unresolved,
-            i.concept_id,
-            i.item_label,
-            r.review_state,
-            b.product_name,
-            b.product_link,
-            b.quantity,
-            b.price,
-            b.item_cost,
-            b.cost_pct,
-            d.product_url,
-            d.image_url
-        FROM "{schema}"."fct_recipe_cost_breakdown" AS b
-        LEFT JOIN "{schema}"."dim_product" AS d
-            ON b.product_link = d.product_link
-        LEFT JOIN public.int_recipe_items_priced AS i
-            ON b.recipe_id = i.recipe_id AND b.item_key = i.item_key
-        LEFT JOIN public.ah_ingredient_review AS r
-            ON i.concept_id = r.concept_id
-        WHERE b.recipe_id = :recipe_id
-        ORDER BY b.item_cost DESC
-    """)
-    with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
-
-
-@st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
     """Fetch ingredient breakdown with bonus info for a recipe."""
     schema = _get_schema()
@@ -125,6 +90,17 @@ def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
             b.bonus_price,
             b.advertised_savings,
             b.real_savings,
+            -- The joins below existed for these five and selected none of them,
+            -- so every ingredient rendered as resolved and priced: an
+            -- unresolved one showed "EUR nan per stuk" instead of its badge,
+            -- and the correction button never appeared because concept_id was
+            -- always absent. The card above it said "1 van 2 zonder prijs" and
+            -- the detail below contradicted it.
+            b.item_key,
+            b.item_label,
+            b.is_unresolved,
+            i.concept_id,
+            r.review_state,
             d.product_url,
             d.image_url
         FROM "{schema}"."fct_recipe_cost_breakdown_bonus" AS b
@@ -732,6 +708,8 @@ def read_recipe_opportunity(_engine) -> pd.DataFrame:
             is_rankable, exclusion_reason, opportunity_rank,
             cost_ordinary, cost_today, cost_today_bonus_only,
             partial_cost_ordinary, partial_cost_today,
+            partial_cost_today_bonus_only,
+            cost_today_per_serving_bonus_only,
             saving_total, saving_bonus_only, conditional_saving,
             advertised_saving_total, saving_is_lower_bound,
             saving_covers_whole_packs, saving_pct, cost_today_per_serving,
@@ -762,6 +740,8 @@ def read_recipe_opportunity_items(_engine, recipe_id: int) -> pd.DataFrame:
             item_key, concept_id, item_label, product_name,
             ordinary_product_link, offer_product_link,
             units, sales_unit_size, price_ordinary, price_today,
+            price_today_bonus_only, item_cost_today_bonus_only,
+            item_saving_bonus_only,
             item_cost_ordinary, item_cost_today, item_saving,
             item_conditional_saving, item_advertised_saving,
             offer_kind, offer_price, bonus_mechanism, conditional_mechanism,

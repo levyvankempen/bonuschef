@@ -37,6 +37,8 @@ def _opportunity(**overrides) -> pd.DataFrame:
         "cost_today_bonus_only": [17.20, 10.60],
         "partial_cost_ordinary": [18.70, 10.60],
         "partial_cost_today": [15.30, 10.60],
+        "partial_cost_today_bonus_only": [17.20, 10.60],
+        "cost_today_per_serving_bonus_only": [4.30, 2.65],
         "saving_total": [3.40, 0.0],
         "saving_bonus_only": [1.50, 0.0],
         "conditional_saving": [0.0, 0.0],
@@ -79,7 +81,10 @@ def _items() -> pd.DataFrame:
             "price_today": [0.79, 2.29],
             "item_cost_ordinary": [1.59, 2.29],
             "item_cost_today": [0.79, 2.29],
+            "item_cost_today_bonus_only": [1.59, 2.29],
+            "price_today_bonus_only": [1.59, 2.29],
             "item_saving": [0.80, 0.0],
+            "item_saving_bonus_only": [0.0, 0.0],
             "item_conditional_saving": [None, None],
             "item_advertised_saving": [0.90, None],
             "offer_kind": ["clearance", None],
@@ -199,9 +204,41 @@ class TestDegradedStates:
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "niet van vandaag" in body
-        # Re-ranked on the bonus-only figure, which is smaller.
         assert "€1.50 goedkoper" in body
-        assert "€3.40" not in body
+
+    def test_withdrawing_clearance_reaches_every_figure(self, wired, monkeypatch):
+        """The previous version of this test asserted only that "€3.40" was
+        absent - a literal the page never prints - so it passed while the
+        per-serving price, the estimate and every ingredient line stayed
+        clearance-priced under a banner saying clearance did not count."""
+        monkeypatch.setattr(page.freshness, "now", lambda: NEXT_DAY)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+
+        assert "€17.20" in body, "the bonus-only total"
+        assert "€15.30" not in body, "the clearance-inclusive total survived"
+        assert "€4.30" in body, "per-serving of the bonus-only total"
+        assert "€3.83" not in body, "per-serving still derived from clearance"
+        assert "€0.79" not in body, "a clearance price on an ingredient line"
+        # The badge, not the banner - the banner legitimately says "de laatste
+        # kans-koopjes tellen daarom even niet mee".
+        assert "laatste kans · nog" not in body, (
+            "urgency badge from a scan that is not today's"
+        )
+
+    def test_a_partial_basket_also_withdraws_clearance(self, wired, monkeypatch):
+        """The estimate is what most of the pool shows, and it had no
+        bonus-only twin at all."""
+        df = _opportunity()
+        df.loc[0, "cost_today"] = None
+        df.loc[0, "cost_ordinary"] = None
+        df.loc[0, "items_priced"] = 6
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page.freshness, "now", lambda: NEXT_DAY)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "±€17.20" in body
+        assert "±€15.30" not in body
 
     def test_a_stale_bonus_feed_is_reported_on_its_own_clock(self, wired, monkeypatch):
         """The feed is weekly; judging it by clearance's daily rule would call

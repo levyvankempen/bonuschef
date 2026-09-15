@@ -92,6 +92,12 @@ agg AS (
         -- the opposite of what fct_recipe_cost_latest does for the cost history.
         ROUND(SUM(item_cost_ordinary)::numeric, 2) AS partial_cost_ordinary,
         ROUND(SUM(item_cost_today)::numeric, 2) AS partial_cost_today,
+        -- The same estimate with clearance withdrawn. It had no twin, so on a
+        -- stale-clearance day the page swapped the exact total and left the
+        -- estimate - which is what most recipes show - still clearance-priced.
+        ROUND(
+            SUM(item_cost_today_bonus_only)::numeric, 2
+        ) AS partial_cost_today_bonus_only,
 
         -- Totals are withheld unless the whole basket is priced. A partial sum
         -- is not a total.
@@ -163,6 +169,7 @@ SELECT
     c.cost_today_bonus_only,
     c.partial_cost_ordinary,
     c.partial_cost_today,
+    c.partial_cost_today_bonus_only,
     c.saving_total,
     c.saving_bonus_only,
     c.conditional_saving,
@@ -176,6 +183,8 @@ SELECT
     ) AS saving_pct,
     ROUND((c.cost_today / NULLIF(d.servings, 0))::numeric, 2)
         AS cost_today_per_serving,
+    ROUND((c.cost_today_bonus_only / NULLIF(d.servings, 0))::numeric, 2)
+        AS cost_today_per_serving_bonus_only,
     c.items_total,
     c.items_priced,
     c.items_unresolved,

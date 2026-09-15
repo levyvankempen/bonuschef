@@ -246,3 +246,35 @@ def test_a_rejected_recipe_cannot_reappear_after_a_refetch():
     # Adopted recipes are exempt from eviction for the same reason: the person
     # chose them, and that outranks AH's ordering.
     assert "stg_portal__ah_recipes" in pool
+
+
+def test_every_published_saving_is_gated_on_price_age():
+    """A saving measured against a price nobody has seen for months is not a
+    saving, and this project publishes savings from three different models.
+
+    fct_recipe_cost_breakdown_bonus recomputed its own from
+    int_product_latest_price at any age, losing a guard that the row it was
+    joined to had already applied - so Vanavond refused to count an offer while
+    Recepten claimed EUR 0.70 for it on the same day. Every model that
+    publishes a saving must either apply the age gate or take a figure from one
+    that did.
+    """
+    publishers = {
+        "marts/inventory/fct_bonus_price_comparison.sql",
+        "marts/inventory/fct_store_clearance.sql",
+        "marts/recipes/fct_recipe_cost_breakdown_bonus.sql",
+        "intermediate/recipes/int_recipe_item_opportunity.sql",
+    }
+    for name in publishers:
+        sql = (MODELS / name).read_text()
+        gated = "max_price_age_days" in sql
+        # ...or it inherits an already-gated figure rather than deriving one.
+        inherits = "bp.real_savings" in sql or "cw.real_savings" in sql
+        assert gated or inherits, (
+            f"{name} publishes a saving without gating on price age, and does "
+            "not take one from a model that did"
+        )
+
+    # And the models that must never see clearance still do not.
+    for name in ("marts/recipes/fct_recipe_cost_latest.sql",):
+        assert "fct_store_clearance" not in (MODELS / name).read_text()
