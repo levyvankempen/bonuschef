@@ -69,6 +69,12 @@ services:
       PG_PORT: "5432"
       DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+      # dlt keeps every completed load package by default - a second copy of
+      # data that is now in Postgres - under /var/dlt in the container's
+      # writable layer, where `du /opt/bonuschef` and `docker volume ls` both
+      # miss it. Failed packages are still kept, which is the case where the
+      # artefacts are the diagnosis rather than litter.
+      LOAD__DELETE_COMPLETED_JOBS: "true"
     volumes:
       - dagster_home:/app/dagster_home
       # The named volume above masks whatever the image put in that directory,
@@ -120,6 +126,12 @@ services:
       PG_PORT: "5432"
       DESTINATION__POSTGRES__CREDENTIALS__HOST: postgres
       DESTINATION__POSTGRES__CREDENTIALS__PORT: "5432"
+      # dlt keeps every completed load package by default - a second copy of
+      # data that is now in Postgres - under /var/dlt in the container's
+      # writable layer, where `du /opt/bonuschef` and `docker volume ls` both
+      # miss it. Failed packages are still kept, which is the case where the
+      # artefacts are the diagnosis rather than litter.
+      LOAD__DELETE_COMPLETED_JOBS: "true"
     volumes:
       - dagster_home:/app/dagster_home
       - ./dagster.yaml:/app/dagster_home/dagster.yaml:ro

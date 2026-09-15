@@ -274,6 +274,21 @@ that 3000, 8501 and 5455 are **refused**, and that nothing is forwarded on the r
 Reach them over Tailscale (`tailscale up`, then `http://bonuschef:8501`) or
 `ssh -L 8501:127.0.0.1:8501 root@<guest>`.
 
+### One growth path this cannot see
+
+`LOAD__DELETE_COMPLETED_JOBS=true` stops dlt keeping a copy of every completed
+load. It is dlt's own configuration, read from the environment, so if dlt ever
+renames or drops the key the setting silently stops applying and the growth
+resumes — under `/var/dlt` in the container's writable layer, where `du` on the
+project directory and `docker volume ls` both miss it.
+
+There is no offline way to assert a third-party config key is still honoured.
+If disk use climbs without the tables growing, look there first:
+
+```
+docker exec dagster_daemon du -sh /var/dlt 2>/dev/null
+```
+
 ## 8. Recoverability
 
 Nightly `vzdump` of the guest to `local` at 03:00, `keep-last=3`, snapshot mode,

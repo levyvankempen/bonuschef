@@ -320,3 +320,64 @@ def test_the_webserver_health_probe_loads_the_definitions():
     # even if some repository is still being served.
     assert "workspaceOrError" in probe
     assert "PythonError" in probe
+
+
+def test_no_committed_deployment_config_publishes_beyond_loopback():
+    """Neither web UI authenticates its callers, and the Dagster one can launch
+    and kill jobs. The k8s manifests used NodePort, publishing both on every
+    node interface; they were deleted rather than fixed. This stops a future
+    one reintroducing it without the choice being deliberate.
+    """
+    root = COMPOSE_FILE.parent
+    offenders = []
+    for path in root.rglob("*.y*ml"):
+        if not path.is_file() or ".venv" in path.parts or "openspec" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if "NodePort" in text or "LoadBalancer" in text:
+            offenders.append(str(path.relative_to(root)))
+    assert not offenders, f"published beyond loopback: {offenders}"
+
+
+def test_no_committed_config_carries_a_working_credential():
+    """k8s/secret.yaml committed cG9zdGdyZXM= - base64 for "postgres" - which
+    is a functioning password, not a placeholder."""
+    import base64
+
+    root = COMPOSE_FILE.parent
+    offenders = []
+    for path in root.rglob("*.y*ml"):
+        if not path.is_file() or ".venv" in path.parts or "openspec" in path.parts:
+            continue
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if "PASSWORD" not in line.upper() or ":" not in line:
+                continue
+            value = line.split(":", 1)[1].strip().strip("\"'")
+            if (
+                not value
+                or "${" in value
+                or "env_var" in value
+                or value.startswith("#")
+            ):
+                continue
+            try:
+                decoded = base64.b64decode(value, validate=True).decode()
+            except Exception:
+                continue
+            if decoded.isprintable() and len(decoded) > 3:
+                offenders.append(f"{path.relative_to(root)}: decodes to a value")
+    assert not offenders, f"working credentials committed: {offenders}"
+
+
+def test_dlt_does_not_retain_completed_load_packages():
+    """dlt keeps every finished package by default - a second copy of data
+    already in Postgres - under /var/dlt in the container's writable layer,
+    which `du` on the project directory and `docker volume ls` both miss."""
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    runs_dlt = [name for name, svc in compose["services"].items() if "dagster" in name]
+    assert runs_dlt, "expected the dagster services to be present"
+    for name in runs_dlt:
+        env = compose["services"][name].get("environment") or {}
+        assert str(env.get("LOAD__DELETE_COMPLETED_JOBS", "")).lower() == "true", (
+            f"{name} retains completed load packages where nothing will find them"
+        )

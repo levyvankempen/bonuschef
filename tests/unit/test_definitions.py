@@ -272,3 +272,60 @@ def test_bulk_jobs_keep_process_isolation(defs):
             assert job.executor_def is not in_process_executor, (
                 f"{name} is a bulk job and should keep its isolation"
             )
+
+
+def test_the_pool_is_refreshed_rather_than_accumulated():
+    """merge upserts and never deletes, so a recipe that fell out of AH's
+    listing stayed in the pool and kept being ranked - the opposite of the
+    module's own docstring and of the binding requirement.
+
+    Invisible today, because the pool has only ever been loaded from one
+    enumeration. It becomes visible the first time AH's listing turns over: the
+    pool grows past its stated bound, the honest count the portal must show
+    starts overstating what is current, and the review queue lengthens with
+    concepts from recipes nobody would be offered.
+    """
+    from pathlib import Path as _Path
+
+    import bonuschef.dags.defs.assets.dlt.ah_recipe_pool as pool
+
+    source = _Path(pool.__file__).read_text()
+    body = source[source.index("def recipe_pool_source") :]
+    assert 'write_disposition="merge"' not in body, (
+        "merge leaves evicted recipes in the pool forever"
+    )
+    assert body.count('write_disposition="replace"') == 2, (
+        "both resources must be replaced, or the ingredients outlive their recipes"
+    )
+
+
+def test_an_empty_fetch_cannot_truncate_a_good_pool():
+    """What makes replace safe. Without it, a bad fetch would empty the pool
+    rather than leaving the last good one serving."""
+    from pathlib import Path as _Path
+
+    import bonuschef.dags.defs.assets.dlt.ah_recipe_pool as pool
+
+    source = _Path(pool.__file__).read_text()
+    # The message is split across two source lines; match the half that
+    # carries the meaning rather than a span that formatting can break.
+    assert "an empty pool over a good one" in source
+    guard = source.index("if not recipes:")
+    write = source.index("pipeline.run(")
+    assert guard < write, "the guard must precede the write it protects"
+
+
+def test_eviction_cannot_reach_a_persons_own_recipes():
+    """Adopted, hand-entered and kept recipes are not in the pool table at all -
+    they live in portal-owned tables dbt reads and never writes. That is the
+    property that makes truncating the pool a small change."""
+    from pathlib import Path as _Path
+
+    models = (
+        _Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "sql" / "models"
+    )
+    available = (
+        models / "intermediate" / "recipes" / "int_pool_recipes_available.sql"
+    ).read_text()
+    assert "stg_portal__ah_recipes" in available, "adopted recipes stay exempt"
+    assert "stg_portal__ah_recipe_verdicts" in available, "rejections outlive a refetch"

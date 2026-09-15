@@ -71,16 +71,26 @@ def recipe_pool_source(recipes, fetched_at: str):
                 }
 
     return (
+        # replace, not merge. merge upserts and never deletes, so a recipe that
+        # fell out of AH's listing stayed in the pool and kept being ranked -
+        # the opposite of this module's own docstring and of the requirement
+        # that the pool is refreshed rather than accumulated.
+        #
+        # Safe because the asset refuses to write when it has no recipes, so a
+        # failed fetch cannot truncate a good pool. A *partial* fetch does
+        # shrink it, deliberately: the portal shows the pool size, so a collapse
+        # reads as a number that dropped rather than as a ranking quietly drawn
+        # from months of stale recipes.
         dlt.resource(
             _recipes,
             name="ah__pool_recipes",
-            write_disposition="merge",
+            write_disposition="replace",
             primary_key="recipe_id",
         ),
         dlt.resource(
             _ingredients,
             name="ah__pool_recipe_ingredients",
-            write_disposition="merge",
+            write_disposition="replace",
             primary_key=["recipe_id", "line_no"],
         ),
     )
