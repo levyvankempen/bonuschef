@@ -252,7 +252,18 @@ observed to fail is a belief, not a check. Of the three here, two were lying:
   the page modules every 30 s would pull pandas into a fresh interpreter on a 2 GB
   guest. The AppTest suite is the real guard, and a broken portal announces itself.
 
-**Reboot the Proxmox host** and confirm both guests return.
+**Reboot the Proxmox host** and confirm both guests return. This is the only
+thing that proves `onboot`; a guest reboot proves Docker comes back *inside* the
+guest, which is a different mechanism.
+
+The API answers `HTTP 200 {"data":null}` at once and then shuts guests down
+gracefully, so uptime does not move for a minute or two. Watch for uptime to
+reset, not for the call to return — otherwise it reads as the reboot silently
+failing, and issuing it a second time is how you reboot twice.
+
+Measured here: guests returned unaided, CT101 within 5s via `startup=order=2`,
+and the Home Assistant VM about 50s later since it has `onboot=1` but no startup
+order. The stack was healthy about a minute after the guest booted.
 
 ## 7. Access
 
