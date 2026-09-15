@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-09-15)
+
+### Bug Fixes
+
+- Deploy a version, and fix the release that never cut one
+  ([#45](https://github.com/levyvankempen/bonuschef/pull/45),
+  [`78cb0c8`](https://github.com/levyvankempen/bonuschef/commit/78cb0c8ce8dc5d890d3eda4de00ecd89a2629803))
+
+### Features
+
+- Clearance tracking, recipe opportunity ranking, and a live deployment
+  ([#44](https://github.com/levyvankempen/bonuschef/pull/44),
+  [`a1139db`](https://github.com/levyvankempen/bonuschef/commit/a1139dbb599a16e41c67584b8685f44970531d0c))
+
+
 ## v1.2.0 (2026-04-25)
 
 ### Features
