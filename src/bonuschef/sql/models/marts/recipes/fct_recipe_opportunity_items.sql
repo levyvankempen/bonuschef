@@ -9,6 +9,7 @@ SELECT
     store_id,
     recipe_id,
     item_key,
+    concept_id,
     item_label,
     product_name,
     ordinary_product_link,

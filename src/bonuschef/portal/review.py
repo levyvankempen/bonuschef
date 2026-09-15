@@ -112,13 +112,22 @@ def _render_body(engine, concepts) -> None:
         st.rerun()
 
 
+# A sitting's worth. The pool contributes over a thousand outstanding
+# ingredients, and a dialog that renders them all is not a queue but a wall.
+# They are ordered most-used first, which is what makes a bounded slice the
+# useful one: the top of the list is where a few minutes buys the most.
+REVIEW_BATCH = 20
+
+
 @st.dialog("Ingrediënten koppelen", width="large")
 def open_review(engine, *, recipe_id: int | None = None) -> None:
-    """Every outstanding ingredient at once, settled by one button."""
-    concepts = read_unresolved_concepts(engine, recipe_id=recipe_id)
+    """The most-used outstanding ingredients, settled by one button."""
+    concepts = read_unresolved_concepts(engine, recipe_id=recipe_id, limit=REVIEW_BATCH)
     if concepts.empty:
         st.success("Alles is al gekoppeld.")
         return
+    if "uses" in concepts:
+        st.caption("De meest gebruikte ingrediënten eerst — deze wegen het zwaarst.")
     _render_body(engine, concepts)
 
 

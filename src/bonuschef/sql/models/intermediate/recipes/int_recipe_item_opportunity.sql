@@ -104,6 +104,9 @@ joined AS (
         s.store_id,
         p.recipe_id,
         p.item_key,
+        -- Carried so the portal can offer "this product is wrong" on the line
+        -- itself: the correction dialog is keyed on the concept, not the line.
+        p.concept_id,
         p.item_label,
         p.product_link AS ordinary_product_link,
         p.product_name,

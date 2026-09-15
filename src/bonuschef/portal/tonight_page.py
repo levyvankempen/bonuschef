@@ -26,7 +26,7 @@ import streamlit as st
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness
-from bonuschef.portal.review import open_review
+from bonuschef.portal.review import open_review, open_single
 from bonuschef.portal.db import (
     get_engine,
     read_bonus_feed_loaded_at,
@@ -115,24 +115,45 @@ def _urgency(row) -> tuple[str, _BadgeColour] | None:
 
 
 def _render_price(row) -> None:
-    """Was, and is. The comparison is the point, so both numbers or neither.
+    """Was, and is — as an exact pair when the basket is complete, and as an
+    estimate when it is not.
 
-    A total is published only for a fully priced basket - publishing the sum of
-    a partial one is how a recipe missing its rookworst wins a "cheapest"
-    comparison against a complete one. When it is withheld, say what is missing
-    rather than leaving a gap where a price should be.
+    A withheld price used to be the rule here, on the grounds that a partial sum
+    is not a total. For the *cost history* that still holds and has not moved:
+    fct_recipe_cost_latest publishes nothing for an incomplete basket, because a
+    series has to be comparable with itself.
+
+    For this page it is the wrong trade. Most matches in the pool were proposed
+    by a machine, so most baskets are incomplete, and a recipe with a rough
+    price and one doubtful ingredient is more use than a recipe with no price at
+    all. So the estimate is shown, marked as one, with how many ingredients it
+    rests on and a way to correct any of them on the line itself.
     """
-    if pd.notna(row.get("cost_today")) and pd.notna(row.get("cost_ordinary")):
-        with st.container(horizontal=True, vertical_alignment="bottom"):
-            st.markdown(f"### {_euro(row['cost_today'])}")
-            st.markdown(f":gray[normaal ~~{_euro(row['cost_ordinary'])}~~]")
+    complete = pd.notna(row.get("cost_today")) and pd.notna(row.get("cost_ordinary"))
+    today = row.get("cost_today") if complete else row.get("partial_cost_today")
+    ordinary = (
+        row.get("cost_ordinary") if complete else row.get("partial_cost_ordinary")
+    )
+    if pd.isna(today) or pd.isna(ordinary):
+        st.caption("Van geen enkel ingrediënt is de prijs bekend.")
+        return
+
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        # "±" carries the whole caveat in one character, and it is never absent
+        # when the basket is incomplete.
+        st.markdown(f"### {'±' if not complete else ''}{_euro(today)}")
+        if float(ordinary) > float(today):
+            st.markdown(f":gray[normaal ~~{_euro(ordinary)}~~]")
+
+    priced, total = int(row["items_priced"]), int(row["items_total"])
+    if complete:
         per_serving = row.get("cost_today_per_serving")
-        if pd.notna(per_serving):
-            st.caption(f"{_euro(per_serving)} p.p. · {int(row['servings'])} personen")
+        suffix = f" · {_euro(per_serving)} p.p." if pd.notna(per_serving) else ""
+        st.caption(f"{int(row['servings'])} personen{suffix}")
     else:
         st.caption(
-            f"{int(row['items_priced'])} van {int(row['items_total'])} "
-            "ingrediënten hebben een prijs, dus de totaalprijs blijft onbekend"
+            f"Schatting over {priced} van {total} ingrediënten · "
+            f"{int(row['servings'])} personen"
         )
 
 
@@ -177,30 +198,19 @@ def _render_rating(row) -> None:
 
 
 def _render_items(engine, recipe_id: int, row) -> None:
-    """The ingredients behind the number, discounted or not."""
+    """Every ingredient, not only the discounted ones.
+
+    Showing only what got cheaper made an expander labelled "Ingrediënten (9)"
+    render one line, which reads as broken rather than as selective. The list is
+    the thing people open it for; the discount is an annotation on it.
+    """
     items = read_recipe_opportunity_items(engine, recipe_id)
     if items.empty:
+        st.caption("Voor dit recept zijn geen ingrediënten bekend.")
         return
 
-    cheaper = items[items["is_discounted"]]
-    if not cheaper.empty:
-        st.markdown("**Goedkoper vandaag**")
-        for _, item in cheaper.iterrows():
-            _render_item(item)
-
-    conditional = items[items["item_conditional_saving"].notna()]
-    if not conditional.empty:
-        st.markdown("**Alleen bij meer kopen**")
-        for _, item in conditional.iterrows():
-            st.caption(
-                f"{item['item_label']} — {item['conditional_mechanism']} "
-                f"(telt niet mee in het bedrag hierboven)"
-            )
-
-    unresolved = items[items["is_unresolved"]]
-    if not unresolved.empty:
-        names = ", ".join(str(i) for i in unresolved["item_label"].head(4))
-        st.caption(f"Nog niet gekoppeld aan een product: {names}")
+    for _, item in items.iterrows():
+        _render_item(engine, recipe_id, item)
 
     withheld = items[items["offer_withheld_stale_reference"]]
     if not withheld.empty:
@@ -210,27 +220,62 @@ def _render_items(engine, recipe_id: int, row) -> None:
         )
 
 
-def _render_item(item) -> None:
-    """One discounted ingredient, saying what the figure covers."""
-    bits = [f"**{item['item_label']}**"]
-    if pd.notna(item.get("price_today")) and pd.notna(item.get("price_ordinary")):
-        bits.append(
-            f"{_euro(item['price_today'])} i.p.v. {_euro(item['price_ordinary'])}"
-        )
-    if pd.notna(item.get("item_saving")) and float(item["item_saving"]) > 0:
-        bits.append(f"− {_euro(item['item_saving'])}")
+def _render_item(engine, recipe_id: int, item) -> None:
+    """One ingredient: what it costs, what it is matched to, and a way to say
+    that match is wrong.
 
-    line = " · ".join(bits)
-    # The pack-size caveat. A recipe calling for 100 g of a 500 g pack is costed
-    # and saved at the whole pack, because that is what has to be bought. Saying
-    # "bespaard" without this would read as money saved on the meal.
-    pack = item.get("sales_unit_size")
-    if pack and str(pack).strip():
-        line += f" (hele verpakking: {pack})"
-    st.markdown(line)
+    The product name is shown on every line, not only the discounted ones,
+    because most matches here were proposed by a machine and the only way to
+    find a bad one is to be able to see it.
+    """
+    with st.container(horizontal=True, vertical_alignment="center"):
+        with st.container():
+            label = str(item["item_label"])
+            if item["is_discounted"] and pd.notna(item.get("item_saving")):
+                st.markdown(f"**{label}** · :green[− {_euro(item['item_saving'])}]")
+            else:
+                st.markdown(label)
 
-    if item.get("offer_kind") == "clearance" and pd.notna(item.get("stock")):
-        st.caption(f"Laatste kans · nog {int(item['stock'])}")
+            if item["is_unresolved"]:
+                st.caption("nog geen product gekoppeld")
+            else:
+                bits = [str(item.get("product_name") or "")]
+                if pd.notna(item.get("price_today")):
+                    price = _euro(item["price_today"])
+                    if item["is_discounted"] and pd.notna(item.get("price_ordinary")):
+                        price = f"{price} i.p.v. {_euro(item['price_ordinary'])}"
+                    bits.append(price)
+                pack = item.get("sales_unit_size")
+                if pack and str(pack).strip():
+                    # A recipe wanting 100 g of a 500 g pack is costed at the
+                    # pack, because that is what has to be bought.
+                    bits.append(f"hele verpakking: {pack}")
+                st.caption(" · ".join(b for b in bits if b))
+
+            if item.get("offer_kind") == "clearance" and pd.notna(item.get("stock")):
+                st.badge(
+                    f"laatste kans · nog {int(item['stock'])}",
+                    color="orange",
+                )
+            if pd.notna(item.get("item_conditional_saving")):
+                st.caption(
+                    f"{item['conditional_mechanism']} — telt niet mee in het bedrag"
+                )
+
+        if pd.notna(item.get("concept_id")):
+            with st.container(horizontal_alignment="right"):
+                # Keyed on recipe AND line: item_key is "c:<concept_id>", so
+                # two recipes both containing onions would otherwise produce the
+                # same widget key and Streamlit raises on the duplicate.
+                if st.button(
+                    "Klopt niet",
+                    key=f"fix_{recipe_id}_{item['item_key']}",
+                    icon=":material/edit:",
+                    help="Kies zelf het juiste product voor dit ingrediënt",
+                ):
+                    open_single(
+                        engine, int(item["concept_id"]), str(item["item_label"])
+                    )
 
 
 def _render_brief(engine, row) -> None:

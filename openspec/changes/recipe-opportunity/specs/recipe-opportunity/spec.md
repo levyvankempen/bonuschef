@@ -37,17 +37,24 @@ A saving SHALL be the difference between a recipe's ordinary cost and its cost u
 
 A recipe SHALL be eligible for ranking when at least one of its ingredients is discounted against a comparable reference price, even if other ingredients resolve to no product or to no known price. An unpriced ingredient makes a recipe's **total** unknown; it does not make the **saving** unknown, because an ingredient that contributes nothing to the saving cannot change it.
 
-A saving computed over an incompletely priced recipe SHALL be presented as a lower bound and never as an exact figure, and the recipe's total cost SHALL be withheld exactly as it is withheld everywhere else in the system.
+A saving computed over an incompletely priced recipe SHALL be presented as a lower bound and never as an exact figure.
+
+The cost of such a recipe MAY be presented as an estimate, marked as one and accompanied by how many ingredients it covers. This is a deliberate departure from the comparable cost history, which withholds a total entirely: a series has to be comparable with itself, while a person choosing what to cook is better served by a rough figure they can correct than by no figure at all. The two SHALL NOT be conflated, and the recorded cost history SHALL continue to withhold.
 
 #### Scenario: A recipe with one unresolved ingredient is still ranked
 
 - **WHEN** a recipe has a discounted ingredient and also an ingredient that resolves to no product
 - **THEN** it is ranked on the saving that is known, and that saving is shown as a lower bound
 
-#### Scenario: The total is still withheld
+#### Scenario: An estimate is never mistaken for a total
 
 - **WHEN** a ranked recipe is not fully priced
-- **THEN** no total cost is published for it, and what is shown cannot be mistaken for one
+- **THEN** any cost shown for it is marked as an estimate and carries the number of ingredients it rests on
+
+#### Scenario: The recorded history still withholds
+
+- **WHEN** a recipe's cost is recorded for comparison across days
+- **THEN** nothing is recorded for an incompletely priced recipe, because a series must be comparable with itself
 
 #### Scenario: A recipe with nothing priced
 

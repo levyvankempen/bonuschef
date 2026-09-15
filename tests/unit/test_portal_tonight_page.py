@@ -35,6 +35,8 @@ def _opportunity(**overrides) -> pd.DataFrame:
         "cost_ordinary": [18.70, 10.60],
         "cost_today": [15.30, 10.60],
         "cost_today_bonus_only": [17.20, 10.60],
+        "partial_cost_ordinary": [18.70, 10.60],
+        "partial_cost_today": [15.30, 10.60],
         "saving_total": [3.40, 0.0],
         "saving_bonus_only": [1.50, 0.0],
         "conditional_saving": [0.0, 0.0],
@@ -66,6 +68,7 @@ def _items() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "item_key": ["c:1", "c:2"],
+            "concept_id": [1, 2],
             "item_label": ["zuurkool", "aardappel"],
             "product_name": ["AH Zuurkool", "AH Aardappels"],
             "ordinary_product_link": ["/a", "/b"],
@@ -160,7 +163,14 @@ class TestLowerBounds:
         at = run_app(page.render_tonight).run()
         assert "minstens €3.40 goedkoper" in _texts(at)
 
-    def test_no_total_is_shown_for_a_partially_priced_recipe(self, wired, monkeypatch):
+    def test_a_partial_basket_still_shows_a_price(self, wired, monkeypatch):
+        """The rule changed deliberately.
+
+        Withholding was right when every match was hand-confirmed. Most matches
+        in the pool are machine proposals, so most baskets are incomplete, and a
+        recipe with a rough price and one doubtful ingredient is more use than a
+        recipe with no price at all. The estimate is marked as one.
+        """
         df = _opportunity()
         df.loc[0, "saving_is_lower_bound"] = True
         df.loc[0, "items_priced"] = 6
@@ -169,8 +179,8 @@ class TestLowerBounds:
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
-        assert "totaalprijs blijft onbekend" in body
-        assert "in plaats van" not in body
+        assert "±€15.30" in body, "an estimate, and visibly one"
+        assert "Schatting over 6 van 9 ingrediënten" in body
 
 
 class TestDegradedStates:
@@ -338,16 +348,33 @@ class TestPricesAndIngredients:
         at = run_app(page.render_tonight).run()
         assert "p.p." in _texts(at)
 
-    def test_no_prices_when_the_basket_is_incomplete(self, wired, monkeypatch):
+    def test_an_exact_price_is_never_dressed_as_an_estimate_or_the_reverse(
+        self, wired, monkeypatch
+    ):
+        at = run_app(page.render_tonight).run()
+        assert "±" not in _texts(at), "a complete basket needs no hedge"
+
         df = _opportunity()
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
         df.loc[0, "items_priced"] = 6
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
         at = run_app(page.render_tonight).run()
-        body = _texts(at)
-        assert "totaalprijs blijft onbekend" in body
-        assert "~~" not in body, "a struck-through price implies a total we do not have"
+        assert "±" in _texts(at), "an incomplete one must always carry it"
+
+    def test_nothing_priced_at_all_says_so(self, wired, monkeypatch):
+        df = _opportunity()
+        for col in (
+            "cost_today",
+            "cost_ordinary",
+            "partial_cost_today",
+            "partial_cost_ordinary",
+        ):
+            df.loc[0, col] = None
+        df.loc[0, "items_priced"] = 0
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        at = run_app(page.render_tonight).run()
+        assert "geen enkel ingrediënt" in _texts(at)
 
     def test_ingredients_are_folded_away_until_asked_for(self, wired):
         """The answer to "what shall I cook" is the recipe and its price. On a
@@ -375,3 +402,46 @@ class TestPricesAndIngredients:
         body = _texts(at)
         assert "€10.60" in body, "the runner-up's own price"
         assert len([e for e in at.expander if "Ingrediënten" in e.label]) == 2
+
+
+class TestTheIngredientList:
+    """Opening "Ingrediënten (9)" and getting one line reads as broken. The
+    list is what people open it for; the discount is an annotation on it."""
+
+    def test_every_ingredient_is_listed_not_only_the_discounted_ones(self, wired):
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "zuurkool" in body, "the discounted one"
+        assert "aardappel" in body, "and the one that did not move"
+
+    def test_each_line_names_the_product_it_is_matched_to(self, wired):
+        """Most matches here were proposed by a machine. The only way to find a
+        bad one is to be able to see it."""
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "AH Zuurkool" in body
+        assert "AH Aardappels" in body
+
+    def test_every_matched_line_can_be_corrected(self, wired, monkeypatch):
+        calls = []
+        monkeypatch.setattr(page, "open_single", lambda e, c, n: calls.append((c, n)))
+        at = run_app(page.render_tonight).run()
+        buttons = [b for b in at.button if "Klopt niet" in b.label]
+        assert len(buttons) == 2, "one per ingredient, not one per discount"
+        buttons[0].click().run()
+        assert calls, "the correction dialog must open"
+
+    def test_an_unresolved_line_says_so_rather_than_vanishing(self, wired, monkeypatch):
+        items = _items()
+        items.loc[1, "is_unresolved"] = True
+        items.loc[1, "price_today"] = None
+        monkeypatch.setattr(page, "read_recipe_opportunity_items", lambda e, r: items)
+        at = run_app(page.render_tonight).run()
+        assert "nog geen product gekoppeld" in _texts(at)
+
+    def test_a_recipe_without_ingredients_says_so(self, wired, monkeypatch):
+        monkeypatch.setattr(
+            page, "read_recipe_opportunity_items", lambda e, r: pd.DataFrame()
+        )
+        at = run_app(page.render_tonight).run()
+        assert "geen ingrediënten bekend" in _texts(at)

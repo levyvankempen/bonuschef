@@ -17,7 +17,17 @@ The portal SHALL have a destination that answers, in one view, which recipe is m
 #### Scenario: A saving that is only partly known
 
 - **WHEN** the best recipe is not fully priced
-- **THEN** its saving is shown as a lower bound and no total cost is shown for it
+- **THEN** its saving is shown as a lower bound, and its cost is shown as an estimate marked as one, never as a total
+
+#### Scenario: An estimate says what it rests on
+
+- **WHEN** a cost is shown for an incompletely priced recipe
+- **THEN** how many of its ingredients the figure covers is shown with it, so a low number is read as incomplete rather than as cheap
+
+#### Scenario: Nothing is priced at all
+
+- **WHEN** none of a recipe's ingredients has a known price
+- **THEN** no figure is shown, because there is nothing to estimate from
 
 #### Scenario: Nothing is a bargain today
 
@@ -66,6 +76,25 @@ The portal SHALL show how many recipes are held and how many of them can present
 
 - **WHEN** recipes are unrankable for want of resolved ingredients
 - **THEN** the page offers the ingredient review that would make the most of them rankable
+
+### Requirement: A machine-proposed match is visible and correctable where it is used
+
+Where an ingredient's product was matched automatically rather than chosen by a person, the page SHALL show which product the figure rests on and SHALL offer to correct it from the same place. A person SHALL NOT have to leave the answer to find out what it was computed from.
+
+#### Scenario: Reading what a price rests on
+
+- **WHEN** a recipe's ingredients are shown
+- **THEN** each one names the product it is matched to, whether or not that ingredient is discounted
+
+#### Scenario: A wrong match
+
+- **WHEN** a person sees that an ingredient is matched to the wrong product
+- **THEN** they can correct it from that line, and the correction applies to every recipe using that ingredient
+
+#### Scenario: The ingredient list is the list
+
+- **WHEN** the ingredients of a recipe are opened
+- **THEN** all of them are shown, not only the ones that became cheaper
 
 ### Requirement: The page states what a figure covers
 

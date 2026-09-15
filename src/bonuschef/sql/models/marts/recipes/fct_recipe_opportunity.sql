@@ -83,6 +83,16 @@ agg AS (
             COALESCE(SUM(item_advertised_saving), 0)::numeric, 2
         ) AS advertised_saving_total,
 
+        -- What the priced part of the basket comes to, whatever the coverage.
+        -- Deliberately NOT called a total, and never published without
+        -- items_priced beside it: a recipe whose rookworst is unpriced is
+        -- cheaper here than it is in the shop, and the page has to say so.
+        -- Kept because a rough price on a recipe with one doubtful ingredient
+        -- is more use than no price at all - which is the operator's call, and
+        -- the opposite of what fct_recipe_cost_latest does for the cost history.
+        ROUND(SUM(item_cost_ordinary)::numeric, 2) AS partial_cost_ordinary,
+        ROUND(SUM(item_cost_today)::numeric, 2) AS partial_cost_today,
+
         -- Totals are withheld unless the whole basket is priced. A partial sum
         -- is not a total.
         CASE WHEN COUNT(price_ordinary) = COUNT(*)
@@ -151,6 +161,8 @@ SELECT
     c.cost_ordinary,
     c.cost_today,
     c.cost_today_bonus_only,
+    c.partial_cost_ordinary,
+    c.partial_cost_today,
     c.saving_total,
     c.saving_bonus_only,
     c.conditional_saving,

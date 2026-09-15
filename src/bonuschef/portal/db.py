@@ -451,24 +451,46 @@ def add_resolution_products(_engine, concept_id: int, products: list[dict]) -> N
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_unresolved_concepts(_engine, recipe_id: int | None = None) -> pd.DataFrame:
+def read_unresolved_concepts(
+    _engine, recipe_id: int | None = None, limit: int | None = None
+) -> pd.DataFrame:
     """Ingredients nobody has settled yet.
 
     A concept a person examined and found nothing for is excluded: it has been
     answered, and leaving it here would make the outstanding list never empty.
     """
+    # Both sources, or the queue is empty for everything the pool contributes -
+    # which is almost all of it. Reading only adopted recipes made "Ingrediënten
+    # koppelen" answer "alles is al gekoppeld" while 1,265 pool concepts waited.
+    #
+    # Ordered by how often the ingredient is used, most first: concept frequency
+    # is steep, so the top of this list is where a few minutes buys the most.
     sql = text("""
-        SELECT DISTINCT i.concept_id, i.concept_name
-        FROM public.ah_recipe_ingredients AS i
+        WITH lines AS (
+            SELECT recipe_id, concept_id, concept_name
+            FROM public.ah_recipe_ingredients
+            UNION ALL
+            SELECT recipe_id, concept_id, concept_name
+            FROM public."ah__pool_recipe_ingredients"
+        )
+        SELECT i.concept_id, MIN(i.concept_name) AS concept_name, COUNT(*) AS uses
+        FROM lines AS i
         LEFT JOIN public.ah_ingredient_review AS r
             ON i.concept_id = r.concept_id
         WHERE r.concept_id IS NULL
           AND (CAST(:recipe_id AS bigint) IS NULL
                OR i.recipe_id = CAST(:recipe_id AS bigint))
-        ORDER BY i.concept_name
+        GROUP BY i.concept_id
+        ORDER BY uses DESC, concept_name ASC
+        -- Bounded: the pool contributes over a thousand, and a dialog that
+        -- renders them all is not a queue, it is a wall. The ordering above is
+        -- what makes a bounded slice the useful one.
+        LIMIT CAST(:limit AS integer)
     """)
     with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn, params={"recipe_id": recipe_id})
+        return pd.read_sql_query(
+            sql, conn, params={"recipe_id": recipe_id, "limit": limit}
+        )
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
