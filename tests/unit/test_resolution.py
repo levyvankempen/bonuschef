@@ -464,3 +464,25 @@ class TestCorrectingAWrongMatch:
 
         assert "confirmed_at = now()" in inspect.getsource(confirm_resolution)
         assert "WHERE p.confirmed_at IS NULL" in inspect.getsource(propose_products)
+
+
+def test_confirming_drops_every_cache_the_change_invalidates():
+    """A correction that takes fifteen minutes to appear reads as a correction
+    that did not save.
+
+    The opportunity reads were missing from this list: the write landed, the
+    rebuild ran, and Vanavond kept serving its cache showing the old product.
+    """
+    import inspect
+
+    from bonuschef.portal import review
+
+    source = inspect.getsource(review._clear_reads)
+    for reader in (
+        "read_unresolved_concepts",
+        "read_concept_resolution",
+        "search_catalogue_products",
+        "read_recipe_opportunity",
+        "read_recipe_opportunity_items",
+    ):
+        assert reader in source, f"{reader} survives a confirmation"

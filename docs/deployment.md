@@ -206,6 +206,29 @@ for c in dagster_daemon dagster_webserver; do
 done
 ```
 
+### Rebuilding while a run is in flight wedges the queue for an hour
+
+`docker compose up -d --build` kills the run worker's process. Dagster does not
+notice: the run stays STARTED, and with `max_concurrent_runs: 1` it holds the
+only slot. Everything afterwards queues behind a run that will never finish -
+including the credential heartbeat.
+
+`run_monitoring` does clean it up, but only at `max_runtime_seconds`, which is
+3600. An hour of a wedged queue looks exactly like a broken portal: corrections
+appear not to save, the refresh button does nothing.
+
+Check before rebuilding:
+
+```
+docker exec pg_bonuschef psql -U postgres -d postgres -Atc \
+  "SELECT status, count(*) FROM runs WHERE status IN ('STARTED','QUEUED') GROUP BY 1;"
+```
+
+If something is in flight, wait for it - the clearance scrape takes under a
+minute. If one is already orphaned, terminate it through GraphQL
+(`terminateRun` with `MARK_AS_CANCELED_IMMEDIATELY`) rather than waiting out the
+hour.
+
 ## 6. Prove it, rather than configuring it
 
 **Reboot the guest** and confirm the stack returns with nobody logging in. Measured:

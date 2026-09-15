@@ -16,6 +16,10 @@ from bonuschef.portal.db import (
     add_resolution_products,
     confirm_resolution,
     read_concept_resolution,
+    read_recipe_breakdown_bonus,
+    read_recipe_opportunity,
+    read_recipe_opportunity_items,
+    read_recipe_summary,
     read_unresolved_concepts,
     search_catalogue_products,
 )
@@ -43,10 +47,22 @@ def _preselected(engine, concept_id: int, options: dict[str, str]) -> list[str]:
 
 
 def _clear_reads() -> None:
+    """Drop every cached read a confirmation invalidates.
+
+    The opportunity reads belong here as much as the review ones: correcting an
+    ingredient and then seeing the old product for another fifteen minutes reads
+    as the correction not having been saved. Missing them is exactly what
+    happened - the write landed, the rebuild ran, and the page kept serving its
+    cache.
+    """
     for reader in (
         read_unresolved_concepts,
         read_concept_resolution,
         search_catalogue_products,
+        read_recipe_opportunity,
+        read_recipe_opportunity_items,
+        read_recipe_summary,
+        read_recipe_breakdown_bonus,
     ):
         reader.clear()
 
