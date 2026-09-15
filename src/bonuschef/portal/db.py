@@ -4,6 +4,8 @@ import os
 
 from typing import cast
 
+import re
+
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text
@@ -508,19 +510,35 @@ def read_concept_resolution(_engine, concept_id: int) -> pd.DataFrame:
 
 @st.cache_data(ttl=_CACHE_TTL_S)
 def search_catalogue_products(_engine, term: str, limit: int = 20) -> pd.DataFrame:
-    """Find a product by name, for when the matcher proposed nothing usable."""
+    """Find a product by name, when the proposal is wrong or missing.
+
+    Every word must appear, in any order, rather than the whole phrase in
+    sequence. That is what makes an ingredient name usable as a search term:
+    "(olijf)olie" as a phrase matches nothing, while its words find the olive
+    oils. Punctuation is dropped for the same reason - AH writes "45+" and
+    recipes write "(olijf)" and neither belongs in a product name.
+
+    Shortest name first, because that is the ranking that puts "AH Courgette"
+    above "AH Courgette spiraal" above a ready meal containing courgette.
+    """
+    words = [w for w in re.split(r"[^0-9a-zA-ZäëïöüéèáàçñÄËÏÖÜÉÈÁÀÇÑ]+", term) if w]
+    if not words:
+        empty: dict[str, list] = {"product_link": [], "product_name": [], "price": []}
+        return pd.DataFrame(empty)
+
     schema = _get_schema()
+    clauses = " AND ".join(f"product_name ILIKE :w{i}" for i in range(len(words)))
     sql = text(f"""
         SELECT product_link, product_name, price
         FROM "{schema}"."dim_product"
-        WHERE product_name ILIKE :pattern
+        WHERE {clauses}
         ORDER BY length(product_name), product_name
         LIMIT :limit
     """)
+    params: dict[str, object] = {f"w{i}": f"%{w}%" for i, w in enumerate(words)}
+    params["limit"] = limit
     with _engine.begin() as conn:
-        return pd.read_sql_query(
-            sql, conn, params={"pattern": f"%{term.strip()}%", "limit": limit}
-        )
+        return pd.read_sql_query(sql, conn, params=params)
 
 
 def adopted_recipe_rows(recipe) -> tuple[dict, list[dict]]:

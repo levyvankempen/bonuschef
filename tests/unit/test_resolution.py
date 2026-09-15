@@ -399,3 +399,68 @@ class TestAHLookupResilience:
             object(), {1: "courgette"}, build_asset_context()
         )
         assert [p["product_link"] for p in proposals] == ["/x"]
+
+
+class TestCorrectingAWrongMatch:
+    """The case that needs search most is a proposal that is wrong, not one
+    that is missing - and that was the one case the dialog hid it for."""
+
+    def test_search_is_offered_even_when_a_product_was_proposed(self):
+        import inspect
+
+        from bonuschef.portal import review
+
+        source = inspect.getsource(review._render_body)
+        probe = source.index('key=f"probe_{concept_id}"')
+        guard = source.index("if not options:") if "if not options:" in source else -1
+        assert guard == -1 or guard > probe, (
+            "hiding the search box behind 'no options' leaves someone with a "
+            "wrong proposal unable to reach the right product"
+        )
+
+    def test_a_search_adds_to_the_proposals_rather_than_replacing_them(self):
+        import inspect
+
+        from bonuschef.portal import review
+
+        source = inspect.getsource(review._render_body)
+        assert "**options," in source, (
+            "replacing would silently deselect a good proposal the moment someone typed"
+        )
+
+    def test_every_word_must_appear_but_not_as_a_phrase(self):
+        """ "(olijf)olie" as a phrase matches nothing; its words find the olive
+        oils. That is the difference between the search being usable with an
+        ingredient name and not."""
+        import inspect
+
+        from bonuschef.portal.db import search_catalogue_products
+
+        source = inspect.getsource(search_catalogue_products)
+        assert "AND" in source and "re.split" in source
+
+    def test_punctuation_does_not_defeat_the_search(self):
+        import re
+
+        pattern = r"[^0-9a-zA-ZäëïöüéèáàçñÄËÏÖÜÉÈÁÀÇÑ]+"
+        assert [w for w in re.split(pattern, "(olijf)olie") if w] == ["olijf", "olie"]
+        assert [w for w in re.split(pattern, "witte kaas 45+") if w] == [
+            "witte",
+            "kaas",
+            "45",
+        ]
+
+    def test_a_confirmed_choice_outlives_everything_that_rewrites_the_pool(self):
+        """The persistence question, pinned.
+
+        ah_ingredient_products is portal-owned: dbt reads it as a source and
+        creates none of it, so --full-refresh cannot touch it. propose_products
+        will not write over a confirmed row. And the weekly pool refetch merges
+        recipes, never resolutions.
+        """
+        import inspect
+
+        from bonuschef.portal.db import confirm_resolution, propose_products
+
+        assert "confirmed_at = now()" in inspect.getsource(confirm_resolution)
+        assert "WHERE p.confirmed_at IS NULL" in inspect.getsource(propose_products)

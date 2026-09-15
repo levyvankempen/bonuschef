@@ -53,8 +53,9 @@ def _clear_reads() -> None:
 
 def _render_body(engine, concepts) -> None:
     st.caption(
-        "Wat je hier kiest geldt voor élk recept met dit ingrediënt. "
-        "Meerdere producten mag: we rekenen met de goedkoopste van vandaag."
+        "Wat je hier kiest geldt voor élk recept met dit ingrediënt en blijft "
+        "bewaard. Meerdere producten mag: we rekenen met de goedkoopste van "
+        "vandaag. Zoek gerust een ander product als de suggestie niet klopt."
     )
 
     chosen: dict[int, list[str]] = {}
@@ -65,21 +66,35 @@ def _render_body(engine, concepts) -> None:
         st.markdown(f"**{name}**")
         options = _options(engine, concept_id, name)
 
-        if not options:
-            # The only place in the whole flow where typing happens, and it is
-            # optional: leaving it empty records "nothing satisfies this".
-            term = st.text_input(
-                f"Zoek een product voor {name}",
-                key=f"probe_{concept_id}",
-                placeholder=name,
-                label_visibility="collapsed",
-            )
-            if term.strip():
-                found = search_catalogue_products(engine, term)
-                options = dict(zip(found["product_name"], found["product_link"]))
-                extra[concept_id] = found.to_dict("records")
+        # Search is always available, not only when nothing was proposed.
+        # A wrong proposal is the case that needs it most: "witte kaas 45+"
+        # matches only products saying 45+, while the one actually wanted is
+        # "witte kaas 40+" - and with the box hidden the only options were to
+        # keep the wrong product or leave the ingredient unpriced.
+        #
+        # Searching is optional either way. Confirming with nothing ticked
+        # records "nothing in the catalogue satisfies this", which is an answer.
+        term = st.text_input(
+            f"Zoek een ander product voor {name}",
+            key=f"probe_{concept_id}",
+            placeholder=f"bijv. {name.split()[0] if name.split() else name}",
+            label_visibility="collapsed",
+        )
+        if term.strip():
+            found = search_catalogue_products(engine, term)
+            if found.empty:
+                st.caption(f"Geen product gevonden voor '{term.strip()}'.")
             else:
-                st.badge("nog geen product gevonden", color="gray")
+                extra[concept_id] = found.to_dict("records")
+                # Merged, not replaced: a search is for adding the right product
+                # beside whatever was proposed, and replacing would silently
+                # deselect a good proposal the moment someone typed.
+                options = {
+                    **options,
+                    **dict(zip(found["product_name"], found["product_link"])),
+                }
+        elif not options:
+            st.badge("nog geen product gevonden", color="gray")
 
         picked = st.multiselect(
             name,
