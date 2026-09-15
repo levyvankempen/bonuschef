@@ -316,3 +316,62 @@ class TestCuration:
         assert buttons, "a dismissal that cannot be undone is a trap"
         buttons[0].click().run()
         assert calls == [99]
+
+
+class TestPricesAndIngredients:
+    """What it normally costs, what it costs now, and the ingredients folded
+    away until asked for."""
+
+    def test_both_prices_are_shown_for_the_lead(self, wired):
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "€15.30" in body, "today's price"
+        assert "€18.70" in body, "what it normally costs"
+
+    def test_the_ordinary_price_reads_as_the_old_one(self, wired):
+        """Struck through and greyed: two bare numbers side by side do not say
+        which is which."""
+        at = run_app(page.render_tonight).run()
+        assert "~~€18.70~~" in _texts(at)
+
+    def test_the_per_serving_price_is_shown(self, wired):
+        at = run_app(page.render_tonight).run()
+        assert "p.p." in _texts(at)
+
+    def test_no_prices_when_the_basket_is_incomplete(self, wired, monkeypatch):
+        df = _opportunity()
+        df.loc[0, "cost_today"] = None
+        df.loc[0, "cost_ordinary"] = None
+        df.loc[0, "items_priced"] = 6
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "totaalprijs blijft onbekend" in body
+        assert "~~" not in body, "a struck-through price implies a total we do not have"
+
+    def test_ingredients_are_folded_away_until_asked_for(self, wired):
+        """The answer to "what shall I cook" is the recipe and its price. On a
+        phone an open ingredient list pushes everything else off the screen."""
+        at = run_app(page.render_tonight).run()
+        expanders = [e for e in at.expander if "Ingrediënten" in e.label]
+        assert expanders, "the ingredient list must be reachable"
+        # AppTest's Expander does not surface the open/closed state, so read it
+        # from the protobuf the page actually emitted rather than trusting the
+        # call site.
+        assert all(not e.proto.expanded for e in expanders), "it must start closed"
+
+    def test_the_expander_says_how_many_ingredients(self, wired):
+        at = run_app(page.render_tonight).run()
+        assert any("(9)" in e.label for e in at.expander)
+
+    def test_runners_up_carry_prices_and_ingredients_too(self, wired, monkeypatch):
+        """ "How much is this one" is a question you ask of the alternatives."""
+        df = _opportunity()
+        df.loc[1, "opportunity_rank"] = 2.0
+        df.loc[1, "saving_total"] = 0.90
+        df.loc[1, "exclusion_reason"] = None
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "€10.60" in body, "the runner-up's own price"
+        assert len([e for e in at.expander if "Ingrediënten" in e.label]) == 2

@@ -20,6 +20,13 @@ from sqlalchemy import text
 
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
+from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
+
+# What one run may spend on AH. The first pass over a fresh pool has ~1,400
+# concepts to ask about, which at this cap drains over five nightly runs rather
+# than in one burst - and clearance, which is unbackfillable, keeps its priority.
+# Concepts are taken most-used first, so the budget always buys the most.
+MAX_AH_LOOKUPS_PER_RUN = 300
 
 # Most-used concepts first. Concept frequency is steep - a few hundred cover
 # most ingredient lines - so if this is ever interrupted, the work that has
@@ -59,23 +66,115 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
         return
 
     context.log.info("Matching %d unresolved concepts", len(concepts))
+
+    # The local matcher first: it is free, and its whole-word rule makes it the
+    # conservative one. Whatever it settles never costs an AH request.
     proposals = propose_for(engine, concepts)
     propose_products(engine, proposals)
-
-    resolved = len({p["concept_id"] for p in proposals})
+    local_resolved = {p["concept_id"] for p in proposals}
     context.log.info(
-        "Proposed %d products across %d of %d concepts",
-        len(proposals),
+        "Local matcher settled %d of %d concepts", len(local_resolved), len(concepts)
+    )
+
+    # Then AH's own search, for what the local rule could not reach. This is the
+    # mechanism behind "Kies producten" on an Allerhande page, and it resolves
+    # phrasings no name match can: "verse platte peterselie", "eetrijpe
+    # avocado". It is also wrong about one time in five, and confidently so, so
+    # everything it returns is a proposal for the review queue rather than an
+    # answer.
+    remaining = [cid for cid in concepts if cid not in local_resolved]
+    ah_proposals, spent, unreachable = _propose_from_ah(
+        engine, {cid: concepts[cid] for cid in remaining}, context
+    )
+    propose_products(engine, ah_proposals)
+
+    resolved = len(local_resolved | {p["concept_id"] for p in ah_proposals})
+    context.log.info(
+        "Proposed %d products across %d of %d concepts (%d AH lookups)",
+        len(proposals) + len(ah_proposals),
         resolved,
         len(concepts),
+        spent,
     )
     context.add_output_metadata(
         {
             "unresolved_before": len(concepts),
             "concepts_matched": resolved,
-            "products_proposed": len(proposals),
+            "matched_locally": len(local_resolved),
+            "matched_via_ah_search": resolved - len(local_resolved),
+            "products_proposed": len(proposals) + len(ah_proposals),
+            "ah_lookups_spent": spent,
+            # Concepts the budget did not reach this run. Non-zero means the
+            # queue is still draining, not that anything failed.
+            "deferred_to_next_run": max(0, len(remaining) - spent),
+            "ah_unreachable": unreachable,
             # The ones a person still has to decide. This is the review queue,
             # and it is the honest measure of how far off a full answer is.
             "still_unmatched": len(concepts) - resolved,
         }
     )
+
+
+def _propose_from_ah(
+    engine, concepts: dict[int, str], context: AssetExecutionContext
+) -> tuple[list[dict], int, bool]:
+    """Ask AH for the concepts the local matcher could not settle.
+
+    Returns the proposals, how many lookups were spent, and whether AH became
+    unreachable. Stops on the first failure that survives the auth layer's own
+    retry rather than working through 1,400 rejections: the credential is the
+    scarce thing, and a partial pass is not a failure - the next run continues
+    from where this one stopped, because a concept with a proposal is no longer
+    in the query that drives this.
+    """
+    if not concepts:
+        return [], 0, False
+
+    crosswalk = _webshop_id_to_product(engine)
+    proposals: list[dict] = []
+    spent = 0
+    for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
+        try:
+            hits = search_products(name)
+        except AHRecipeUnavailable as exc:
+            context.log.warning(
+                "AH search stopped after %d lookups: %s. %d concepts deferred.",
+                spent,
+                exc,
+                len(concepts) - spent,
+            )
+            return proposals, spent, True
+        spent += 1
+        for hit in hits:
+            known = crosswalk.get(hit.webshop_id)
+            if known is None:
+                # AH sells it; we have never seen a price for it. Proposing it
+                # would put an unpriceable product in front of a person as an
+                # answer.
+                continue
+            proposals.append(
+                {
+                    "concept_id": concept_id,
+                    "product_link": known[0],
+                    "product_name": known[1],
+                }
+            )
+    return proposals, spent, False
+
+
+def _webshop_id_to_product(engine) -> dict[int, tuple[str, str]]:
+    """AH's product id is the key our own catalogue is derived from.
+
+    searchProducts returns 4164 for courgette; our product_link is
+    wi4164/ah-courgette. That shared id is what makes AH's answers joinable at
+    all - without it there would only be a title to fuzzy-match, which is the
+    problem this exists to escape.
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT webshop_id, product_link, product_name "
+                "FROM public.int_product_crosswalk WHERE webshop_id IS NOT NULL"
+            )
+        ).all()
+    return {int(r[0]): (r[1], r[2]) for r in rows}

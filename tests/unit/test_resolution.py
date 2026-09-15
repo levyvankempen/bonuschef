@@ -227,3 +227,78 @@ class TestAutomaticProposals:
         source = inspect.getsource(matching)
         for network in ("requests", "urllib", "graphql", "manager_from_env"):
             assert network not in source, f"the matcher must not reach {network}"
+
+
+class TestAHProductSearch:
+    """AH's own search is the mechanism behind "Kies producten", and it resolves
+    phrasings no local name match can reach - at the cost of being confidently
+    wrong about one time in five."""
+
+    def test_it_keeps_several_hits_rather_than_one_winner(self):
+        from bonuschef.utils import ah_recipes as R
+
+        assert R.PRODUCT_SEARCH_KEEP > 1, (
+            "AH's top hit for 'middelgrote ui' is a spring onion; one confident "
+            "wrong answer is worse for review than a short list"
+        )
+
+    def test_a_hit_without_a_joinable_id_is_dropped(self, monkeypatch):
+        """The webshop id is the only thing that connects AH's answer to a price
+        we hold. A hit without one cannot be costed and must not be proposed."""
+        from bonuschef.utils import ah_recipes as R
+
+        def fake_post(query, variables):
+            return {
+                "searchProducts": {
+                    "products": [
+                        {"id": 4164, "title": "AH Courgette"},
+                        {"id": None, "title": "Iets zonder id"},
+                        {"id": 99, "title": ""},
+                    ]
+                }
+            }, []
+
+        monkeypatch.setattr(
+            R,
+            "manager_from_env",
+            lambda: type("M", (), {"graphql_partial": staticmethod(fake_post)})(),
+        )
+        hits = R.search_products("courgette")
+        assert [h.webshop_id for h in hits] == [4164]
+
+    def test_an_unreachable_ah_raises_rather_than_returning_nothing(self, monkeypatch):
+        """Returning [] would read as "AH sells nothing like this", which would
+        park the concept as unresolvable instead of retrying it next run."""
+        from bonuschef.utils import ah_recipes as R
+
+        def boom(query, variables):
+            raise RuntimeError("connection reset")
+
+        monkeypatch.setattr(
+            R,
+            "manager_from_env",
+            lambda: type("M", (), {"graphql_partial": staticmethod(boom)})(),
+        )
+        with pytest.raises(R.AHRecipeUnavailable):
+            R.search_products("courgette")
+
+    def test_the_lookup_budget_is_bounded(self):
+        """A fresh pool has ~1,400 concepts to ask about. Spending that in one
+        burst puts the credential every scheduled job depends on at risk, and
+        clearance - which cannot be backfilled - has priority."""
+        from bonuschef.dags.defs.assets.resolution import MAX_AH_LOOKUPS_PER_RUN
+
+        assert 0 < MAX_AH_LOOKUPS_PER_RUN <= 500
+
+    def test_the_local_matcher_runs_first(self):
+        """It is free and conservative, so whatever it settles never costs an
+        AH request."""
+        # @asset wraps the function in an AssetsDefinition, so read the module
+        # source rather than the object.
+        from pathlib import Path as _Path
+
+        import bonuschef.dags.defs.assets.resolution as resolution
+
+        source = _Path(resolution.__file__).read_text()
+        body = source[source.index("def ah__ingredient_proposals_asset") :]
+        assert body.index("propose_for(engine") < body.index("_propose_from_ah(")

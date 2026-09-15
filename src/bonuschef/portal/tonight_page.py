@@ -114,6 +114,28 @@ def _urgency(row) -> tuple[str, _BadgeColour] | None:
     return None
 
 
+def _render_price(row) -> None:
+    """Was, and is. The comparison is the point, so both numbers or neither.
+
+    A total is published only for a fully priced basket - publishing the sum of
+    a partial one is how a recipe missing its rookworst wins a "cheapest"
+    comparison against a complete one. When it is withheld, say what is missing
+    rather than leaving a gap where a price should be.
+    """
+    if pd.notna(row.get("cost_today")) and pd.notna(row.get("cost_ordinary")):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            st.markdown(f"### {_euro(row['cost_today'])}")
+            st.markdown(f":gray[normaal ~~{_euro(row['cost_ordinary'])}~~]")
+        per_serving = row.get("cost_today_per_serving")
+        if pd.notna(per_serving):
+            st.caption(f"{_euro(per_serving)} p.p. · {int(row['servings'])} personen")
+    else:
+        st.caption(
+            f"{int(row['items_priced'])} van {int(row['items_total'])} "
+            "ingrediënten hebben een prijs, dus de totaalprijs blijft onbekend"
+        )
+
+
 def _render_lead(engine, row) -> None:
     """The best option, in full, with the ingredients responsible named."""
     with st.container(border=True):
@@ -130,22 +152,15 @@ def _render_lead(engine, row) -> None:
             label, colour = urgency
             st.badge(label, color=colour, icon=":material/schedule:")
 
-        if pd.notna(row.get("cost_today")) and pd.notna(row.get("cost_ordinary")):
-            st.caption(
-                f"{_euro(row['cost_today'])} in plaats van "
-                f"{_euro(row['cost_ordinary'])} · "
-                f"{int(row['servings'])} personen"
-            )
-        else:
-            # No total, deliberately. Publishing the sum of a partial basket is
-            # how a recipe missing its rookworst wins a "cheapest" comparison
-            # against a complete one.
-            st.caption(
-                f"{int(row['items_priced'])} van {int(row['items_total'])} "
-                "ingrediënten hebben een prijs, dus de totaalprijs blijft onbekend"
-            )
+        _render_price(row)
 
-        _render_items(engine, int(row["recipe_id"]), row)
+        # Folded away by default. The answer to "what shall I cook" is the
+        # recipe and its price; the ingredient list is what you open once you
+        # have decided, and on a phone it would otherwise push everything else
+        # off the screen.
+        with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
+            _render_items(engine, int(row["recipe_id"]), row)
+
         _render_verdict_controls(engine, row)
 
 
@@ -218,18 +233,32 @@ def _render_item(item) -> None:
         st.caption(f"Laatste kans · nog {int(item['stock'])}")
 
 
-def _render_brief(row) -> None:
-    """One of the runners-up: enough to choose by, not enough to compete."""
-    with st.container(border=True, horizontal=True, vertical_alignment="center"):
-        if row.get("image_url"):
-            st.image(row["image_url"], width=56)
-        with st.container():
-            st.markdown(f"**{row['recipe_name']}**")
-            st.caption(_saving_phrase(row))
-        urgency = _urgency(row)
-        if urgency:
-            with st.container(horizontal_alignment="right"):
-                st.badge(urgency[0], color=urgency[1])
+def _render_brief(engine, row) -> None:
+    """A runner-up: enough to choose by, not enough to compete with the lead.
+
+    Same two prices and the same foldable ingredient list, because "how much is
+    this one" is the question you ask of the alternatives too - but the whole
+    card stays closed until asked, so the ranking still reads as a ranking.
+    """
+    with st.container(border=True):
+        with st.container(horizontal=True, vertical_alignment="center"):
+            if row.get("image_url"):
+                st.image(row["image_url"], width=56)
+            with st.container():
+                st.markdown(f"**{row['recipe_name']}**")
+                st.caption(_saving_phrase(row))
+                _render_rating(row)
+            urgency = _urgency(row)
+            if urgency:
+                with st.container(horizontal_alignment="right"):
+                    st.badge(urgency[0], color=urgency[1])
+
+        _render_price(row)
+
+        with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
+            _render_items(engine, int(row["recipe_id"]), row)
+
+        _render_verdict_controls(engine, row)
 
 
 def _render_verdict_controls(engine, row) -> None:
@@ -367,7 +396,7 @@ def render_tonight() -> None:
     if len(ranked) > 1:
         st.subheader("Ook de moeite waard")
         for _, row in ranked.iloc[1:6].iterrows():
-            _render_brief(row)
+            _render_brief(engine, row)
 
     _render_coverage(engine, df)
     _render_rejected(engine)

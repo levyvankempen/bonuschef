@@ -569,3 +569,91 @@ def fetch_recipes(
             except AHRecipeShapeError:
                 failed.append(int(rid))
     return recipes, failed
+
+
+# --------------------------------------------------------------------------
+# AH's own product search: the mechanism behind "Kies producten"
+# --------------------------------------------------------------------------
+
+_PRODUCT_SEARCH_QUERY = """query AHProductSearch($input: SearchProductsInput!) {
+  searchProducts(input: $input) {
+    products { id title salesUnitSize brand }
+  }
+}"""
+
+# How many of AH's hits to keep. Their ranking is good but not authoritative -
+# "middelgrote ui" returns AH Bosui first, which is a spring onion - so taking
+# a few gives the review queue something to choose between rather than one
+# confident wrong answer.
+PRODUCT_SEARCH_KEEP = 5
+
+
+@dataclass(frozen=True)
+class ProductHit:
+    """A product AH's own search offers for a term.
+
+    ``webshop_id`` is what the catalogue crosswalk keys on: AH returns 4164 for
+    courgette and our own product_link is ``wi4164/ah-courgette``. That shared
+    key is the whole reason this is usable - without it we would have only a
+    title to fuzzy-match, which is the problem we were trying to escape.
+    """
+
+    webshop_id: int
+    title: str
+    sales_unit_size: str = ""
+    brand: str = ""
+
+
+def search_products(
+    term: str, *, manager: AHTokenManager | None = None
+) -> list[ProductHit]:
+    """What AH itself offers when someone types this ingredient.
+
+    This is the mechanism behind the "Kies producten" button on an Allerhande
+    recipe page, and it resolves things a local name match cannot: "verse platte
+    peterselie", "eetrijpe avocado", "gerookte spekreepjes" all land on the
+    right product, and none of them appears verbatim in any product name.
+
+    It is a proposal source, never an answer. Measured over 30 of the most-used
+    unresolved ingredients it returned a product for all 30, and was wrong on
+    roughly one in five - confidently so: "sjalot" returns a Boursin cheese
+    spread and "kokend water" returns a kettle.
+    """
+    cleaned = (term or "").strip()
+    if not cleaned:
+        return []
+    manager = manager or manager_from_env()
+    _pace()
+    try:
+        data, errors = manager.graphql_partial(
+            _PRODUCT_SEARCH_QUERY, {"input": {"query": cleaned}}
+        )
+    except AHAuthError as exc:
+        raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+    except Exception as exc:
+        raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+    if errors and not data.get("searchProducts"):
+        raise AHRecipeUnavailable(
+            f"Albert Heijn could not search for {cleaned!r}: "
+            f"{errors[0].get('message', '')}"
+        )
+
+    products = (data.get("searchProducts") or {}).get("products") or []
+    hits: list[ProductHit] = []
+    for payload in products[:PRODUCT_SEARCH_KEEP]:
+        if not isinstance(payload, dict):
+            continue
+        webshop_id, title = payload.get("id"), str(payload.get("title") or "").strip()
+        # Both or neither: a hit without an id cannot be joined to anything, and
+        # one without a title cannot be reviewed by a person.
+        if not isinstance(webshop_id, int) or not title:
+            continue
+        hits.append(
+            ProductHit(
+                webshop_id=webshop_id,
+                title=title,
+                sales_unit_size=str(payload.get("salesUnitSize") or ""),
+                brand=str(payload.get("brand") or ""),
+            )
+        )
+    return hits
