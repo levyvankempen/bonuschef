@@ -1,0 +1,22 @@
+[Unit]
+Description=Deploy the newest bonuschef release
+Documentation=https://github.com/levyvankempen/bonuschef/blob/main/docs/deployment.md
+# Docker must be up: the script inspects running containers and rebuilds them.
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/bonuschef
+ExecStart=/opt/bonuschef/scripts/auto-deploy.sh
+
+# A build on a 2-core box is slow, and a rebuild that is killed halfway leaves
+# the stack down. Generous, but bounded: a hung build must not block the timer
+# forever.
+TimeoutStartSec=30min
+
+# Output goes to the journal. `journalctl -u bonuschef-autodeploy` is the
+# whole observability story, which is proportionate to a service that acts a
+# few times a month.
+StandardOutput=journal
+StandardError=journal
