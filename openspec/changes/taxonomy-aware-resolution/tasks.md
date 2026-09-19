@@ -29,16 +29,15 @@ see. Revisit if the request count becomes a problem.
 
 - [x] 4.1 Classify linked products and flag contradictions
 - [x] 4.2 Never touch `confirmed_at IS NOT NULL`
-- [ ] 4.3 Flagged concepts enter the review queue — NOT DONE. They are
-      reported in the asset's output metadata and logged; wiring them into the
-      portal's queue needs the queue's "has a person looked" predicate
-      reworked, which is its own change
+- [x] 4.3 Flagged concepts enter the review queue. The queue's predicate was
+      reworked: "never looked at, OR looked at and since found to contradict
+      itself". Flagged first, because a wrong price is costlier than a gap
 - [x] 4.4 Tests, including that a confirmed row survives a contradiction
 
 ## 5. Show it — NOT DONE
 
-- [~] 5.1 Candidate rows in the review dialog show their classification
-- [ ] 5.2 Test
+- [x] 5.1 The dialog says why a flagged concept came back
+- [ ] 5.2 Candidate rows show their classification — still open
 
 
 ## 6. Rank and narrow (added after the first round)

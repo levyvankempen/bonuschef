@@ -648,6 +648,7 @@ class TestRecheckingExistingLinks:
             "withdraw_proposals",
             lambda engine, pairs: (removed.extend(pairs), len(pairs))[1],
         )
+        monkeypatch.setattr(mod, "flag_concepts", lambda engine, rows: len(rows))
 
         class _Log:
             def __init__(self):
@@ -762,6 +763,7 @@ class TestRecheckingExistingLinks:
             "withdraw_proposals",
             lambda engine, pairs: (removed.extend(pairs), len(pairs))[1],
         )
+        monkeypatch.setattr(mod, "flag_concepts", lambda engine, rows: len(rows))
 
         class _Ctx:
             class log:

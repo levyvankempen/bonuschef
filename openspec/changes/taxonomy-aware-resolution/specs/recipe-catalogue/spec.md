@@ -105,6 +105,26 @@ recorded in place, which is where the known wrong answers actually are.
 - **WHEN** a recorded resolution is found to contradict what its product is
 - **THEN** it is raised for review rather than silently kept or silently deleted
 
+#### Scenario: A concept a person already settled is found to be wrong
+
+- **WHEN** a concept that was reviewed is later found to contradict itself
+- **THEN** it returns to the queue of things to look at, ahead of ingredients that were never linked at all
+
+#### Scenario: A wrong link is described differently from a missing one
+
+- **WHEN** an ingredient is linked to a product that contradicts it
+- **THEN** it is presented as a price that is wrong rather than as a gap, because the recipe already shows a cost and nothing otherwise looks amiss
+
+#### Scenario: Everything is linked but some links are wrong
+
+- **WHEN** no ingredient is unlinked but some links contradict themselves
+- **THEN** the way to review them is still offered
+
+#### Scenario: A flagged concept is settled
+
+- **WHEN** a person confirms a resolution for a flagged concept
+- **THEN** it stops being flagged, rather than returning to the head of the queue they just cleared it from
+
 #### Scenario: A person has already decided
 
 - **WHEN** a recorded resolution was confirmed by a person

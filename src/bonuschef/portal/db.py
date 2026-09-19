@@ -360,6 +360,21 @@ def ensure_catalogue_tables(_engine) -> None:
         )
         conn.execute(
             text("""
+            -- A concept whose recorded products contradict what they are.
+            --
+            -- Separate from ah_ingredient_review rather than deleting the
+            -- review row: "a person looked at this" and "this needs looking
+            -- at again" are different facts, and destroying the first to
+            -- express the second loses the record of who settled what.
+            CREATE TABLE IF NOT EXISTS public.ah_ingredient_flags (
+                concept_id BIGINT PRIMARY KEY,
+                reason     TEXT NOT NULL,
+                flagged_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        )
+        conn.execute(
+            text("""
             -- 6 of 467 sampled ingredient names carry two concept ids
             -- (courgette is both 1853 and 219282). Without this, resolving an
             -- ingredient once fails to serve both for about one in seventy-eight.
@@ -451,15 +466,26 @@ def read_unresolved_concepts(
             SELECT recipe_id, concept_id, concept_name
             FROM public."ah__pool_recipe_ingredients"
         )
-        SELECT i.concept_id, MIN(i.concept_name) AS concept_name, COUNT(*) AS uses
+        SELECT i.concept_id,
+               MIN(i.concept_name) AS concept_name,
+               COUNT(*) AS uses,
+               BOOL_OR(f.concept_id IS NOT NULL) AS is_flagged,
+               MIN(f.reason) AS flag_reason
         FROM lines AS i
         LEFT JOIN public.ah_ingredient_review AS r
             ON i.concept_id = r.concept_id
-        WHERE r.concept_id IS NULL
+        LEFT JOIN public.ah_ingredient_flags AS f
+            ON i.concept_id = f.concept_id
+        -- Never looked at, OR looked at and since found to contradict itself.
+        -- Without the second arm a concept a person settled once could never
+        -- come back, which is exactly the case where it is known to be wrong.
+        WHERE (r.concept_id IS NULL OR f.concept_id IS NOT NULL)
           AND (CAST(:recipe_id AS bigint) IS NULL
                OR i.recipe_id = CAST(:recipe_id AS bigint))
         GROUP BY i.concept_id
-        ORDER BY uses DESC, concept_name ASC
+        -- Flagged first: a known-wrong match costs more than an absent one,
+        -- because it is silently priced into a recipe rather than shown as a gap.
+        ORDER BY is_flagged DESC, uses DESC, concept_name ASC
         -- Bounded: the pool contributes over a thousand, and a dialog that
         -- renders them all is not a queue, it is a wall. The ordering above is
         -- what makes a bounded slice the useful one.
@@ -1019,3 +1045,63 @@ def withdraw_proposals(engine, links: list[tuple[int, str]]) -> int:
             )
             removed += result.rowcount or 0
     return removed
+
+
+def flag_concepts(engine, flags: list[tuple[int, str]]) -> int:
+    """Record that a concept's products contradict what they are.
+
+    Re-flagging refreshes the reason and the timestamp: the contradiction may
+    have changed since it was last raised, and a stale reason shown to a
+    person is worse than none.
+    """
+    if not flags:
+        return 0
+    with engine.begin() as conn:
+        for concept_id, reason in flags:
+            conn.execute(
+                text(
+                    "INSERT INTO public.ah_ingredient_flags "
+                    "(concept_id, reason) VALUES (:cid, :reason) "
+                    "ON CONFLICT (concept_id) DO UPDATE SET "
+                    "reason = EXCLUDED.reason, flagged_at = now()"
+                ),
+                {"cid": int(concept_id), "reason": reason[:500]},
+            )
+    return len(flags)
+
+
+def clear_flag(engine, concept_id: int) -> None:
+    """A person has dealt with it. Called when a resolution is confirmed."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("DELETE FROM public.ah_ingredient_flags WHERE concept_id = :cid"),
+            {"cid": int(concept_id)},
+        )
+
+
+def read_flag_reasons(engine) -> dict[int, str]:
+    """Why each flagged concept was raised, for showing next to it."""
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT concept_id, reason FROM public.ah_ingredient_flags")
+        ).all()
+    return {int(r[0]): r[1] for r in rows}
+
+
+def count_flagged_concepts(engine) -> int:
+    """How many concepts are linked to something that contradicts them.
+
+    Zero when the table does not exist yet: the portal must render on a
+    database the resolution asset has never run against, and a missing table
+    is "nothing flagged", not an error page.
+    """
+    try:
+        with engine.begin() as conn:
+            return int(
+                conn.execute(
+                    text("SELECT COUNT(*) FROM public.ah_ingredient_flags")
+                ).scalar()
+                or 0
+            )
+    except Exception:
+        return 0

@@ -33,6 +33,7 @@ from bonuschef.portal.review import (
     render_resolution_result,
 )
 from bonuschef.portal.db import (
+    count_flagged_concepts,
     CREDENTIAL_JOB,
     get_engine,
     read_bonus_feed_loaded_at,
@@ -380,13 +381,26 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
     st.caption(
         f"Berekend over {pool} recept(en); {rankable} daarvan zijn vandaag goedkoper."
     )
+    # Flagged concepts are a different kind of work from unlinked ones: the
+    # recipe already has a price, it is just wrong. That reads as nothing being
+    # amiss, so it has to be said out loud or it never gets looked at.
+    flagged = count_flagged_concepts(engine)
+    if flagged:
+        st.warning(
+            f"{flagged} ingrediënt(en) zijn aan een product gekoppeld dat er "
+            "waarschijnlijk niet bij hoort. Die recepten hebben nu een prijs "
+            "die niet klopt.",
+            icon=":material/report:",
+        )
     if unresolved:
         st.caption(
             f"{unresolved} recept(en) missen nog een gekoppeld ingrediënt. "
             "Elk ingrediënt dat je koppelt telt meteen mee voor élk recept dat "
             "het gebruikt."
         )
-        if st.button("Ingrediënten koppelen", icon=":material/link:"):
+    if unresolved or flagged:
+        label = "Ingrediënten nakijken" if flagged else "Ingrediënten koppelen"
+        if st.button(label, icon=":material/link:"):
             open_review(engine)
 
 

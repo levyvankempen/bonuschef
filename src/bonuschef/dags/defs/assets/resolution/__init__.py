@@ -24,7 +24,11 @@ from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
 from bonuschef.portal.classification import cohort, judge
 from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
-from bonuschef.portal.db import read_linked_products, withdraw_proposals
+from bonuschef.portal.db import (
+    flag_concepts,
+    read_linked_products,
+    withdraw_proposals,
+)
 from bonuschef.utils.ah_recipes import fetch_product_taxonomy  # noqa: F401
 from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
 
@@ -303,6 +307,7 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
 
     withdraw: list[tuple[int, str]] = []
     flagged: list[str] = []
+    flag_rows: list[tuple[int, str]] = []
     for concept_id, rows in by_concept.items():
         name = rows[0]["concept_name"]
         contradicting, acceptable = [], []
@@ -338,8 +343,18 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
             withdraw.extend((concept_id, r["product_link"]) for r in wrong_form)
         elif wrong_form:
             flagged.append(f"{name} ({len(wrong_form)})")
+            flag_rows.append(
+                (
+                    concept_id,
+                    "De gevonden producten zijn niet de vorm die dit "
+                    f"ingrediënt vraagt ({len(wrong_form)} product(en)).",
+                )
+            )
 
     removed = withdraw_proposals(engine, withdraw)
+    # Persisted, not just logged. A warning in a Dagster run is not somewhere
+    # a person looking for work to do will find it; the review queue is.
+    flag_concepts(engine, flag_rows)
     if flagged:
         context.log.warning(
             "%d concept(s) have only contradicting products and were left "
