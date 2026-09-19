@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-09-19)
+
+### Documentation
+
+- **openspec**: Sync and archive versioned-deployment
+  ([#47](https://github.com/levyvankempen/bonuschef/pull/47),
+  [`b3a5417`](https://github.com/levyvankempen/bonuschef/commit/b3a54177eb402a64487e3058b97db0d1432dcaec))
+
+### Features
+
+- Deploy the newest release automatically
+  ([#48](https://github.com/levyvankempen/bonuschef/pull/48),
+  [`75d3108`](https://github.com/levyvankempen/bonuschef/commit/75d31082735d2eb287f59dc78ed49fb52d3cc2b4))
+
+
 ## v1.3.1 (2026-09-15)
 
 ### Bug Fixes
