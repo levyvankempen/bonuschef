@@ -247,3 +247,40 @@ def test_the_units_point_at_the_deployed_checkout():
 def test_a_hung_build_cannot_block_the_timer_forever():
     unit = (UNITS / "bonuschef-autodeploy.service").read_text()
     assert "TimeoutStartSec=" in unit
+
+
+# --- the deployer must outlive the releases it deploys --------------------
+
+
+def test_the_unit_does_not_run_the_script_from_the_checkout():
+    """The deployer used to be run straight out of scripts/. That made it part
+    of the thing it deploys: a rollback to a release predating it deleted
+    systemd's ExecStart target, and auto-deploy stopped permanently -- because
+    recovering is exactly what it could no longer do.
+
+    Observed on a real rollback to v1.3.1:
+        Unable to locate executable '/opt/bonuschef/scripts/auto-deploy.sh'
+    """
+    unit = (UNITS / "bonuschef-autodeploy.service").read_text()
+    exec_lines = [ln for ln in unit.splitlines() if ln.strip().startswith("ExecStart=")]
+    assert exec_lines, "the unit has no ExecStart"
+    for ln in exec_lines:
+        target = ln.split("=", 1)[1].strip()
+        assert "/opt/bonuschef" not in target, (
+            f"ExecStart points inside the deployed checkout ({target}); a "
+            "rollback would delete it"
+        )
+
+
+def test_deploying_refreshes_the_out_of_tree_runner(tmp_path):
+    """Living outside the checkout would otherwise mean going stale. Every
+    successful deploy copies the current script out."""
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text()
+    assert "install -m 0755 ./scripts/auto-deploy.sh" in deploy, (
+        "deploy.sh does not refresh the runner, so it would freeze at "
+        "whatever version first installed it"
+    )
+    # and it must happen after the stack is up, not before
+    assert deploy.index("docker compose up -d --build") < deploy.index(
+        "install -m 0755"
+    ), "the runner is refreshed before the deploy succeeds"

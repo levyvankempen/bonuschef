@@ -8,7 +8,11 @@ After=docker.service network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/bonuschef
-ExecStart=/opt/bonuschef/scripts/auto-deploy.sh
+# NOT /opt/bonuschef/scripts/auto-deploy.sh. The deployer must outlive any
+# release it deploys: pointing into the checkout means a rollback to a version
+# predating this script deletes systemd's executable and auto-deploy never
+# comes back. deploy.sh refreshes this copy after every successful deploy.
+ExecStart=/usr/local/bin/bonuschef-autodeploy
 
 # A build on a 2-core box is slow, and a rebuild that is killed halfway leaves
 # the stack down. Generous, but bounded: a hung build must not block the timer
