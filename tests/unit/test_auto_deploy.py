@@ -284,3 +284,56 @@ def test_deploying_refreshes_the_out_of_tree_runner(tmp_path):
     assert deploy.index("docker compose up -d --build") < deploy.index(
         "install -m 0755"
     ), "the runner is refreshed before the deploy succeeds"
+
+
+def test_the_runner_finds_the_checkout_from_outside_it(server, tmp_path):
+    """Installed to /usr/local/bin, the script can no longer assume it sits
+    inside the checkout. Resolving its own directory from there lands in
+    /usr/local, and git fails with "not a git repository" - which is what the
+    server did the moment the runner was moved out of the tree.
+
+    The fixture's own tests run the script from inside a checkout, which is
+    why they did not catch it.
+    """
+    installed = tmp_path / "bin"
+    installed.mkdir()
+    runner = installed / "bonuschef-autodeploy"
+    runner.write_text((SCRIPTS / "auto-deploy.sh").read_text())
+    runner.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(runner)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "BONUSCHEF_CHECKOUT": str(server.path),
+            "DEPLOY_LOG": str(server.log),
+        },
+    )
+    assert "not a git repository" not in (result.stdout + result.stderr)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "up to date" in result.stdout
+
+
+def test_a_checkout_beside_the_script_still_wins(server):
+    """The developer case: running scripts/auto-deploy.sh from a clone must
+    operate on that clone, not on whatever BONUSCHEF_CHECKOUT says."""
+    other = server.path.parent / "elsewhere"
+    other.mkdir(exist_ok=True)
+    result = subprocess.run(
+        ["bash", str(server.path / "scripts" / "auto-deploy.sh")],
+        cwd=server.path,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "BONUSCHEF_CHECKOUT": str(other),
+            "DEPLOY_LOG": str(server.log),
+        },
+    )
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert "up to date" in result.stdout

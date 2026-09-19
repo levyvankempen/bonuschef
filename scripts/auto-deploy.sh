@@ -10,7 +10,22 @@
 # Only a genuine deployment failure is an error.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# Where the deployment lives.
+#
+# This script is installed to /usr/local/bin so that a rollback cannot delete
+# systemd's ExecStart target. That means it can no longer assume it sits
+# inside the checkout it operates on: resolving its own directory from
+# /usr/local/bin lands in /usr/local, and the first git command fails with
+# "not a git repository". Which is exactly what happened on the server.
+#
+# Prefer a checkout next to the script - that is the developer case, and the
+# one the tests exercise - and fall back to the installed location.
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if git -C "$_here" rev-parse --git-dir >/dev/null 2>&1; then
+    cd "$_here"
+else
+    cd "${BONUSCHEF_CHECKOUT:-/opt/bonuschef}"
+fi
 
 log() { echo "[auto-deploy] $*"; }
 
