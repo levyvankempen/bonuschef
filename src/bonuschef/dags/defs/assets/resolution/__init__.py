@@ -22,7 +22,7 @@ from sqlalchemy import text
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
-from bonuschef.portal.classification import judge, rank
+from bonuschef.portal.classification import cohort, judge
 from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
 from bonuschef.portal.db import read_linked_products, withdraw_proposals
 from bonuschef.utils.ah_recipes import fetch_product_taxonomy  # noqa: F401
@@ -158,6 +158,7 @@ def _propose_from_ah(
     proposals: list[dict] = []
     spent = 0
     rejected = 0
+    narrowed = 0
     consecutive_failures = 0
     for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
         try:
@@ -196,7 +197,12 @@ def _propose_from_ah(
         # Dille, a jar of dried dill, for "verse dille". Its own classification
         # says so, and rank() then puts a candidate the taxonomy actually names
         # ahead of one that merely mentions the ingredient in its title.
-        for hit in rank(name, hits):
+        # Reject on kind first, then keep only the candidates that are the
+        # same kind as the best one. Proposing all of a search's hits is what
+        # lets a wrong one poison a cost: downstream the cheapest candidate
+        # wins, so a Boursin among the shallots can decide a recipe's price.
+        acceptable = []
+        for hit in hits:
             verdict = judge(name, hit.department)
             if not verdict.accepted:
                 rejected += 1
@@ -204,6 +210,11 @@ def _propose_from_ah(
                     "rejected %s for %r: %s", hit.title, name, verdict.reason
                 )
                 continue
+            acceptable.append(hit)
+
+        chosen = cohort(name, acceptable)
+        narrowed += len(acceptable) - len(chosen)
+        for hit in chosen:
             known = crosswalk.get(hit.webshop_id)
             if known is None:
                 # AH sells it; we have never seen a price for it. Proposing it
@@ -217,6 +228,12 @@ def _propose_from_ah(
                     "product_name": known[1],
                 }
             )
+    if narrowed:
+        context.log.info(
+            "%d candidate(s) dropped as a different kind of thing from the "
+            "best match for their ingredient",
+            narrowed,
+        )
     if rejected:
         context.log.info(
             "%d candidate(s) rejected because their classification "

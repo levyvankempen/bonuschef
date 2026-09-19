@@ -67,6 +67,30 @@ salami.
 - **WHEN** no candidate's classification names the ingredient
 - **THEN** the existing ordering decides, so this preference adds an answer and never removes one
 
+### Requirement: Only candidates of the same kind as the best one are proposed
+
+Where several products are proposed for one ingredient, they SHALL all be the
+same kind of thing as the best of them.
+
+Proposing everything a search returns is not harmless. The cheapest candidate
+decides a recipe's cost, so a single wrong candidate can decide it — a cream
+cheese among the shallots sets the price of a dish containing no cream cheese.
+
+#### Scenario: One candidate is a different kind of thing
+
+- **WHEN** a search returns products of which some are the ingredient and some merely mention it
+- **THEN** only those of the same kind as the best match are proposed
+
+#### Scenario: Several genuinely interchangeable products
+
+- **WHEN** several proposed products are the same kind of thing
+- **THEN** all of them are kept, because which is cheapest changes from day to day and that is the point
+
+#### Scenario: The best candidate is unclassified
+
+- **WHEN** the best candidate carries no classification to compare against
+- **THEN** nothing is narrowed, because there is no evidence on which to narrow it
+
 ### Requirement: Resolutions already recorded are re-checked
 
 Resolutions already in the system SHALL be checked against classification when

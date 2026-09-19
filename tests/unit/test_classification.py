@@ -9,7 +9,11 @@ worse. So the tests care at least as much about what is NOT rejected.
 import pytest
 
 from bonuschef.portal.classification import (
+    _same_word,
+    cohort,
+    head_noun_match,
     judge,
+    score,
     leaf_names_ingredient,
     normalise,
     rank,
@@ -188,3 +192,97 @@ def test_normalise_strips_accents_case_and_punctuation():
     assert normalise("Crème Fraîche!") == "creme fraiche"
     assert normalise("  MELK  ") == "melk"
     assert normalise(None) == ""
+
+
+# --- scoring and the cohort ------------------------------------------------
+
+
+def test_the_shallot_case():
+    """The one this was built for. AH's search puts "Boursin Sjalot &
+    bieslook" - a cream cheese - first for "sjalot", ahead of the actual
+    shallots. Neither shallot's leaf is "Sjalot" (both are "Ui"), so the leaf
+    preference alone never fired.
+
+    What separates them is that the two real ones agree with each other and
+    the Boursin does not.
+    """
+    cands = [
+        hit(1, "Boursin Sjalot & bieslook", "Vers", ("Kaas", "Roomkaas")),
+        hit(2, "AH Biologisch Sjalotten", "Vers", ("Groente", "Ui")),
+        hit(3, "AH Sjalotten", "Vers", ("Groente", "Ui")),
+    ]
+    kept = {c.webshop_id for c in cohort("sjalot", cands)}
+    assert 1 not in kept, "the cream cheese is still proposed as a shallot"
+    assert kept == {2, 3}, "both real shallots must survive - cheapest wins later"
+
+
+def test_interchangeable_products_are_all_kept():
+    """Keeping several is deliberate: which is cheapest changes daily, and
+    that is the point of the whole application."""
+    cands = [
+        hit(1, "AH Gele uien", "Vers", ("Groente", "Ui")),
+        hit(2, "AH Rode uien", "Vers", ("Groente", "Ui")),
+    ]
+    assert len(cohort("ui", cands)) == 2
+
+
+def test_flour_is_not_cauliflower_rice():
+    """A prefix match made "bloem" (flour) match "Bloemkoolrijst" (cauliflower
+    rice). Dutch plurals are allowed; prefixes are not."""
+    assert _same_word("bloem", "bloemkoolrijst") is False
+    assert _same_word("kaas", "kaasblokjes") is False
+
+
+@pytest.mark.parametrize(
+    ("singular", "plural"),
+    [
+        ("sjalot", "sjalotten"),  # final consonant doubles
+        ("ui", "uien"),
+        ("aardappel", "aardappelen"),
+        ("tomaat", "tomaten"),  # doubled vowel shortens
+        ("peer", "peren"),
+        ("boon", "bonen"),
+        ("kool", "kolen"),
+        ("kaas", "kazen"),  # ...and the s voices
+        ("roos", "rozen"),
+        ("saus", "sauzen"),
+        ("brief", "brieven"),  # f voices without the vowel changing
+    ],
+)
+def test_dutch_plurals_of_ordinary_ingredients(singular, plural):
+    """Every one of these is something a recipe asks for and AH sells under
+    the plural. Missing them means the head-noun signal never fires for half
+    the vegetable aisle."""
+    assert _same_word(singular, plural) is True
+
+
+def test_the_head_noun_distinguishes_being_from_mentioning():
+    """Dutch puts the head noun last. "AH Sjalotten" is shallots; "Boursin
+    Sjalot & bieslook" merely tastes of them."""
+    assert head_noun_match("sjalot", "AH Sjalotten") is True
+    assert head_noun_match("sjalot", "Boursin Sjalot & bieslook") is False
+
+
+def test_own_brand_words_do_not_count_as_specificity():
+    """ "AH" and "Biologisch" are on half the catalogue. Counting them as
+    content would make every own-brand product look more specific."""
+    plain = hit(1, "AH Courgette", "Vers", ("Groente", "Courgette"))
+    organic = hit(2, "AH Biologisch Courgette", "Vers", ("Groente", "Courgette"))
+    assert score("courgette", plain, [plain, organic], 0) == pytest.approx(
+        score("courgette", organic, [plain, organic], 0)
+    )
+
+
+def test_an_unclassified_field_does_not_narrow_anything():
+    """Narrowing on no evidence is the one thing every rule here refuses."""
+    cands = [hit(1, "Iets", ""), hit(2, "Iets anders", "")]
+    assert len(cohort("dille", cands)) == 2
+
+
+def test_the_cohort_of_nothing_is_nothing():
+    assert cohort("dille", []) == []
+
+
+def test_a_single_candidate_survives():
+    cands = [hit(1, "AH Dille", "Vers", ("Kruiden", "Verse kruiden"))]
+    assert len(cohort("verse dille", cands)) == 1

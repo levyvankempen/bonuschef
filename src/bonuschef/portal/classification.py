@@ -117,3 +117,167 @@ def rank(ingredient_name: str, candidates: list) -> list:
             ingredient_name, getattr(c, "taxonomy_leaf", "")
         ),
     )
+
+
+# Words that describe a product without being what it is. "AH" and
+# "Biologisch" appear on half the catalogue; letting them count as content
+# makes every own-brand product look more specific than it is.
+_QUALIFIERS = frozenset(
+    {"ah", "biologisch", "bio", "verse", "vers", "de", "het", "een"}
+)
+
+# There is deliberately no confidence floor.
+#
+# One was tried and measured against the human-confirmed links, and the scores
+# do not separate. Products a person confirmed score as low as -1.20
+# ("chilivlokken"), while obviously-correct matches that simply were not in the
+# confirmed set score 10.00 ("broccoli" -> AH Biologisch Broccoli). Any floor
+# that removed a bad answer removed good ones with it: at 0.0 it cost
+# arachideolie, bosuitje and chilivlokken their only correct product.
+#
+# So the score orders candidates and never rejects them. Rejection is left to
+# the classification rules, which are about kind rather than degree and can say
+# why.
+
+
+def _content_words(text: str) -> list[str]:
+    return [w for w in normalise(text).split() if w not in _QUALIFIERS]
+
+
+def _same_word(a: str, b: str) -> bool:
+    """Whether two Dutch words are the same noun, allowing for plurals.
+
+    Deliberately not a prefix match. Prefix matching made "bloem" (flour) match
+    "Bloemkoolrijst" (cauliflower rice), which is how flour came to be
+    resolved as a vegetable.
+    """
+    if a == b:
+        return True
+    for suffix in ("en", "s", "n", "es"):
+        if b == a + suffix or a == b + suffix:
+            return True
+    # sjalot/sjalotten: Dutch doubles a final consonant before -en.
+    if len(a) > 3 and b == a + a[-1] + "en":
+        return True
+    if len(b) > 3 and a == b + b[-1] + "en":
+        return True
+    # peer/peren, boon/bonen, kool/kolen: a doubled vowel shortens before -en.
+    # All three are ordinary ingredients, so this is not an edge case.
+    if b in _dutch_plurals(a) or a in _dutch_plurals(b):
+        return True
+    if b == _voiced_plural(a) or a == _voiced_plural(b):
+        return True
+    return False
+
+
+# Final s and f voice in the plural: kaas -> kazen, brief -> brieven. Both are
+# ordinary ingredients, so this is not an edge case.
+_VOICING = {"s": "z", "f": "v"}
+
+
+def _dutch_plurals(word: str) -> set[str]:
+    """Plurals of a word whose doubled vowel shortens: peer -> peren.
+
+    Returns a set because the shortening and the voicing combine: kaas is
+    ka+s, which shortens to "kasen" and voices to "kazen".
+    """
+    match = re.fullmatch(r"(.*?)(aa|ee|oo|uu)([bcdfghjklmnpqrstvwxz]+)", word)
+    if not match:
+        return set()
+    stem, vowels, tail = match.groups()
+    short = f"{stem}{vowels[0]}{tail}"
+    forms = {short + "en"}
+    if tail in _VOICING:
+        forms.add(f"{stem}{vowels[0]}{_VOICING[tail]}en")
+    return forms
+
+
+def _voiced_plural(word: str) -> str:
+    """brief -> brieven: the final consonant voices without the vowel changing."""
+    if len(word) > 3 and word[-1] in _VOICING:
+        return word[:-1] + _VOICING[word[-1]] + "en"
+    return ""
+
+
+def head_noun_match(ingredient_name: str, title: str) -> bool:
+    """Whether the title *is* the ingredient rather than merely mentioning it.
+
+    Dutch puts the head noun last. "AH Sjalotten" ends on it; "Boursin Sjalot
+    & bieslook" uses the same word as a flavour qualifier in the middle, and
+    is a cream cheese.
+    """
+    title_words, ingredient_words = (
+        _content_words(title),
+        _content_words(ingredient_name),
+    )
+    if not title_words or not ingredient_words:
+        return False
+    return _same_word(ingredient_words[-1], title_words[-1])
+
+
+def score(ingredient_name: str, candidate, siblings: list, position: int = 0) -> float:
+    """How well a candidate answers an ingredient. Higher is better.
+
+    Every term is explainable on purpose. A person correcting a match should
+    be able to see why the system preferred what it did, and a rule nobody can
+    explain is a rule nobody can fix.
+    """
+    leaf = getattr(candidate, "taxonomy_leaf", "")
+    title = getattr(candidate, "title", "")
+    total = 0.0
+
+    if leaf_names_ingredient(ingredient_name, leaf):
+        total += 5.0
+
+    # Agreement between candidates. When three hits share a taxonomy leaf and
+    # one does not, the odd one out is usually the mistake - which is exactly
+    # the shape of "sjalot": two shallots under "Ui", one Boursin under
+    # "Roomkaas".
+    if leaf:
+        agreeing = sum(
+            1
+            for s in siblings
+            if normalise(getattr(s, "taxonomy_leaf", "")) == normalise(leaf)
+        )
+        if agreeing > 1:
+            total += 2.0
+
+    if head_noun_match(ingredient_name, title):
+        total += 3.0
+
+    # Every word the title carries that the ingredient did not ask for is a
+    # way the product might be something else.
+    asked = set(_content_words(ingredient_name))
+    total -= 0.4 * len([w for w in _content_words(title) if w not in asked])
+
+    # The retailer's own ordering, as a tiebreak only.
+    total -= 0.3 * position
+    return total
+
+
+def cohort(ingredient_name: str, candidates: list) -> list:
+    """The candidates worth proposing: the best, and those of the same kind.
+
+    Proposing all of a search's hits is what lets a wrong one poison a cost,
+    because downstream the cheapest candidate wins. Measured over the
+    human-confirmed links, the hits carried 4.0 candidates per ingredient and
+    this keeps 3.0 while still retaining a confirmed product for 95% of them.
+
+    Same *kind* means the same taxonomy leaf. "AH Sjalotten" and "AH
+    Biologisch Sjalotten" are interchangeable and cheapest-of-the-day is the
+    whole point of keeping both; "Boursin Sjalot & bieslook" is a cream cheese.
+    """
+    if not candidates:
+        return []
+    ordered = sorted(
+        range(len(candidates)),
+        key=lambda i: -score(ingredient_name, candidates[i], candidates, i),
+    )
+    best = candidates[ordered[0]]
+    key = normalise(getattr(best, "taxonomy_leaf", ""))
+    if not key:
+        # The best candidate is unclassified, so there is no "same kind" to
+        # compare against. Narrowing here would drop candidates on no evidence,
+        # which is the one thing every other rule in this module refuses to do.
+        return list(candidates)
+    return [c for c in candidates if normalise(getattr(c, "taxonomy_leaf", "")) == key]

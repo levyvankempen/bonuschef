@@ -37,5 +37,18 @@ see. Revisit if the request count becomes a problem.
 
 ## 5. Show it — NOT DONE
 
-- [ ] 5.1 Candidate rows in the review dialog show their classification
+- [~] 5.1 Candidate rows in the review dialog show their classification
 - [ ] 5.2 Test
+
+
+## 6. Rank and narrow (added after the first round)
+
+- [x] 6.1 A score over explainable signals: leaf naming, leaf consensus,
+      head-noun position, genericness, retailer order as tiebreak
+- [x] 6.2 Dutch plural handling, because "sjalot"/"sjalotten" and
+      "kaas"/"kazen" are the common case and a prefix match resolved flour
+      as cauliflower rice
+- [x] 6.3 Propose only the cohort sharing the best candidate's kind
+- [x] 6.4 Measured against the 84 human-confirmed links rather than asserted
+- [x] 6.5 A confidence floor was tried, measured, and removed - the scores do
+      not separate confirmed from unconfirmed-but-correct
