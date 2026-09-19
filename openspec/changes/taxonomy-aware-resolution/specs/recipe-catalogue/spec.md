@@ -149,3 +149,44 @@ candidate SHALL show what kind of thing it is.
 
 - **WHEN** several candidates carry similar names
 - **THEN** what distinguishes them is visible without opening the retailer's website
+
+### Requirement: An ingredient is searched for by what it is, not how it is sold
+
+Where an ingredient names the container it comes in, the search for products
+SHALL also be made without it.
+
+The container word is matched by the retailer's own search, which then returns
+the packaging rather than the food: "cannellinibonen in blik" returns tuna,
+corn and pineapple, and "runderbouillon van tablet" returns Ibuprofen and
+Paracetamol, both sold as tabletten. Removing the container returns the bean
+and the stock.
+
+#### Scenario: An ingredient names its container
+
+- **WHEN** an ingredient names the container it is sold in
+- **THEN** products are also sought for the ingredient without it, and the results of both are considered
+
+#### Scenario: A qualifier that is not a container
+
+- **WHEN** an ingredient names what it is packed in rather than what it is packed as
+- **THEN** it is kept, because tuna in oil and tuna in water are different products and a recipe asking for one means it
+
+### Requirement: The retailer's own label is preferred between equivalent products
+
+Where two products satisfy an ingredient equally, the retailer's own label
+SHALL be preferred, unless the recipe named a brand.
+
+#### Scenario: Two products of the same kind
+
+- **WHEN** an own-label product and another brand are both the right kind of thing
+- **THEN** the own label is preferred, being usually the cheaper of the two
+
+#### Scenario: An own-label product of the wrong kind
+
+- **WHEN** an own-label product is not the kind of thing the ingredient asks for
+- **THEN** it is not preferred over a correctly matched product from another brand
+
+#### Scenario: The recipe named a brand
+
+- **WHEN** an ingredient names a particular brand
+- **THEN** that is honoured rather than overridden by the own label

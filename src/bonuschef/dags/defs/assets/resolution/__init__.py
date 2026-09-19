@@ -22,7 +22,7 @@ from sqlalchemy import text
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
-from bonuschef.portal.classification import cohort, judge
+from bonuschef.portal.classification import cohort, judge, without_packaging
 from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
 from bonuschef.portal.db import (
     flag_concepts,
@@ -167,6 +167,23 @@ def _propose_from_ah(
     for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
         try:
             hits = search_products(name)
+            # The container word poisons the retailer's search: it matches the
+            # packaging instead of the food. "cannellinibonen in blik" returns
+            # tuna, corn and pineapple; "cannellinibonen" returns AH Terra
+            # Cannellini bonen. "runderbouillon van tablet" returns Ibuprofen
+            # and Paracetamol, both sold as tabletten.
+            #
+            # Both results are kept rather than the second replacing the first.
+            # The full phrase is still what the recipe said, and where it
+            # works it is the more specific answer; the classification rules
+            # and the cohort decide between them afterwards.
+            plain = without_packaging(name)
+            if plain:
+                spent += 1
+                seen = {h.webshop_id for h in hits}
+                hits = hits + [
+                    h for h in search_products(plain) if h.webshop_id not in seen
+                ]
         except AHRecipeUnavailable as exc:
             if isinstance(exc.__cause__, AHAuthError):
                 # The credential, not the connection. Stop at once: retrying

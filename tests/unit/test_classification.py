@@ -12,8 +12,11 @@ from bonuschef.portal.classification import (
     _same_word,
     cohort,
     head_noun_match,
+    is_own_brand,
     judge,
+    names_a_brand,
     score,
+    without_packaging,
     leaf_names_ingredient,
     normalise,
     rank,
@@ -286,3 +289,131 @@ def test_the_cohort_of_nothing_is_nothing():
 def test_a_single_candidate_survives():
     cands = [hit(1, "AH Dille", "Vers", ("Kruiden", "Verse kruiden"))]
     assert len(cohort("verse dille", cands)) == 1
+
+
+# --- packaging, brand and form: cases reported from the running system -----
+
+
+@pytest.mark.parametrize(
+    ("ingredient", "stripped"),
+    [
+        ("cannellinibonen in blik", "cannellinibonen"),
+        ("mierikswortel in pot", "mierikswortel"),
+        ("runderbouillon van tablet", "runderbouillon"),
+        ("jalapeñoplakjes in pot", "jalapenoplakjes"),
+    ],
+)
+def test_container_words_are_stripped(ingredient, stripped):
+    """The container word poisons the retailer's search - it matches the
+    packaging rather than the food:
+
+        "cannellinibonen in blik"   -> tuna, corn, pineapple
+        "cannellinibonen"           -> AH Terra Cannellini bonen
+        "runderbouillon van tablet" -> Ibuprofen, Paracetamol (tabletten)
+    """
+    assert without_packaging(ingredient) == stripped
+
+
+@pytest.mark.parametrize(
+    "ingredient", ["tonijn in olie", "tonijn in water", "verse dille"]
+)
+def test_meaningful_qualifiers_are_not_stripped(ingredient):
+    """Tuna in oil and tuna in water are different products. Only pure
+    containers go; "" means nothing was removed."""
+    assert without_packaging(ingredient) == ""
+
+
+def test_scoring_reads_past_the_container():
+    """The head noun of "mierikswortel in pot" is "pot", so every signal that
+    reads the last word saw the container and never fired. Kühne Mierikswortel
+    lost to two jars of pesto that agreed with each other about being pesto."""
+    horseradish = hit(1, "Kühne Mierikswortel", "Houdbaar", ("Conserven", "Gember"))
+    pesto_a = hit(2, "AH Groene pesto", "Houdbaar", ("Sauzen", "Pesto in pot"))
+    pesto_b = hit(3, "AH Pesto rosso", "Houdbaar", ("Sauzen", "Pesto in pot"))
+    cands = [pesto_a, pesto_b, horseradish]
+    assert cohort("mierikswortel in pot", cands) == [horseradish]
+
+
+def test_frozen_is_a_form_an_ingredient_can_ask_for():
+    """ "diepvries tuinerwten" means the freezer aisle."""
+    assert judge("diepvries tuinerwten", "Diepvries").accepted is True
+    assert judge("diepvries tuinerwten", "Houdbaar").accepted is False
+    assert judge("diepvries tuinerwten", "Vers").accepted is False
+
+
+@pytest.mark.parametrize(
+    "brand", ["AH", "AH Biologisch", "AH Excellent", "AH Terra", "De Zaanse Hoeve"]
+)
+def test_the_retailers_own_labels_are_recognised(brand):
+    """De Zaanse Hoeve does not say "AH" and is their dairy line: crème
+    fraîche is €1.09 there against €2.39 for the Arla that was being
+    chosen."""
+    assert is_own_brand(brand) is True
+
+
+@pytest.mark.parametrize("brand", ["Arla", "De Cecco", "Kühne", "Bonduelle"])
+def test_other_brands_are_not_own_label(brand):
+    assert is_own_brand(brand) is False
+
+
+def test_the_brand_preference_never_decides_what_kind_to_propose():
+    """With brand in the kind decision, an own-brand product of the WRONG kind
+    won: "mierikswortel in pot" chose AH Groene pesto over Kühne
+    Mierikswortel, and "runderbouillon van tablet" chose a bar of white
+    chocolate.
+
+    Constructed so the preference would actually flip the outcome - the two
+    candidates differ only on genericness - 0.65 apart, less than the 1.0 the
+    brand preference is worth - so neither head-noun matches and the flip is real.
+    """
+    own_brand_wrong = ProductHit(
+        webshop_id=1,
+        title="AH Witte chocolade reep",
+        brand="AH",
+        department="Houdbaar",
+        taxonomy_path=("Snoep", "Chocolade"),
+    )
+    other_brand_right = ProductHit(
+        webshop_id=2,
+        title="Bouillonblokjes",
+        brand="Kleinste Soepfabriek",
+        department="Houdbaar",
+        taxonomy_path=("Soepen", "Bouillon"),
+    )
+    pair = [own_brand_wrong, other_brand_right]
+
+    # The preference really would prefer the chocolate...
+    assert score("runderbouillon", own_brand_wrong, pair, 0) > score(
+        "runderbouillon", other_brand_right, pair, 1
+    )
+    # ...and the kind decision must ignore it anyway.
+    assert [c.webshop_id for c in cohort("runderbouillon van tablet", pair)] == [2]
+
+
+def test_the_own_brand_preference_applies_within_a_kind():
+    """Where two products are the same kind, the own label is preferred -
+    which is what was asked for, and it is usually the cheaper one."""
+    own = ProductHit(
+        webshop_id=1,
+        title="AH Excellent Orecchiette bio",
+        brand="AH Excellent",
+        department="Houdbaar",
+        taxonomy_path=("Pasta", "Schelpjes"),
+    )
+    other = ProductHit(
+        webshop_id=2,
+        title="De Cecco Orecchiette",
+        brand="De Cecco",
+        department="Houdbaar",
+        taxonomy_path=("Pasta", "Schelpjes"),
+    )
+    assert score("orecchiette pasta", own, [own, other], 0) > score(
+        "orecchiette pasta", other, [own, other], 0
+    )
+
+
+def test_a_recipe_that_names_a_brand_keeps_it():
+    """ "Verstegen dille" means Verstegen. Preferring the own label there would
+    override something the recipe was explicit about."""
+    assert names_a_brand("verstegen dille") is True
+    assert names_a_brand("crème fraîche") is False

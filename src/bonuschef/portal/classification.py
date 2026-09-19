@@ -32,10 +32,38 @@ from bonuschef.utils.ah_recipes import (
 # are checked, because they are the two the departments actually distinguish.
 _WANTS_FRESH = ("verse", "vers", "koelverse", "koelvers", "rauwe")
 _WANTS_AMBIENT = ("gedroogde", "gedroogd", "gemalen", "gepoederd", "blik", "pot")
+_WANTS_FROZEN = ("diepvries", "diepvriesgroente", "bevroren")
 
 # Fresh things are sold frozen too, and a recipe asking for fresh spinach is
 # not wronged by frozen spinach the way it is by a jar of dried dill.
 _FRESH_ENOUGH = frozenset({DEPARTMENT_FRESH, DEPARTMENT_FROZEN})
+
+# Words naming the container rather than the food. Stripping them is the
+# single most effective thing in this module, because the retailer's search
+# matches them: "cannellinibonen in blik" returns tuna, corn and pineapple,
+# while "cannellinibonen" returns AH Terra Cannellini bonen. "runderbouillon
+# van tablet" returns Ibuprofen and Paracetamol - both sold as tabletten.
+#
+# Only pure containers. "in olie" and "in water" stay, because tuna in oil and
+# tuna in water are different products and a recipe asking for one means it.
+_PACKAGING = (
+    "in blik",
+    "uit blik",
+    "in een blik",
+    "blikje",
+    "in pot",
+    "uit pot",
+    "in een pot",
+    "potje",
+    "van tablet",
+    "in tablet",
+    "tabletten",
+    "in zakje",
+    "zakje",
+    "in pak",
+    "pakje",
+    "uit de diepvries",
+)
 
 
 @dataclass(frozen=True)
@@ -65,6 +93,24 @@ def wants_ambient(ingredient_name: str) -> bool:
     return bool(_words(ingredient_name) & set(_WANTS_AMBIENT))
 
 
+def wants_frozen(ingredient_name: str) -> bool:
+    return bool(_words(ingredient_name) & set(_WANTS_FROZEN))
+
+
+def without_packaging(ingredient_name: str) -> str:
+    """The ingredient with any container words removed.
+
+    Returns "" when nothing was removed, so a caller can tell whether a second
+    search is worth spending a request on.
+    """
+    text = normalise(ingredient_name)
+    stripped = text
+    for phrase in _PACKAGING:
+        stripped = re.sub(rf"\b{re.escape(phrase)}\b", " ", stripped)
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    return "" if stripped == text or not stripped else stripped
+
+
 def judge(ingredient_name: str, department: str) -> Judgement:
     """Whether a product from this department can satisfy this ingredient.
 
@@ -81,6 +127,9 @@ def judge(ingredient_name: str, department: str) -> Judgement:
 
     if wants_fresh(ingredient_name) and dept not in _FRESH_ENOUGH:
         return Judgement(False, f"ingredient asks for fresh; product is {dept}")
+
+    if wants_frozen(ingredient_name) and dept != DEPARTMENT_FROZEN:
+        return Judgement(False, f"ingredient asks for frozen; product is {dept}")
 
     if wants_ambient(ingredient_name) and dept == DEPARTMENT_FRESH:
         return Judgement(
@@ -215,13 +264,49 @@ def head_noun_match(ingredient_name: str, title: str) -> bool:
     return _same_word(ingredient_words[-1], title_words[-1])
 
 
-def score(ingredient_name: str, candidate, siblings: list, position: int = 0) -> float:
+# The retailer's own labels, including the ones that do not say "AH": De
+# Zaanse Hoeve is their dairy line and is routinely the cheapest thing on the
+# shelf - crème fraîche is €1.09 there against €2.39 for the Arla the system
+# had been choosing.
+_OWN_BRANDS = ("ah", "de zaanse hoeve", "perekop", "delicata", "smaakt")
+
+
+def is_own_brand(brand: str) -> bool:
+    """Whether a product is the retailer's own label."""
+    normalised = normalise(brand)
+    return any(normalised == b or normalised.startswith(b + " ") for b in _OWN_BRANDS)
+
+
+def names_a_brand(ingredient_name: str) -> bool:
+    """Whether the recipe asked for a particular brand.
+
+    "Verstegen dille" means Verstegen. Preferring the own label there would
+    override something the recipe was explicit about.
+    """
+    words = _words(ingredient_name)
+    return any(all(part in words for part in b.split()) for b in _OWN_BRANDS) or bool(
+        words & {"verstegen", "knorr", "honig", "maggi", "conimex"}
+    )
+
+
+def score(
+    ingredient_name: str,
+    candidate,
+    siblings: list,
+    position: int = 0,
+    *,
+    prefer_own_brand: bool = True,
+) -> float:
     """How well a candidate answers an ingredient. Higher is better.
 
     Every term is explainable on purpose. A person correcting a match should
     be able to see why the system preferred what it did, and a rule nobody can
     explain is a rule nobody can fix.
     """
+    # Score against what the ingredient IS, not how it is packaged. The head
+    # noun of "mierikswortel in pot" is "pot", so every signal that reads the
+    # last word saw the container and never fired.
+    ingredient_name = without_packaging(ingredient_name) or ingredient_name
     leaf = getattr(candidate, "taxonomy_leaf", "")
     title = getattr(candidate, "title", "")
     total = 0.0
@@ -242,16 +327,33 @@ def score(ingredient_name: str, candidate, siblings: list, position: int = 0) ->
         if agreeing > 1:
             total += 2.0
 
+    # Weighted above leaf consensus on purpose. A product whose head noun IS
+    # the ingredient is stronger evidence than two other candidates agreeing
+    # with each other: "mierikswortel" lost to two jars of pesto that agreed
+    # they were pesto.
     if head_noun_match(ingredient_name, title):
-        total += 3.0
+        total += 4.0
 
     # Every word the title carries that the ingredient did not ask for is a
     # way the product might be something else.
     asked = set(_content_words(ingredient_name))
     total -= 0.4 * len([w for w in _content_words(title) if w not in asked])
 
-    # The retailer's own ordering, as a tiebreak only.
-    total -= 0.3 * position
+    # Prefer the retailer's own label when the recipe did not name a brand.
+    # Weaker than the taxonomy signals on purpose: it is a tiebreak between
+    # products that are already the same kind of thing, not a reason to pick
+    # the wrong kind.
+    if (
+        prefer_own_brand
+        and not names_a_brand(ingredient_name)
+        and is_own_brand(getattr(candidate, "brand", ""))
+    ):
+        total += 1.0
+
+    # The retailer's own ordering, as a tiebreak only - and a weak one,
+    # because candidates are merged from more than one query and a hit's index
+    # in the combined list says nothing about the query it came from.
+    total -= 0.15 * position
     return total
 
 
@@ -269,9 +371,17 @@ def cohort(ingredient_name: str, candidates: list) -> list:
     """
     if not candidates:
         return []
+    # Which KIND of thing to propose is decided without the brand preference.
+    # With it, an own-brand product of the wrong kind outranks a correctly
+    # matched one from another brand: "mierikswortel in pot" chose AH Groene
+    # pesto over Kühne Mierikswortel, and "runderbouillon van tablet" chose a
+    # bar of white chocolate. Brand is a tiebreak between products that are
+    # already the right thing, never a reason to pick the wrong thing.
     ordered = sorted(
         range(len(candidates)),
-        key=lambda i: -score(ingredient_name, candidates[i], candidates, i),
+        key=lambda i: -score(
+            ingredient_name, candidates[i], candidates, i, prefer_own_brand=False
+        ),
     )
     best = candidates[ordered[0]]
     key = normalise(getattr(best, "taxonomy_leaf", ""))
