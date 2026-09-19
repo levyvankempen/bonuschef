@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-09-19)
+
+### Features
+
+- Resolve ingredients by what a product is, not only what it is called
+  ([#50](https://github.com/levyvankempen/bonuschef/pull/50),
+  [`0f66503`](https://github.com/levyvankempen/bonuschef/commit/0f66503ecd92470e585697c8c920f4502ff938dc))
+
+
 ## v1.4.2 (2026-09-19)
 
 ### Bug Fixes
