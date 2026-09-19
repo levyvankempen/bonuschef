@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-09-19)
+
+### Features
+
+- Re-derive the products for concepts an older matcher settled
+  ([#52](https://github.com/levyvankempen/bonuschef/pull/52),
+  [`3eedde1`](https://github.com/levyvankempen/bonuschef/commit/3eedde1868515190153be5d85284fea5e385fb65))
+
+
 ## v1.5.0 (2026-09-19)
 
 ### Features
