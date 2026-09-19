@@ -26,6 +26,8 @@ from bonuschef.portal.classification import cohort, judge, without_packaging
 from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
 from bonuschef.portal.db import (
     flag_concepts,
+    read_stale_concepts,
+    replace_proposals,
     read_linked_products,
     withdraw_proposals,
 )
@@ -105,6 +107,18 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
     )
     propose_products(engine, ah_proposals)
 
+    # Re-derive the products for concepts an older matcher settled. This runs
+    # BEFORE the re-check, so that when a contradicting link is withdrawn the
+    # concept already has a better answer to fall back on and the "never leave
+    # it empty" guard does not have to keep the bad one.
+    #
+    # It spends what proposing did not: new concepts come first, because an
+    # ingredient with no price at all is a worse state than one with a price
+    # that is wrong.
+    repropose = repropose_stale(
+        engine, context, budget=max(0, MAX_AH_LOOKUPS_PER_RUN - spent)
+    )
+
     # Re-judge what is already linked. Filtering only new proposals would fix
     # nothing: a concept with any row at all never re-enters the query above,
     # so every wrong answer already recorded would stay recorded.
@@ -133,6 +147,8 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
             # The ones a person still has to decide. This is the review queue,
             # and it is the honest measure of how far off a full answer is.
             "still_unmatched": len(concepts) - resolved,
+            "concepts_reproposed": repropose.get("replaced", 0),
+            "repropose_lookups": repropose.get("spent", 0),
             "existing_links_checked": recheck.get("checked", 0),
             "contradicting_links_withdrawn": recheck.get("withdrawn", 0),
             # Concepts whose only products contradict them. Withdrawing those
@@ -262,6 +278,91 @@ def _propose_from_ah(
             rejected,
         )
     return proposals, spent, False
+
+
+def _candidates_for(name: str, crosswalk: dict) -> tuple[list[dict], int, int]:
+    """Search, classify, narrow, and map onto products we can price.
+
+    Shared by proposing and re-proposing so the two cannot drift: a concept
+    re-examined next month must be judged by the same rules as one seen for
+    the first time today.
+
+    Returns the proposals, how many lookups it spent, and how many candidates
+    it rejected outright.
+    """
+    spent, rejected = 1, 0
+    hits = search_products(name)
+    # The container word poisons the retailer's search - it matches the
+    # packaging rather than the food. See without_packaging().
+    plain = without_packaging(name)
+    if plain:
+        spent += 1
+        seen = {h.webshop_id for h in hits}
+        hits = hits + [h for h in search_products(plain) if h.webshop_id not in seen]
+
+    acceptable = []
+    for hit in hits:
+        if judge(name, hit.department).accepted:
+            acceptable.append(hit)
+        else:
+            rejected += 1
+
+    proposals = []
+    for hit in cohort(name, acceptable):
+        known = crosswalk.get(hit.webshop_id)
+        if known is None:
+            # AH sells it; we have never seen a price for it.
+            continue
+        proposals.append({"product_link": known[0], "product_name": known[1]})
+    return proposals, spent, rejected
+
+
+def repropose_stale(engine, context: AssetExecutionContext, budget: int) -> dict:
+    """Re-examine concepts whose products an older matcher chose.
+
+    The classification checks only ever *withdraw*, and they withdraw what
+    contradicts the ingredient - a non-food product, or the wrong form. That
+    leaves the commonest kind of wrong answer untouched, because tuna, pesto
+    and peanut butter are all edible and all ambient. "cannellinibonen in
+    blik" was linked to anchovies, pineapple, tuna and corn, and not one of
+    them is something the rules can object to.
+
+    So the links have to be re-derived, not merely filtered.
+    """
+    if budget <= 0:
+        return {"examined": 0, "replaced": 0, "spent": 0}
+
+    crosswalk = _webshop_id_to_product(engine)
+    concepts = read_stale_concepts(engine, limit=budget)
+    spent = replaced = 0
+
+    for row in concepts:
+        if spent >= budget:
+            break
+        name = row["concept_name"]
+        try:
+            proposals, cost, _rejected = _candidates_for(name, crosswalk)
+        except AHRecipeUnavailable as exc:
+            context.log.warning("Re-proposing stopped: %s", str(exc)[:120])
+            break
+        spent += cost
+        if not proposals:
+            # A fresh search found nothing we can price. Keeping what is there
+            # is better than emptying the concept on no evidence.
+            continue
+        for proposal in proposals:
+            proposal["concept_id"] = row["concept_id"]
+        replace_proposals(engine, row["concept_id"], proposals)
+        replaced += 1
+
+    if replaced:
+        context.log.info(
+            "Re-derived the products for %d concept(s) proposed by an older "
+            "matcher (%d lookups)",
+            replaced,
+            spent,
+        )
+    return {"examined": len(concepts), "replaced": replaced, "spent": spent}
 
 
 def _webshop_id_to_product(engine) -> dict[int, tuple[str, str]]:

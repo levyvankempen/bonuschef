@@ -8,9 +8,9 @@ engine would assert only that the right strings were sent.
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 import os
+from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -21,6 +21,8 @@ from bonuschef.portal.db import (
     ensure_catalogue_tables,
     propose_products,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
 
 _CONCEPT = 999_000_001
 _OTHER = 999_000_002
@@ -806,3 +808,149 @@ class TestRecheckingExistingLinks:
         assert removed == []
         assert stats["flagged"] == 1
         assert any("verse dragon" in w for w in warnings)
+
+
+class TestReproposingStaleResolutions:
+    """Re-deriving the products for concepts an older matcher settled.
+
+    The classification checks only withdraw what *contradicts* an ingredient,
+    and the commonest wrong answers do not: tuna, pesto and peanut butter are
+    all edible and all ambient. "cannellinibonen in blik" was linked to
+    anchovies, pineapple, tuna and corn, and none of them is something the
+    rules can object to. The links have to be re-derived, not filtered.
+    """
+
+    def _run(self, monkeypatch, stale, hits_by_term, budget=300):
+        import bonuschef.dags.defs.assets.resolution as mod
+
+        replaced: list[tuple] = []
+        monkeypatch.setattr(mod, "read_stale_concepts", lambda e, limit: stale[:limit])
+        monkeypatch.setattr(
+            mod,
+            "_webshop_id_to_product",
+            lambda e: {
+                h.webshop_id: (f"wi{h.webshop_id}/x", h.title)
+                for hs in hits_by_term.values()
+                for h in hs
+            },
+        )
+        monkeypatch.setattr(
+            mod, "search_products", lambda term: hits_by_term.get(term, [])
+        )
+        monkeypatch.setattr(
+            mod,
+            "replace_proposals",
+            lambda e, cid, products: (
+                replaced.append((cid, [p["product_name"] for p in products])),
+                len(products),
+            )[1],
+        )
+
+        class _Ctx:
+            class log:
+                @staticmethod
+                def info(*a, **k):
+                    pass
+
+                @staticmethod
+                def warning(*a, **k):
+                    pass
+
+        stats = mod.repropose_stale(cast(Any, object()), cast(Any, _Ctx()), budget)
+        return stats, replaced
+
+    @staticmethod
+    def _hit(wid, title, dept="Houdbaar", path=()):
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        return ProductHit(
+            webshop_id=wid, title=title, department=dept, taxonomy_path=tuple(path)
+        )
+
+    def test_a_stale_link_is_replaced_not_added_to(self, monkeypatch):
+        """Keeping the old proposals alongside a better answer would leave the
+        wrong products available to win on price, which is exactly how a jar
+        of pesto comes to decide the cost of a dish containing horseradish."""
+        stale = [{"concept_id": 1, "concept_name": "mierikswortel in pot", "uses": 9}]
+        hits = {
+            "mierikswortel in pot": [
+                self._hit(2, "AH Groene pesto", path=("Sauzen", "Pesto in pot")),
+                self._hit(3, "AH Pesto rosso", path=("Sauzen", "Pesto in pot")),
+            ],
+            "mierikswortel": [
+                self._hit(4, "Kühne Mierikswortel", path=("Conserven", "Gember")),
+            ],
+        }
+        _stats, replaced = self._run(monkeypatch, stale, hits)
+        assert replaced == [(1, ["Kühne Mierikswortel"])], (
+            f"expected the horseradish alone, got {replaced}"
+        )
+
+    def test_the_packaged_and_plain_searches_are_both_made(self, monkeypatch):
+        """Two lookups, and the budget must be told about both or it will
+        overspend."""
+        stale = [
+            {"concept_id": 1, "concept_name": "cannellinibonen in blik", "uses": 3}
+        ]
+        hits = {
+            "cannellinibonen in blik": [
+                self._hit(2, "Statesman Tonijn", path=("Vis", "Tonijn"))
+            ],
+            "cannellinibonen": [
+                self._hit(
+                    3, "AH Terra Cannellini bonen", path=("Peulvruchten", "Bonen")
+                )
+            ],
+        }
+        stats, replaced = self._run(monkeypatch, stale, hits)
+        assert stats["spent"] == 2
+        assert replaced[0][1] == ["AH Terra Cannellini bonen"]
+
+    def test_a_concept_a_person_confirmed_is_never_examined(self, monkeypatch):
+        """Guarded in SQL rather than here, but the pass must not go looking
+        for them either."""
+        sql = (ROOT / "src" / "bonuschef" / "portal" / "db.py").read_text()
+        assert "HAVING BOOL_AND(p.confirmed_at IS NULL)" in sql
+
+    def test_finding_nothing_leaves_the_concept_alone(self, monkeypatch):
+        """Emptying a concept because a search came back empty would turn a
+        wrong price into a missing one on no evidence at all."""
+        stale = [{"concept_id": 1, "concept_name": "iets", "uses": 1}]
+        _stats, replaced = self._run(monkeypatch, stale, {})
+        assert replaced == []
+
+    def test_the_budget_is_respected(self, monkeypatch):
+        """It shares a budget with proposing, and proposing comes first: an
+        ingredient with no price at all is worse than one priced wrongly."""
+        stale = [
+            {"concept_id": i, "concept_name": f"c{i}", "uses": 1} for i in range(50)
+        ]
+        hits = {
+            f"c{i}": [self._hit(100 + i, f"p{i}", path=("X", "Y"))] for i in range(50)
+        }
+        stats, replaced = self._run(monkeypatch, stale, hits, budget=5)
+        assert stats["spent"] <= 5 + 1, f"overspent: {stats}"
+        assert len(replaced) <= 5
+
+    def test_no_budget_means_no_lookups(self, monkeypatch):
+        stats, replaced = self._run(monkeypatch, [], {}, budget=0)
+        assert stats == {"examined": 0, "replaced": 0, "spent": 0}
+        assert replaced == []
+
+    def test_reproposing_runs_before_the_recheck(self):
+        """Order matters: with a better answer already in place, withdrawing a
+        contradicting link no longer risks emptying the concept, so the "never
+        leave it empty" guard does not have to keep the bad one."""
+        body = (
+            ROOT
+            / "src"
+            / "bonuschef"
+            / "dags"
+            / "defs"
+            / "assets"
+            / "resolution"
+            / "__init__.py"
+        ).read_text()
+        assert body.index("repropose_stale(") < body.index(
+            "recheck_existing_links(engine, context)"
+        )
