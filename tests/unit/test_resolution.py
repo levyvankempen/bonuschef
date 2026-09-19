@@ -776,3 +776,31 @@ class TestRecheckingExistingLinks:
         stats = mod.recheck_existing_links(cast(Any, object()), cast(Any, _Ctx()))
         assert removed == []
         assert stats.get("unreachable") is True
+
+    def test_a_non_food_product_goes_even_if_it_is_the_only_one(self, monkeypatch):
+        """ "wortel" resolved to a paper napkin, and the napkin was its only
+        candidate. Keeping it to avoid emptying the concept would price a
+        recipe off a napkin.
+
+        Safe because an ingredient with no product is already required to be
+        visible rather than silent - the gap shows on the page, the napkin
+        would not have.
+        """
+        links = [
+            TestRecheckingExistingLinks._link(1, "wortel", 9, "AH Vormservet wortel")
+        ]
+        classified = {9: TestRecheckingExistingLinks._hit(9, "napkin", "Non Food")}
+        _stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == [(1, "wi9/x")]
+
+    def test_a_wrong_form_is_kept_when_it_is_the_only_one(self, monkeypatch):
+        """ "verse dragon" has only Verstegen Dragon, which is dried. That is a
+        worse match, not an impossible one - unlike a napkin, it is tarragon."""
+        links = [
+            TestRecheckingExistingLinks._link(1, "verse dragon", 2, "Verstegen Dragon")
+        ]
+        classified = {2: TestRecheckingExistingLinks._hit(2, "Verstegen", "Houdbaar")}
+        stats, removed, warnings = self._run(monkeypatch, links, classified)
+        assert removed == []
+        assert stats["flagged"] == 1
+        assert any("verse dragon" in w for w in warnings)

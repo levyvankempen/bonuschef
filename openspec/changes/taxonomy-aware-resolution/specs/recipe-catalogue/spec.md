@@ -86,6 +86,16 @@ recorded in place, which is where the known wrong answers actually are.
 - **WHEN** a recorded resolution was confirmed by a person
 - **THEN** it is left alone, because a human decision outranks a classification rule
 
+#### Scenario: The only recorded product is a non-food one
+
+- **WHEN** an ingredient's only recorded product is one it can never be satisfied by
+- **THEN** that resolution is withdrawn even though nothing replaces it, because an ingredient with no product is already shown as unresolved, while a wrong one is silently priced
+
+#### Scenario: The only recorded product is merely the wrong form
+
+- **WHEN** an ingredient's only recorded product is edible but in a form the ingredient did not ask for
+- **THEN** it is kept and raised for review, because a worse match is not an impossible one
+
 ### Requirement: A person reviewing a match can see what each candidate is
 
 When a person is choosing between candidate products for an ingredient, each

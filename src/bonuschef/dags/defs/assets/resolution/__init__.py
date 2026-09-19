@@ -23,6 +23,7 @@ from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
 from bonuschef.portal.classification import judge, rank
+from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
 from bonuschef.portal.db import read_linked_products, withdraw_proposals
 from bonuschef.utils.ah_recipes import fetch_product_taxonomy  # noqa: F401
 from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
@@ -298,14 +299,28 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
             elif row["confirmed"] or judge(name, hit.department).accepted:
                 acceptable.append(row)
             else:
-                contradicting.append(row)
+                contradicting.append((row, hit.department))
 
         if not contradicting:
             continue
-        if acceptable:
-            withdraw.extend((concept_id, r["product_link"]) for r in contradicting)
-        else:
-            flagged.append(f"{name} ({len(contradicting)})")
+
+        # A non-food product can never be right, so it goes whether or not the
+        # concept keeps anything. Leaving "wortel" resolved to a paper napkin
+        # because the napkin is its only candidate would price a recipe off a
+        # napkin; an ingredient with nothing is already required to be visible
+        # rather than silent, so the gap is the better outcome.
+        never_right = [r for r, d in contradicting if d == DEPARTMENT_NON_FOOD]
+        wrong_form = [r for r, d in contradicting if d != DEPARTMENT_NON_FOOD]
+
+        withdraw.extend((concept_id, r["product_link"]) for r in never_right)
+
+        # A form mismatch is a worse match, not an impossible one - dried
+        # tarragon will do if fresh is all the recipe asked to avoid. Withdraw
+        # it only when something better survives.
+        if wrong_form and acceptable:
+            withdraw.extend((concept_id, r["product_link"]) for r in wrong_form)
+        elif wrong_form:
+            flagged.append(f"{name} ({len(wrong_form)})")
 
     removed = withdraw_proposals(engine, withdraw)
     if flagged:
