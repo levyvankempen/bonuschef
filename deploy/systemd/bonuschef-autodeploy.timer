@@ -1,0 +1,21 @@
+[Unit]
+Description=Check for a new bonuschef release
+Documentation=https://github.com/levyvankempen/bonuschef/blob/main/docs/deployment.md
+
+[Timer]
+# Every ten minutes. A tick is one `git fetch` against a public repository
+# when there is nothing to do, so the cost of checking often is negligible,
+# and it keeps the gap between "released" and "running" small.
+OnBootSec=5min
+OnUnitActiveSec=10min
+
+# Without this, every machine running this timer would hit GitHub on the same
+# ten-minute boundary. There is only one machine today, but the habit is free.
+RandomizedDelaySec=2min
+
+# Run a missed tick after a reboot or a suspend rather than waiting for the
+# next boundary, so a server that was off during a release catches up.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

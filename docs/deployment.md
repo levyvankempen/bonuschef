@@ -93,6 +93,42 @@ different tomorrow while the image stamp claims to describe a fixed thing, which
 is the confusion this whole arrangement exists to remove. It also refuses to
 rebuild while a run is in flight (§ below), and refuses to start without `.env`.
 
+### Deploying automatically
+
+A systemd timer checks for a newer release every ten minutes and deploys it:
+
+```bash
+cp deploy/systemd/bonuschef-autodeploy.* /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now bonuschef-autodeploy.timer
+
+systemctl list-timers bonuschef-autodeploy    # when it next runs
+journalctl -u bonuschef-autodeploy -n 50      # what it has been doing
+```
+
+This is the pull half of GitOps, which is what ArgoCD does for a cluster. A
+cluster was considered and rejected: k3s' control plane plus ArgoCD's five
+components need roughly as much memory as this guest has in total, and the
+repository already carried Kubernetes manifests nobody ran, which were deleted
+for the reason now written down as *"a committed deployment path meets the
+requirements it is subject to"*.
+
+What it will **not** do, and what you give up by not running ArgoCD:
+
+- It does not detect drift. Edit a file on the server and nothing reverts it —
+  though the version stamp will mark the checkout `-dirty` and the portal will
+  stop calling it a release, so the drift is at least visible.
+- It refuses to touch a dirty checkout at all, so debugging on the box is safe
+  from it.
+- It never rolls backwards. Rolling back is `./scripts/deploy.sh v1.3.0`,
+  deliberately, by a person.
+
+A tick that declines to act exits 0. In particular, "a Dagster run is in
+flight" is not a failure: that happens several times a day, and a timer that
+reported it would be muted within a week and then the real failures would be
+invisible too. Genuine deploy failures do mark the unit failed, and show up in
+`systemctl --failed`.
+
 To migrate a host that was rsynced, convert it in place rather than moving it —
 `.env` is untracked and must survive, and the Docker volumes are not in this
 directory at all, so the data is not at risk:
