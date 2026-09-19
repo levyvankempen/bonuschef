@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.4.1 (2026-09-19)
+
+### Bug Fixes
+
+- The auto-deployer must outlive the releases it deploys
+  ([#49](https://github.com/levyvankempen/bonuschef/pull/49),
+  [`b446969`](https://github.com/levyvankempen/bonuschef/commit/b44696973847047e2bd5e8fc1309b03f3aa8ec29))
+
+
 ## v1.4.0 (2026-09-19)
 
 ### Documentation
