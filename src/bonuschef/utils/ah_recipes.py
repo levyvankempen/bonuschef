@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from bonuschef.utils.ah_auth import AHAuthError, AHTokenManager, manager_from_env
@@ -577,7 +578,7 @@ def fetch_recipes(
 
 _PRODUCT_SEARCH_QUERY = """query AHProductSearch($input: SearchProductsInput!) {
   searchProducts(input: $input) {
-    products { id title salesUnitSize brand }
+    products { id title salesUnitSize brand taxonomies { id name } properties { code values } }
   }
 }"""
 
@@ -602,6 +603,54 @@ class ProductHit:
     title: str
     sales_unit_size: str = ""
     brand: str = ""
+    department: str = ""
+    taxonomy_path: tuple[str, ...] = ()
+
+    @property
+    def taxonomy_leaf(self) -> str:
+        """The most specific thing AH calls this product.
+
+        AH names its leaves the way recipes name ingredients - "Witte kaas",
+        "Gerookte zalm", "Slagroom" - which is why the leaf, rather than the
+        whole path, is what resolution compares against.
+        """
+        return self.taxonomy_path[-1] if self.taxonomy_path else ""
+
+
+# AH's five store departments, measured across the catalogue rather than
+# assumed. Coarse on purpose: this separates a napkin from a carrot without
+# pretending to know which carrot is better.
+DEPARTMENT_NON_FOOD = "Non Food"
+DEPARTMENT_FRESH = "Vers"
+DEPARTMENT_AMBIENT = "Houdbaar"
+DEPARTMENT_FROZEN = "Diepvries"
+DEPARTMENT_NEAR_FOOD = "Near Food"
+
+_STORE_DEPARTMENT_CODE = "da_store_department"
+
+
+def _parse_taxonomy(payload: dict) -> tuple[str, tuple[str, ...]]:
+    """Pull the department and taxonomy path out of a product payload.
+
+    Returns empty values rather than raising: a product AH declines to
+    classify is still purchasable, and the checks that read this abstain when
+    it is absent instead of rejecting the product.
+    """
+    department = ""
+    for prop in payload.get("properties") or []:
+        if isinstance(prop, dict) and prop.get("code") == _STORE_DEPARTMENT_CODE:
+            values = [
+                str(v).strip() for v in (prop.get("values") or []) if str(v).strip()
+            ]
+            if values:
+                department = values[0]
+            break
+    path = tuple(
+        str(node.get("name") or "").strip()
+        for node in (payload.get("taxonomies") or [])
+        if isinstance(node, dict) and str(node.get("name") or "").strip()
+    )
+    return department, path
 
 
 def search_products(
@@ -648,12 +697,79 @@ def search_products(
         # one without a title cannot be reviewed by a person.
         if not isinstance(webshop_id, int) or not title:
             continue
+        department, path = _parse_taxonomy(payload)
         hits.append(
             ProductHit(
                 webshop_id=webshop_id,
                 title=title,
                 sales_unit_size=str(payload.get("salesUnitSize") or ""),
                 brand=str(payload.get("brand") or ""),
+                department=department,
+                taxonomy_path=path,
             )
         )
     return hits
+
+
+# --------------------------------------------------------------------------
+# What a product already in our catalogue actually is
+# --------------------------------------------------------------------------
+
+# Alias batching, the same trick `recipe(id:)` uses. The 1,901 products already
+# linked to an ingredient need classifying, and one search per concept would be
+# 1,901 requests for a fact that does not depend on the concept at all.
+#
+# Smaller than the recipe batch because each product carries a nested taxonomy
+# and a property list. Measured, not guessed: 60 passes, 100 returns a 502.
+MAX_TAXONOMY_BATCH = 50
+
+_PRODUCT_BY_ID_FIELDS = "id title taxonomies { id name } properties { code values }"
+
+
+def fetch_product_taxonomy(
+    webshop_ids: Sequence[int], *, manager: AHTokenManager | None = None
+) -> dict[int, ProductHit]:
+    """Classify products we already hold, by webshop id.
+
+    Returns what it could classify. A product AH no longer sells simply does
+    not appear in the result - it is not an error, and the caller must not
+    treat a missing entry as "this product is wrong", only as "unknown".
+    """
+    ids = [
+        int(i) for i in webshop_ids if isinstance(i, (int, str)) and str(i).isdigit()
+    ]
+    if not ids:
+        return {}
+    manager = manager or manager_from_env()
+    out: dict[int, ProductHit] = {}
+
+    for start in range(0, len(ids), MAX_TAXONOMY_BATCH):
+        chunk = ids[start : start + MAX_TAXONOMY_BATCH]
+        selection = " ".join(
+            f"p{wid}: product(id: {wid}) {{ {_PRODUCT_BY_ID_FIELDS} }}" for wid in chunk
+        )
+        _pace()
+        try:
+            data, _errors = manager.graphql_partial("query{ %s }" % selection, {})
+        except AHAuthError as exc:
+            raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+        except Exception as exc:
+            raise AHRecipeUnavailable(f"Could not reach Albert Heijn: {exc}") from exc
+
+        # Partial data is the normal case: one delisted product in a batch of
+        # fifty nulls its own alias and leaves the other forty-nine intact.
+        for payload in (data or {}).values():
+            if not isinstance(payload, dict):
+                continue
+            wid = payload.get("id")
+            title = str(payload.get("title") or "").strip()
+            if not isinstance(wid, int) or not title:
+                continue
+            department, path = _parse_taxonomy(payload)
+            out[wid] = ProductHit(
+                webshop_id=wid,
+                title=title,
+                department=department,
+                taxonomy_path=path,
+            )
+    return out

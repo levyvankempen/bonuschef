@@ -969,3 +969,53 @@ def read_pipeline_health(_engine) -> pd.DataFrame:
     # NaT overdue means never succeeded, which is overdue by definition.
     df["is_overdue"] = df["overdue_h"].isna() | (df["overdue_h"] > df["tolerance_h"])
     return df.sort_values("job_name").reset_index(drop=True)
+
+
+_LINKED_FOR_RECHECK = """
+    SELECT p.concept_id,
+           MIN(i.concept_name) AS concept_name,
+           p.product_link,
+           p.product_name,
+           p.confirmed_at IS NOT NULL AS confirmed
+    FROM public.ah_ingredient_products AS p
+    JOIN public.ah__pool_recipe_ingredients AS i ON i.concept_id = p.concept_id
+    WHERE i.concept_name IS NOT NULL
+    GROUP BY p.concept_id, p.product_link, p.product_name, p.confirmed_at
+"""
+
+
+def read_linked_products(engine) -> list[dict]:
+    """Every ingredient-to-product link, with the ingredient's name.
+
+    The name is needed because whether a link is wrong depends on what was
+    asked for: Verstegen Dille is the right answer to "gedroogde dille" and the
+    wrong one to "verse dille".
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(text(_LINKED_FOR_RECHECK)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def withdraw_proposals(engine, links: list[tuple[int, str]]) -> int:
+    """Remove unconfirmed proposals, by (concept_id, product_link).
+
+    Refuses to touch a confirmed row even if asked. The guard is in the SQL
+    rather than the caller because this is the one operation here that destroys
+    a person's work if it is wrong, and a caller that forgets is likelier than
+    a WHERE clause that changes.
+    """
+    if not links:
+        return 0
+    removed = 0
+    with engine.begin() as conn:
+        for concept_id, product_link in links:
+            result = conn.execute(
+                text(
+                    "DELETE FROM public.ah_ingredient_products "
+                    "WHERE concept_id = :cid AND product_link = :link "
+                    "AND confirmed_at IS NULL"
+                ),
+                {"cid": int(concept_id), "link": product_link},
+            )
+            removed += result.rowcount or 0
+    return removed

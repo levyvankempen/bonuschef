@@ -15,12 +15,16 @@ review queue is where a proposal becomes a decision; this job only ensures there
 is something to review, ordered by how much difference it makes.
 """
 
+import re
 from dagster import AssetExecutionContext, AssetKey, RetryPolicy, asset
 from sqlalchemy import text
 
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
+from bonuschef.portal.classification import judge, rank
+from bonuschef.portal.db import read_linked_products, withdraw_proposals
+from bonuschef.utils.ah_recipes import fetch_product_taxonomy  # noqa: F401
 from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
 
 # What one run may spend on AH. The first pass over a fresh pool has ~1,400
@@ -96,6 +100,11 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
     )
     propose_products(engine, ah_proposals)
 
+    # Re-judge what is already linked. Filtering only new proposals would fix
+    # nothing: a concept with any row at all never re-enters the query above,
+    # so every wrong answer already recorded would stay recorded.
+    recheck = recheck_existing_links(engine, context)
+
     resolved = len(local_resolved | {p["concept_id"] for p in ah_proposals})
     context.log.info(
         "Proposed %d products across %d of %d concepts (%d AH lookups)",
@@ -119,6 +128,12 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
             # The ones a person still has to decide. This is the review queue,
             # and it is the honest measure of how far off a full answer is.
             "still_unmatched": len(concepts) - resolved,
+            "existing_links_checked": recheck.get("checked", 0),
+            "contradicting_links_withdrawn": recheck.get("withdrawn", 0),
+            # Concepts whose only products contradict them. Withdrawing those
+            # would leave the concept with nothing, so they are reported here
+            # for a person instead.
+            "concepts_left_with_only_wrong_products": recheck.get("flagged", 0),
         }
     )
 
@@ -141,6 +156,7 @@ def _propose_from_ah(
     crosswalk = _webshop_id_to_product(engine)
     proposals: list[dict] = []
     spent = 0
+    rejected = 0
     consecutive_failures = 0
     for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
         try:
@@ -175,7 +191,18 @@ def _propose_from_ah(
             continue
         consecutive_failures = 0
         spent += 1
-        for hit in hits:
+        # AH's relevance is good but not about *kind*: it returns Verstegen
+        # Dille, a jar of dried dill, for "verse dille". Its own classification
+        # says so, and rank() then puts a candidate the taxonomy actually names
+        # ahead of one that merely mentions the ingredient in its title.
+        for hit in rank(name, hits):
+            verdict = judge(name, hit.department)
+            if not verdict.accepted:
+                rejected += 1
+                context.log.debug(
+                    "rejected %s for %r: %s", hit.title, name, verdict.reason
+                )
+                continue
             known = crosswalk.get(hit.webshop_id)
             if known is None:
                 # AH sells it; we have never seen a price for it. Proposing it
@@ -189,6 +216,12 @@ def _propose_from_ah(
                     "product_name": known[1],
                 }
             )
+    if rejected:
+        context.log.info(
+            "%d candidate(s) rejected because their classification "
+            "contradicted the ingredient",
+            rejected,
+        )
     return proposals, spent, False
 
 
@@ -208,3 +241,83 @@ def _webshop_id_to_product(engine) -> dict[int, tuple[str, str]]:
             )
         ).all()
     return {int(r[0]): (r[1], r[2]) for r in rows}
+
+
+def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
+    """Re-judge links already in the database against what the products are.
+
+    A filter applied only to new proposals fixes nothing, because the wrong
+    answers are already recorded: "mierikswortel in pot" resolves to pesto,
+    salsa and peanut butter today, and nothing revisits a concept once it has
+    any row at all.
+
+    Two guards, both load-bearing:
+
+    - a confirmed row is never touched, because a person decided it;
+    - a contradicting proposal is withdrawn only if the concept keeps another
+      acceptable one. Removing the last candidate turns a visibly wrong price
+      into a silently missing one, and silence is the worse failure - a wrong
+      product on the page can be seen and corrected, an absent one cannot.
+
+    Returns counts; the concepts it could not fix are reported for review
+    rather than being quietly emptied.
+    """
+    links = read_linked_products(engine)
+    if not links:
+        return {"checked": 0, "withdrawn": 0, "flagged": 0}
+
+    webshop_ids = sorted(
+        {
+            wid
+            for link in links
+            if (wid := _webshop_id(link["product_link"])) is not None
+        }
+    )
+    try:
+        classified = fetch_product_taxonomy(webshop_ids)
+    except AHRecipeUnavailable as exc:
+        context.log.warning("Could not classify products: %s", str(exc)[:160])
+        return {"checked": 0, "withdrawn": 0, "flagged": 0, "unreachable": True}
+
+    by_concept: dict[int, list[dict]] = {}
+    for link in links:
+        by_concept.setdefault(int(link["concept_id"]), []).append(link)
+
+    withdraw: list[tuple[int, str]] = []
+    flagged: list[str] = []
+    for concept_id, rows in by_concept.items():
+        name = rows[0]["concept_name"]
+        contradicting, acceptable = [], []
+        for row in rows:
+            wid = _webshop_id(row["product_link"])
+            hit = classified.get(wid) if wid is not None else None
+            if hit is None:
+                # Unknown is not wrong. A delisted product still counts as a
+                # candidate here rather than being withdrawn on no evidence.
+                acceptable.append(row)
+            elif row["confirmed"] or judge(name, hit.department).accepted:
+                acceptable.append(row)
+            else:
+                contradicting.append(row)
+
+        if not contradicting:
+            continue
+        if acceptable:
+            withdraw.extend((concept_id, r["product_link"]) for r in contradicting)
+        else:
+            flagged.append(f"{name} ({len(contradicting)})")
+
+    removed = withdraw_proposals(engine, withdraw)
+    if flagged:
+        context.log.warning(
+            "%d concept(s) have only contradicting products and were left "
+            "alone rather than emptied: %s",
+            len(flagged),
+            ", ".join(flagged[:10]),
+        )
+    return {"checked": len(links), "withdrawn": removed, "flagged": len(flagged)}
+
+
+def _webshop_id(product_link: str) -> int | None:
+    match = re.match(r"wi(\d+)/", product_link or "")
+    return int(match.group(1)) if match else None
