@@ -14,6 +14,7 @@ import streamlit as st
 from dagster import DagsterRunStatus
 
 from bonuschef.portal.db import (
+    clear_flag,
     add_resolution_products,
     confirm_resolution,
     read_concept_resolution,
@@ -117,6 +118,15 @@ def _render_body(engine, concepts) -> None:
     for _, row in concepts.iterrows():
         concept_id, name = int(row["concept_id"]), row["concept_name"]
         st.markdown(f"**{name}**")
+        # Why this one is back. A flagged concept was settled once and has
+        # since been found to contradict itself, so arriving here without an
+        # explanation would read as the queue having forgotten the decision.
+        if row.get("is_flagged"):
+            st.warning(
+                row.get("flag_reason")
+                or "De gekoppelde producten kloppen waarschijnlijk niet.",
+                icon=":material/report:",
+            )
         options = _options(engine, concept_id, name)
 
         # Search is always available, not only when nothing was proposed.
@@ -173,6 +183,10 @@ def _render_body(engine, concepts) -> None:
             ]
             add_resolution_products(engine, concept_id, new_products)
             confirm_resolution(engine, concept_id, links)
+            # The person has dealt with it; the flag has served its purpose.
+            # Leaving it would put the concept back at the head of the queue
+            # they just cleared it from.
+            clear_flag(engine, concept_id)
         _clear_reads()
         # Fire-and-forget: blocking here would make settling five ingredients a
         # five-minute wait, since runs are serialised instance-wide. But saying

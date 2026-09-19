@@ -15,12 +15,21 @@ review queue is where a proposal becomes a decision; this job only ensures there
 is something to review, ordered by how much difference it makes.
 """
 
+import re
 from dagster import AssetExecutionContext, AssetKey, RetryPolicy, asset
 from sqlalchemy import text
 
 from bonuschef.portal.db import get_engine, propose_products
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
+from bonuschef.portal.classification import cohort, judge, without_packaging
+from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
+from bonuschef.portal.db import (
+    flag_concepts,
+    read_linked_products,
+    withdraw_proposals,
+)
+from bonuschef.utils.ah_recipes import fetch_product_taxonomy  # noqa: F401
 from bonuschef.utils.ah_recipes import AHRecipeUnavailable, search_products
 
 # What one run may spend on AH. The first pass over a fresh pool has ~1,400
@@ -96,6 +105,11 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
     )
     propose_products(engine, ah_proposals)
 
+    # Re-judge what is already linked. Filtering only new proposals would fix
+    # nothing: a concept with any row at all never re-enters the query above,
+    # so every wrong answer already recorded would stay recorded.
+    recheck = recheck_existing_links(engine, context)
+
     resolved = len(local_resolved | {p["concept_id"] for p in ah_proposals})
     context.log.info(
         "Proposed %d products across %d of %d concepts (%d AH lookups)",
@@ -119,6 +133,12 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
             # The ones a person still has to decide. This is the review queue,
             # and it is the honest measure of how far off a full answer is.
             "still_unmatched": len(concepts) - resolved,
+            "existing_links_checked": recheck.get("checked", 0),
+            "contradicting_links_withdrawn": recheck.get("withdrawn", 0),
+            # Concepts whose only products contradict them. Withdrawing those
+            # would leave the concept with nothing, so they are reported here
+            # for a person instead.
+            "concepts_left_with_only_wrong_products": recheck.get("flagged", 0),
         }
     )
 
@@ -141,10 +161,29 @@ def _propose_from_ah(
     crosswalk = _webshop_id_to_product(engine)
     proposals: list[dict] = []
     spent = 0
+    rejected = 0
+    narrowed = 0
     consecutive_failures = 0
     for concept_id, name in list(concepts.items())[:MAX_AH_LOOKUPS_PER_RUN]:
         try:
             hits = search_products(name)
+            # The container word poisons the retailer's search: it matches the
+            # packaging instead of the food. "cannellinibonen in blik" returns
+            # tuna, corn and pineapple; "cannellinibonen" returns AH Terra
+            # Cannellini bonen. "runderbouillon van tablet" returns Ibuprofen
+            # and Paracetamol, both sold as tabletten.
+            #
+            # Both results are kept rather than the second replacing the first.
+            # The full phrase is still what the recipe said, and where it
+            # works it is the more specific answer; the classification rules
+            # and the cohort decide between them afterwards.
+            plain = without_packaging(name)
+            if plain:
+                spent += 1
+                seen = {h.webshop_id for h in hits}
+                hits = hits + [
+                    h for h in search_products(plain) if h.webshop_id not in seen
+                ]
         except AHRecipeUnavailable as exc:
             if isinstance(exc.__cause__, AHAuthError):
                 # The credential, not the connection. Stop at once: retrying
@@ -175,7 +214,28 @@ def _propose_from_ah(
             continue
         consecutive_failures = 0
         spent += 1
+        # AH's relevance is good but not about *kind*: it returns Verstegen
+        # Dille, a jar of dried dill, for "verse dille". Its own classification
+        # says so, and rank() then puts a candidate the taxonomy actually names
+        # ahead of one that merely mentions the ingredient in its title.
+        # Reject on kind first, then keep only the candidates that are the
+        # same kind as the best one. Proposing all of a search's hits is what
+        # lets a wrong one poison a cost: downstream the cheapest candidate
+        # wins, so a Boursin among the shallots can decide a recipe's price.
+        acceptable = []
         for hit in hits:
+            verdict = judge(name, hit.department)
+            if not verdict.accepted:
+                rejected += 1
+                context.log.debug(
+                    "rejected %s for %r: %s", hit.title, name, verdict.reason
+                )
+                continue
+            acceptable.append(hit)
+
+        chosen = cohort(name, acceptable)
+        narrowed += len(acceptable) - len(chosen)
+        for hit in chosen:
             known = crosswalk.get(hit.webshop_id)
             if known is None:
                 # AH sells it; we have never seen a price for it. Proposing it
@@ -189,6 +249,18 @@ def _propose_from_ah(
                     "product_name": known[1],
                 }
             )
+    if narrowed:
+        context.log.info(
+            "%d candidate(s) dropped as a different kind of thing from the "
+            "best match for their ingredient",
+            narrowed,
+        )
+    if rejected:
+        context.log.info(
+            "%d candidate(s) rejected because their classification "
+            "contradicted the ingredient",
+            rejected,
+        )
     return proposals, spent, False
 
 
@@ -208,3 +280,108 @@ def _webshop_id_to_product(engine) -> dict[int, tuple[str, str]]:
             )
         ).all()
     return {int(r[0]): (r[1], r[2]) for r in rows}
+
+
+def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
+    """Re-judge links already in the database against what the products are.
+
+    A filter applied only to new proposals fixes nothing, because the wrong
+    answers are already recorded: "mierikswortel in pot" resolves to pesto,
+    salsa and peanut butter today, and nothing revisits a concept once it has
+    any row at all.
+
+    Two guards, both load-bearing:
+
+    - a confirmed row is never touched, because a person decided it;
+    - a contradicting proposal is withdrawn only if the concept keeps another
+      acceptable one. Removing the last candidate turns a visibly wrong price
+      into a silently missing one, and silence is the worse failure - a wrong
+      product on the page can be seen and corrected, an absent one cannot.
+
+    Returns counts; the concepts it could not fix are reported for review
+    rather than being quietly emptied.
+    """
+    links = read_linked_products(engine)
+    if not links:
+        return {"checked": 0, "withdrawn": 0, "flagged": 0}
+
+    webshop_ids = sorted(
+        {
+            wid
+            for link in links
+            if (wid := _webshop_id(link["product_link"])) is not None
+        }
+    )
+    try:
+        classified = fetch_product_taxonomy(webshop_ids)
+    except AHRecipeUnavailable as exc:
+        context.log.warning("Could not classify products: %s", str(exc)[:160])
+        return {"checked": 0, "withdrawn": 0, "flagged": 0, "unreachable": True}
+
+    by_concept: dict[int, list[dict]] = {}
+    for link in links:
+        by_concept.setdefault(int(link["concept_id"]), []).append(link)
+
+    withdraw: list[tuple[int, str]] = []
+    flagged: list[str] = []
+    flag_rows: list[tuple[int, str]] = []
+    for concept_id, rows in by_concept.items():
+        name = rows[0]["concept_name"]
+        contradicting, acceptable = [], []
+        for row in rows:
+            wid = _webshop_id(row["product_link"])
+            hit = classified.get(wid) if wid is not None else None
+            if hit is None:
+                # Unknown is not wrong. A delisted product still counts as a
+                # candidate here rather than being withdrawn on no evidence.
+                acceptable.append(row)
+            elif row["confirmed"] or judge(name, hit.department).accepted:
+                acceptable.append(row)
+            else:
+                contradicting.append((row, hit.department))
+
+        if not contradicting:
+            continue
+
+        # A non-food product can never be right, so it goes whether or not the
+        # concept keeps anything. Leaving "wortel" resolved to a paper napkin
+        # because the napkin is its only candidate would price a recipe off a
+        # napkin; an ingredient with nothing is already required to be visible
+        # rather than silent, so the gap is the better outcome.
+        never_right = [r for r, d in contradicting if d == DEPARTMENT_NON_FOOD]
+        wrong_form = [r for r, d in contradicting if d != DEPARTMENT_NON_FOOD]
+
+        withdraw.extend((concept_id, r["product_link"]) for r in never_right)
+
+        # A form mismatch is a worse match, not an impossible one - dried
+        # tarragon will do if fresh is all the recipe asked to avoid. Withdraw
+        # it only when something better survives.
+        if wrong_form and acceptable:
+            withdraw.extend((concept_id, r["product_link"]) for r in wrong_form)
+        elif wrong_form:
+            flagged.append(f"{name} ({len(wrong_form)})")
+            flag_rows.append(
+                (
+                    concept_id,
+                    "De gevonden producten zijn niet de vorm die dit "
+                    f"ingrediënt vraagt ({len(wrong_form)} product(en)).",
+                )
+            )
+
+    removed = withdraw_proposals(engine, withdraw)
+    # Persisted, not just logged. A warning in a Dagster run is not somewhere
+    # a person looking for work to do will find it; the review queue is.
+    flag_concepts(engine, flag_rows)
+    if flagged:
+        context.log.warning(
+            "%d concept(s) have only contradicting products and were left "
+            "alone rather than emptied: %s",
+            len(flagged),
+            ", ".join(flagged[:10]),
+        )
+    return {"checked": len(links), "withdrawn": removed, "flagged": len(flagged)}
+
+
+def _webshop_id(product_link: str) -> int | None:
+    match = re.match(r"wi(\d+)/", product_link or "")
+    return int(match.group(1)) if match else None

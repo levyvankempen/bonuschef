@@ -8,6 +8,8 @@ engine would assert only that the right strings were sent.
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import os
 
 import pytest
@@ -486,3 +488,321 @@ def test_confirming_drops_every_cache_the_change_invalidates():
         "read_recipe_opportunity_items",
     ):
         assert reader in source, f"{reader} survives a confirmation"
+
+
+class TestClassificationFiltersProposals:
+    """The classification checks, exercised through the asset rather than the
+    pure functions - the filter is only worth anything if it is actually in
+    the path that writes proposals."""
+
+    def _run(self, monkeypatch, concept_name, hits):
+        from bonuschef.dags.defs.assets.resolution import _propose_from_ah
+
+        monkeypatch.setattr(
+            "bonuschef.dags.defs.assets.resolution.search_products",
+            lambda term: hits,
+        )
+        monkeypatch.setattr(
+            "bonuschef.dags.defs.assets.resolution._webshop_id_to_product",
+            lambda engine: {
+                h.webshop_id: (f"wi{h.webshop_id}/x", h.title) for h in hits
+            },
+        )
+
+        class _Log:
+            def debug(self, *a, **k):
+                pass
+
+            def info(self, *a, **k):
+                pass
+
+            def warning(self, *a, **k):
+                pass
+
+        class _Ctx:
+            log = _Log()
+
+        # Duck-typed stand-ins: _propose_from_ah touches only the crosswalk
+        # (monkeypatched) and context.log.
+        proposals, _spent, _down = _propose_from_ah(
+            cast(Any, object()), {1: concept_name}, cast(Any, _Ctx())
+        )
+        return [p["product_name"] for p in proposals]
+
+    def test_dried_dill_is_not_proposed_for_fresh_dill(self, monkeypatch):
+        """The originating bug, through the real code path."""
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        names = self._run(
+            monkeypatch,
+            "verse dille",
+            [
+                ProductHit(
+                    webshop_id=2,
+                    title="Verstegen Dille",
+                    department="Houdbaar",
+                    taxonomy_path=("Kruiden", "Gedroogde kruiden", "Dille"),
+                ),
+                ProductHit(
+                    webshop_id=1,
+                    title="AH Dille",
+                    department="Vers",
+                    taxonomy_path=("Groente", "Verse kruiden"),
+                ),
+            ],
+        )
+        assert "Verstegen Dille" not in names
+        assert names == ["AH Dille"]
+
+    def test_a_non_food_product_is_not_proposed(self, monkeypatch):
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        names = self._run(
+            monkeypatch,
+            "wortel",
+            [
+                ProductHit(
+                    webshop_id=9,
+                    title="AH Vormservet wortel",
+                    department="Non Food",
+                    taxonomy_path=("Huishouden",),
+                ),
+                ProductHit(
+                    webshop_id=8,
+                    title="AH Winterpeen",
+                    department="Vers",
+                    taxonomy_path=("Groente", "Wortel"),
+                ),
+            ],
+        )
+        assert names == ["AH Winterpeen"]
+
+    def test_an_unqualified_ingredient_still_gets_both(self, monkeypatch):
+        """Abstention, through the asset. "dille" did not ask for fresh, so
+        nothing may be rejected on that basis."""
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        names = self._run(
+            monkeypatch,
+            "dille",
+            [
+                ProductHit(
+                    webshop_id=2, title="Verstegen Dille", department="Houdbaar"
+                ),
+                ProductHit(webshop_id=1, title="AH Dille", department="Vers"),
+            ],
+        )
+        assert set(names) == {"Verstegen Dille", "AH Dille"}
+
+    def test_an_unclassified_hit_is_still_proposed(self, monkeypatch):
+        """Products AH declines to classify must not disappear from
+        resolution - that would be a silent loss of coverage."""
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        names = self._run(
+            monkeypatch,
+            "verse dille",
+            [ProductHit(webshop_id=1, title="Onbekend dille", department="")],
+        )
+        assert names == ["Onbekend dille"]
+
+    def test_the_taxonomy_named_candidate_is_proposed_first(self, monkeypatch):
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        names = self._run(
+            monkeypatch,
+            "witte kaas",
+            [
+                ProductHit(
+                    webshop_id=3,
+                    title="AH Truffelsalami parmezaanse kaas",
+                    department="Vers",
+                    taxonomy_path=("Vleeswaren", "Salami"),
+                ),
+                ProductHit(
+                    webshop_id=4,
+                    title="AH Witte kaas 40+",
+                    department="Vers",
+                    taxonomy_path=("Kaas", "Witte kaas"),
+                ),
+            ],
+        )
+        assert names[0] == "AH Witte kaas 40+"
+
+
+class TestRecheckingExistingLinks:
+    """The pass that fixes what is already in the database.
+
+    This is the only operation in the resolution path that deletes, so the
+    tests here are mostly about what it refuses to do.
+    """
+
+    def _run(self, monkeypatch, links, classified):
+        import bonuschef.dags.defs.assets.resolution as mod
+
+        removed: list[tuple] = []
+        monkeypatch.setattr(mod, "read_linked_products", lambda engine: links)
+        monkeypatch.setattr(mod, "fetch_product_taxonomy", lambda ids: classified)
+        monkeypatch.setattr(
+            mod,
+            "withdraw_proposals",
+            lambda engine, pairs: (removed.extend(pairs), len(pairs))[1],
+        )
+        monkeypatch.setattr(mod, "flag_concepts", lambda engine, rows: len(rows))
+
+        class _Log:
+            def __init__(self):
+                self.warnings = []
+
+            def debug(self, *a, **k):
+                pass
+
+            def info(self, *a, **k):
+                pass
+
+            def warning(self, msg, *a):
+                self.warnings.append(msg % a if a else msg)
+
+        class _Ctx:
+            log = _Log()
+
+        ctx = _Ctx()
+        stats = mod.recheck_existing_links(cast(Any, object()), cast(Any, ctx))
+        return stats, removed, ctx.log.warnings
+
+    @staticmethod
+    def _link(cid, name, wid, pname, confirmed=False):
+        return {
+            "concept_id": cid,
+            "concept_name": name,
+            "product_link": f"wi{wid}/x",
+            "product_name": pname,
+            "confirmed": confirmed,
+        }
+
+    @staticmethod
+    def _hit(wid, title, dept):
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        return ProductHit(webshop_id=wid, title=title, department=dept)
+
+    def test_a_contradicting_proposal_is_withdrawn(self, monkeypatch):
+        links = [
+            self._link(1, "verse dille", 2, "Verstegen Dille"),
+            self._link(1, "verse dille", 3, "AH Dille"),
+        ]
+        classified = {
+            2: self._hit(2, "Verstegen Dille", "Houdbaar"),
+            3: self._hit(3, "AH Dille", "Vers"),
+        }
+        stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == [(1, "wi2/x")]
+        assert stats["withdrawn"] == 1
+
+    def test_a_confirmed_link_is_never_withdrawn(self, monkeypatch):
+        """A person decided this. No rule here outranks that."""
+        links = [
+            self._link(1, "verse dille", 2, "Verstegen Dille", confirmed=True),
+            self._link(1, "verse dille", 3, "AH Dille"),
+        ]
+        classified = {
+            2: self._hit(2, "Verstegen Dille", "Houdbaar"),
+            3: self._hit(3, "AH Dille", "Vers"),
+        }
+        _stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == []
+
+    def test_the_last_candidate_is_never_removed(self, monkeypatch):
+        """Removing it would turn a visibly wrong price into a silently
+        missing one, and silence is the worse failure."""
+        links = [self._link(1, "verse dille", 2, "Verstegen Dille")]
+        classified = {2: self._hit(2, "Verstegen Dille", "Houdbaar")}
+        stats, removed, warnings = self._run(monkeypatch, links, classified)
+        assert removed == []
+        assert stats["flagged"] == 1
+        assert any("verse dille" in w for w in warnings), (
+            "emptying was avoided but nobody was told"
+        )
+
+    def test_a_product_ah_no_longer_classifies_is_left_alone(self, monkeypatch):
+        """Delisted, or simply unclassified. Unknown is not wrong, and
+        withdrawing on no evidence would quietly shrink coverage."""
+        links = [
+            self._link(1, "verse dille", 2, "Iets ouds"),
+            self._link(1, "verse dille", 3, "AH Dille"),
+        ]
+        classified = {3: self._hit(3, "AH Dille", "Vers")}
+        _stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == []
+
+    def test_a_correct_existing_link_survives(self, monkeypatch):
+        """ "gedroogde dille" -> Verstegen Dille is right, and a change that
+        broke it would be worse than the bug it fixes."""
+        links = [self._link(1, "gedroogde dille", 2, "Verstegen Dille")]
+        classified = {2: self._hit(2, "Verstegen Dille", "Houdbaar")}
+        stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == []
+        assert stats["flagged"] == 0
+
+    def test_being_unable_to_reach_ah_changes_nothing(self, monkeypatch):
+        import bonuschef.dags.defs.assets.resolution as mod
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        def _boom(ids):
+            raise AHRecipeUnavailable("down")
+
+        monkeypatch.setattr(
+            mod,
+            "read_linked_products",
+            lambda engine: [self._link(1, "verse dille", 2, "Verstegen Dille")],
+        )
+        monkeypatch.setattr(mod, "fetch_product_taxonomy", _boom)
+        removed = []
+        monkeypatch.setattr(
+            mod,
+            "withdraw_proposals",
+            lambda engine, pairs: (removed.extend(pairs), len(pairs))[1],
+        )
+        monkeypatch.setattr(mod, "flag_concepts", lambda engine, rows: len(rows))
+
+        class _Ctx:
+            class log:
+                @staticmethod
+                def warning(*a, **k):
+                    pass
+
+                @staticmethod
+                def info(*a, **k):
+                    pass
+
+        stats = mod.recheck_existing_links(cast(Any, object()), cast(Any, _Ctx()))
+        assert removed == []
+        assert stats.get("unreachable") is True
+
+    def test_a_non_food_product_goes_even_if_it_is_the_only_one(self, monkeypatch):
+        """ "wortel" resolved to a paper napkin, and the napkin was its only
+        candidate. Keeping it to avoid emptying the concept would price a
+        recipe off a napkin.
+
+        Safe because an ingredient with no product is already required to be
+        visible rather than silent - the gap shows on the page, the napkin
+        would not have.
+        """
+        links = [
+            TestRecheckingExistingLinks._link(1, "wortel", 9, "AH Vormservet wortel")
+        ]
+        classified = {9: TestRecheckingExistingLinks._hit(9, "napkin", "Non Food")}
+        _stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == [(1, "wi9/x")]
+
+    def test_a_wrong_form_is_kept_when_it_is_the_only_one(self, monkeypatch):
+        """ "verse dragon" has only Verstegen Dragon, which is dried. That is a
+        worse match, not an impossible one - unlike a napkin, it is tarragon."""
+        links = [
+            TestRecheckingExistingLinks._link(1, "verse dragon", 2, "Verstegen Dragon")
+        ]
+        classified = {2: TestRecheckingExistingLinks._hit(2, "Verstegen", "Houdbaar")}
+        stats, removed, warnings = self._run(monkeypatch, links, classified)
+        assert removed == []
+        assert stats["flagged"] == 1
+        assert any("verse dragon" in w for w in warnings)
