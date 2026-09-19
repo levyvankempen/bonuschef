@@ -12,6 +12,8 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+RUNNER="${BONUSCHEF_RUNNER:-/usr/local/bin/bonuschef-autodeploy}"
+
 TAG="${1:-}"
 if [ -z "$TAG" ]; then
     echo "usage: $0 <tag>    (e.g. $0 v1.3.0)" >&2
@@ -73,6 +75,25 @@ export BONUSCHEF_VERSION="$version" BONUSCHEF_COMMIT="$commit"
 echo "deploying ${BONUSCHEF_VERSION} (${BONUSCHEF_COMMIT:0:12})"
 
 docker compose up -d --build
+
+# Refresh the auto-deployer's runner, which lives OUTSIDE this checkout.
+#
+# It used to be run straight from scripts/. That made the deployer part of the
+# thing it deploys: roll back to a version predating it and systemd's ExecStart
+# points at a file that no longer exists, so auto-deploy stops -- permanently,
+# because recovering is precisely what it can no longer do. Observed on a real
+# rollback to v1.3.1:
+#
+#   Unable to locate executable '/opt/bonuschef/scripts/auto-deploy.sh'
+#
+# Copying it out on every successful deploy keeps it current with the release
+# while making it impossible for a release to remove it.
+if [ -d "$(dirname "$RUNNER")" ] && [ -w "$(dirname "$RUNNER")" ]; then
+    if ! cmp -s ./scripts/auto-deploy.sh "$RUNNER" 2>/dev/null; then
+        install -m 0755 ./scripts/auto-deploy.sh "$RUNNER"
+        echo "refreshed $RUNNER"
+    fi
+fi
 
 echo
 echo "deployed: ${BONUSCHEF_VERSION}"

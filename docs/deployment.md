@@ -98,6 +98,7 @@ rebuild while a run is in flight (§ below), and refuses to start without `.env`
 A systemd timer checks for a newer release every ten minutes and deploys it:
 
 ```bash
+install -m 0755 scripts/auto-deploy.sh /usr/local/bin/bonuschef-autodeploy
 cp deploy/systemd/bonuschef-autodeploy.* /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now bonuschef-autodeploy.timer
@@ -112,6 +113,13 @@ components need roughly as much memory as this guest has in total, and the
 repository already carried Kubernetes manifests nobody ran, which were deleted
 for the reason now written down as *"a committed deployment path meets the
 requirements it is subject to"*.
+
+The runner is installed to `/usr/local/bin`, deliberately outside the
+checkout, and `deploy.sh` refreshes it after every successful deploy. Run from
+`scripts/` instead, it would be part of what it deploys: a rollback to a
+release predating it deletes systemd's `ExecStart` target and auto-deploy stops
+for good, because recovering is the one thing it can no longer do. This was
+found by rolling the real server back to v1.3.1.
 
 What it will **not** do, and what you give up by not running ArgoCD:
 
