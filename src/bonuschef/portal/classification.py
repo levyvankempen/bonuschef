@@ -261,7 +261,25 @@ def head_noun_match(ingredient_name: str, title: str) -> bool:
     )
     if not title_words or not ingredient_words:
         return False
-    return _same_word(ingredient_words[-1], title_words[-1])
+    head = ingredient_words[-1]
+    if _same_word(head, title_words[-1]):
+        return True
+    # Dutch writes compounds as one word where a product name splits them:
+    # "cannellinibonen" against "AH Terra Cannellini bonen". Without this the
+    # bean does not match its own name, and a tin of tuna outscores it.
+    return _matches_compound(head, title_words)
+
+
+def _matches_compound(head: str, title_words: list[str]) -> bool:
+    """Whether a run of title words ending the title, joined, is the head word.
+
+    Only runs that end the title: the head noun comes last, and a match in the
+    middle is the flavour-qualifier case this exists to reject.
+    """
+    return any(
+        _same_word(head, "".join(title_words[start:]))
+        for start in range(len(title_words))
+    )
 
 
 # The retailer's own labels, including the ones that do not say "AH": De

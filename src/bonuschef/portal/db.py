@@ -1105,3 +1105,76 @@ def count_flagged_concepts(engine) -> int:
             )
     except Exception:
         return 0
+
+
+_STALE_CONCEPTS = """
+    SELECT p.concept_id,
+           MIN(i.concept_name) AS concept_name,
+           COUNT(DISTINCT i.recipe_id) AS uses
+    FROM public.ah_ingredient_products AS p
+    JOIN public."ah__pool_recipe_ingredients" AS i ON i.concept_id = p.concept_id
+    WHERE i.concept_name IS NOT NULL
+    GROUP BY p.concept_id
+    -- Nothing a person confirmed. Their decision is the answer, and
+    -- re-proposing over it would be this system overruling them.
+    HAVING BOOL_AND(p.confirmed_at IS NULL)
+    -- Least recently proposed first, so successive runs cycle through the
+    -- whole catalogue instead of re-examining the same head of the list.
+    ORDER BY MIN(p.proposed_at) ASC, uses DESC
+    LIMIT :limit
+"""
+
+
+def read_stale_concepts(engine, limit: int) -> list[dict]:
+    """Concepts whose products were proposed by an older matcher.
+
+    These never come up again on their own: the query that drives proposing
+    skips any concept that already has a row, so a wrong answer recorded once
+    stays recorded. That is where the known-bad matches actually are -
+    "mierikswortel in pot" is linked to peanut butter, mint gum and two jars
+    of pesto, and none of them contradicts the ingredient in a way the
+    classification rules can see.
+    """
+    with engine.begin() as conn:
+        rows = (
+            conn.execute(text(_STALE_CONCEPTS), {"limit": int(limit)}).mappings().all()
+        )
+    return [dict(r) for r in rows]
+
+
+def replace_proposals(engine, concept_id: int, products: list[dict]) -> int:
+    """Swap a concept's unconfirmed proposals for a fresh set.
+
+    Replaces rather than adds. The old proposals came from a matcher that
+    compared names only; keeping them alongside a better answer would leave
+    the wrong products available to win on price, which is exactly how a jar
+    of pesto comes to decide the cost of a dish containing horseradish.
+
+    Confirmed rows are left alone - the DELETE says so, rather than the
+    caller having to remember.
+    """
+    if not products:
+        return 0
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM public.ah_ingredient_products "
+                "WHERE concept_id = :cid AND confirmed_at IS NULL"
+            ),
+            {"cid": int(concept_id)},
+        )
+        for product in products:
+            conn.execute(
+                text(
+                    "INSERT INTO public.ah_ingredient_products "
+                    "(concept_id, product_link, product_name) "
+                    "VALUES (:cid, :link, :name) "
+                    "ON CONFLICT (concept_id, product_link) DO NOTHING"
+                ),
+                {
+                    "cid": int(concept_id),
+                    "link": product["product_link"],
+                    "name": product["product_name"],
+                },
+            )
+    return len(products)

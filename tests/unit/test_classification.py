@@ -417,3 +417,25 @@ def test_a_recipe_that_names_a_brand_keeps_it():
     override something the recipe was explicit about."""
     assert names_a_brand("verstegen dille") is True
     assert names_a_brand("crème fraîche") is False
+
+
+@pytest.mark.parametrize(
+    ("ingredient", "title", "matches"),
+    [
+        ("cannellinibonen", "AH Terra Cannellini bonen", True),
+        ("kipfilet", "AH Kip filet", True),
+        ("cannellinibonen", "Statesman Tonijn stukken in water", False),
+        ("bladpeterselie", "AH Platte peterselie", False),
+        ("room", "AH Slagroom", False),
+        ("bloem", "AH Bloemkoolrijst", False),
+    ],
+)
+def test_dutch_compounds_split_across_a_product_name(ingredient, title, matches):
+    """Dutch writes compounds as one word where a product name splits them.
+    Without this "cannellinibonen" does not match its own name, and a tin of
+    tuna outscores the bean.
+
+    The negatives matter as much: joining must not let "room" match
+    "Slagroom", which is the prefix mistake in another form.
+    """
+    assert head_noun_match(ingredient, title) is matches
