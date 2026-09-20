@@ -273,6 +273,53 @@ salami.
 - **WHEN** no candidate's classification names the ingredient
 - **THEN** the existing ordering decides, so this preference adds an answer and never removes one
 
+### Requirement: A candidate that is not recognisably the ingredient is not proposed
+
+Where the best candidate for an ingredient is not recognisable as that
+ingredient, no candidate SHALL be proposed and the ingredient SHALL be shown
+as unresolved.
+
+A candidate is recognisable when its classification names the ingredient, or
+when the head nouns of the ingredient and the product agree. Either alone
+suffices.
+
+Ranking always produces a winner, even when every candidate is wrong. "Blauwe
+kaas-blokjes" was priced as AH Blauwe bessen and "salade-uitjes" as AH Ei
+salade: both food, both fresh, both sharing a word with the ingredient, so
+every rule about kind and form accepted them. A cost built on those is worse
+than no cost, because it looks right.
+
+The test is deliberately about naming rather than degree of confidence. A
+numeric floor was measured against the human-confirmed links and did not
+separate: confirmed products scored as low as -1.20 while correct matches that
+happened not to be confirmed scored 10.00, so every cut that removed a wrong
+answer removed good ones too.
+
+#### Scenario: The best candidate shares a word but is a different product
+
+- **WHEN** the best candidate is neither named by its classification nor in head-noun agreement with the ingredient
+- **THEN** nothing is proposed, and the ingredient is shown as unresolved rather than priced
+
+#### Scenario: Only the product's name identifies it
+
+- **WHEN** a candidate's classification is broader than the ingredient but its name agrees
+- **THEN** it is proposed, because either evidence suffices
+
+#### Scenario: The ingredient is written as a diminutive
+
+- **WHEN** a recipe names an ingredient in a diminutive form and the product carries the plain noun
+- **THEN** they are recognised as the same thing, because recipes routinely use diminutives the shelf label does not
+
+#### Scenario: The ingredient is a compound of the product's general term
+
+- **WHEN** an ingredient's name ends in the word its candidate is named by, or the reverse
+- **THEN** they are recognised as the same thing, because a compound names its head last
+
+#### Scenario: A person already confirmed the pairing
+
+- **WHEN** a recorded resolution was confirmed by a person
+- **THEN** it stands regardless of whether any rule can recognise it, because some correct pairings share no word at all
+
 ### Requirement: Only candidates of the same kind as the best one are proposed
 
 Where several products are proposed for one ingredient, they SHALL all be the
@@ -294,17 +341,24 @@ cheese among the shallots sets the price of a dish containing no cream cheese.
 
 #### Scenario: The best candidate is unclassified
 
-- **WHEN** the best candidate carries no classification to compare against
+- **WHEN** the best candidate carries no classification to compare against, but is recognisable as the ingredient by name
 - **THEN** nothing is narrowed, because there is no evidence on which to narrow it
+
+#### Scenario: The best candidate is unclassified and unrecognisable
+
+- **WHEN** the best candidate carries no classification and is not recognisable as the ingredient by name either
+- **THEN** nothing is proposed at all, because narrowing and withholding are different decisions and only the second one applies
 
 ### Requirement: Resolutions already recorded are re-checked
 
 Resolutions already in the system SHALL be checked against classification when
 it becomes available, and those that contradict it SHALL be surfaced for
-review.
+review. The check SHALL apply the same recognisability test as a new proposal.
 
 A check applied only to new proposals leaves every wrong answer already
-recorded in place, which is where the known wrong answers actually are.
+recorded in place, which is where the known wrong answers actually are. A
+check that examines only form and department leaves the ones that agree on
+both: AH Blauwe bessen and "blauwe kaas-blokjes" are both food and both fresh.
 
 #### Scenario: An existing resolution contradicts its classification
 
@@ -345,6 +399,16 @@ recorded in place, which is where the known wrong answers actually are.
 
 - **WHEN** an ingredient's only recorded product is edible but in a form the ingredient did not ask for
 - **THEN** it is kept and raised for review, because a worse match is not an impossible one
+
+#### Scenario: The only recorded product is not the ingredient at all
+
+- **WHEN** an ingredient's only recorded product is edible and of the right form, but is not recognisable as the ingredient
+- **THEN** that resolution is withdrawn even though nothing replaces it, and the concept is flagged, because this is the wrong product rather than a worse one
+
+#### Scenario: A recorded product cannot be classified
+
+- **WHEN** a recorded product is one the retailer no longer classifies
+- **THEN** it is left alone, because unknown is not wrong
 
 ### Requirement: A person reviewing a match can see what each candidate is
 
