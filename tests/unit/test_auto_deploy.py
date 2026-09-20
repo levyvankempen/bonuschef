@@ -6,6 +6,7 @@ cases where acting would be wrong and doing nothing is right.
 """
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,24 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 UNITS = ROOT / "deploy" / "systemd"
+
+
+def _in_flight_exit_code() -> int:
+    """What deploy.sh actually exits with when a run is in flight.
+
+    Read from the script rather than written here. The recorder below stands
+    in for deploy.sh because the real one drives Docker - but a stand-in that
+    invents the interface it is standing in for cannot notice the interface
+    changing, and this number is the whole contract between the two scripts.
+    """
+    source = (SCRIPTS / "deploy.sh").read_text()
+    marker = source.index("run(s) in flight")
+    match = re.search(r"exit (\d+)", source[marker : marker + 400])
+    assert match, "deploy.sh no longer exits with a code when a run is in flight"
+    return int(match.group(1))
+
+
+IN_FLIGHT_EXIT = _in_flight_exit_code()
 
 
 @dataclass
@@ -217,7 +236,7 @@ def test_a_run_in_flight_is_not_a_failure(server):
     times a day; treating it as a failure would train the operator to ignore
     the alert."""
     _release(server, "v1.1.0")
-    r = _tick(server, FAKE_DEPLOY_STATUS="75")
+    r = _tick(server, FAKE_DEPLOY_STATUS=str(IN_FLIGHT_EXIT))
     assert r.returncode == 0, "an in-flight run was reported as a failure"
     assert "retry" in r.stdout
 

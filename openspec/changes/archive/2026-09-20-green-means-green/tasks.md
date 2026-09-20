@@ -14,10 +14,23 @@
 
 ## 2. Checks that run the production arrangement
 
-- [ ] 2.1 Audit the script tests for fixtures that reproduce a layout
-      production does not use
-- [ ] 2.2 Cover the installed arrangement where one exists
-- [ ] 2.3 Negative control for each
+- [x] 2.1 Audited. Findings:
+      * `test_deploy_script.py` and `test_version.py` copy their script into a
+        checkout and run it there, which IS where production keeps them - no
+        mismatch
+      * `test_auto_deploy.py` covers both the in-checkout and the installed
+        `/usr/local/bin` arrangement, since #51
+      * the real one: `auto-deploy.sh` calls `deploy.sh` and branches on its
+        exit code, and the fixture replaces `deploy.sh` with a recorder told
+        which code to exit with. The number the two scripts must agree on was
+        INVENTED BY THE FIXTURE. Both suites pass with them disagreeing -
+        verified, 27 passed
+- [x] 2.2 The fixture now reads the code from `deploy.sh` instead of stating
+      it, and a contract test compares what `deploy.sh` exits with against
+      what `auto-deploy.sh` retries on
+- [x] 2.3 **Negative control, run.** Changing deploy.sh's in-flight exit from
+      75 to 76: before, 27 passed; after, the contract test fails naming both
+      numbers and the auto-deploy in-flight test fails with it
 
 ## 3. A database in CI
 
