@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.4 (2026-09-20)
+
+### Bug Fixes
+
+- The warehouse declares what it holds, and a warn can pass
+  ([#66](https://github.com/levyvankempen/bonuschef/pull/66),
+  [`759a883`](https://github.com/levyvankempen/bonuschef/commit/759a8837861185b893720464efce079dc5cd3b8d))
+
+
 ## v1.11.3 (2026-09-20)
 
 ### Bug Fixes
