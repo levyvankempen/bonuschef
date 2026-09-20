@@ -375,6 +375,53 @@ What is recoverable from where:
 | markdown curve, hand-typed recipes, confirmed resolutions | **the backup only** |
 | AH credential | the backup, or a browser. Never unattended |
 
+### The backup has not been restore-tested
+
+**This is the one unverified claim in this document, and it is the most
+consequential.**
+
+§8 prescribes nightly `vzdump` and says "restore it once to a scratch VMID".
+Every other claim here that was actually exercised carries a measured result —
+"all four containers up and healthy 11 seconds after start", the sensor race
+during the first restore, the stale manifest. §8 carries none. Nothing in the
+repository configures the backup, schedules it, or checks that it still runs,
+and nothing alerts if it stops.
+
+What depends on it cannot be rebuilt from anywhere: the clearance price curve,
+which is append-only and has no upstream; the hand-confirmed ingredient
+resolutions; the AH refresh credential.
+
+A backup fails once, at the moment you need it. Until a restore has actually
+been performed, treat the recovery story as unproven rather than as written
+down. To close it:
+
+```bash
+# on the Proxmox host
+vzdump 101 --mode snapshot --compress zstd --storage local
+pct restore 999 /var/lib/vz/dump/<the-file>.tar.zst --storage local-lvm
+pct start 999 && pct exec 999 -- docker compose -f /opt/bonuschef/docker-compose.yml ps
+# then compare row counts against the live guest, and destroy 999
+```
+
+Record the result here the way §6 records its reboots.
+
+### What grows, and what bounds it
+
+| | bounded by |
+| --- | --- |
+| schedule and sensor ticks | `dagster.yaml` retention, 30 days |
+| runs and their event logs | the `prune_run_history` job, Sunday 03:15, 90 days |
+| container logs | the json-file driver's max-size/max-file |
+| clearance history | nothing, deliberately — it is the product |
+
+Dagster OSS has no retention setting for `event_logs`, which is why a job does
+it rather than configuration. Deleting a run deletes its event logs with it;
+reaching into the table directly would work until a schema change made it not.
+
+The failure worth recognising is not a full disk. It is `daily_refresh` failing
+to spill its temp files while the smaller hourly scrape keeps working — which
+reads as "the recipe prices seem stuck".
+
 ## 9. Cutover
 
 Stop the old stack so two schedulers are not scraping the same store and rotating

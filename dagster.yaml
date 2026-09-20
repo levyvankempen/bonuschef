@@ -34,7 +34,11 @@ run_monitoring:
 # reads as "the recipe prices seem stuck".
 #
 # This bounds the ticks. event_logs have no retention setting in Dagster OSS at
-# all and need pruning outside it - see docs/deployment.md.
+# all, so they are pruned by the prune_run_history job instead - deleting a run
+# deletes its event logs with it. Weekly, Sunday 03:15.
+#
+# This comment used to say "see docs/deployment.md", where the word event_log
+# did not appear. The pointer was to a procedure nobody had written.
 retention:
   schedule:
     purge_after_days: 30

@@ -1,6 +1,7 @@
 """Dagster Jobs."""
 
 from bonuschef.dags.defs.jobs.freshness import source_freshness_job
+from bonuschef.dags.defs.jobs.retention import prune_run_history_job
 
 from dagster import (
     AssetObservation,
@@ -155,6 +156,7 @@ __all__ = [
     "daily_refresh_job",
     "markdowns_refresh_job",
     "recipe_pool_refresh_job",
+    "prune_run_history_job",
     "source_freshness_job",
     "recipes_rebuild_job",
     "refresh_ah_credential",
