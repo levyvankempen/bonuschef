@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.2 (2026-09-20)
+
+### Bug Fixes
+
+- Classify what the local matcher proposes, and re-check adopted recipes
+  ([#64](https://github.com/levyvankempen/bonuschef/pull/64),
+  [`7c389c6`](https://github.com/levyvankempen/bonuschef/commit/7c389c6e012143c16171128ce1c82d5f35e61fef))
+
+
 ## v1.11.1 (2026-09-20)
 
 ### Bug Fixes
