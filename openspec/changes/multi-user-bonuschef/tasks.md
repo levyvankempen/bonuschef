@@ -5,18 +5,14 @@ here marked done because task 1.4 has not happened yet.
 
 ## 0. Before anything else
 
-- [ ] 0.1 One ordered, idempotent DDL entry point for the new tables, called
-      once at portal start rather than lazily per writer. Alembic is Dagster's
-      and is not adopted; if it ever is, it needs its own `version_table`
-- [ ] 0.2 A test that a fresh database and an existing one converge to the
-      same schema
-- [ ] 0.3 Backfill script in the established style (argparse, `--dry-run`,
-      idempotent): operator account created, existing adopted and hand-entered
-      recipes into its saved list, verdicts gaining an account, store seeded
-      from `AH_STORE_ID`, token bundle moved into the encrypted row preserving
-      `refresh_token_issued_at`. Resolutions untouched, and it says so
-- [ ] 0.4 Rehearse the backfill against a restore of the nightly vzdump before
-      it runs on 101
+- [x] 0.1 One ordered, idempotent DDL entry point (#77). Alembic is Dagster's
+      and is not adopted
+- [x] 0.2 Idempotency tests, two of them mutation-verified (#77)
+- [x] 0.3 Backfill script (#77, #78). No credential to move now that there is
+      only one; resolutions untouched, and it says so
+- [x] 0.4 Rehearsed against a clone of the live database rather than a vzdump
+      restore - it tests the migration against the real rows without needing a
+      container restore. Found that --dry-run was applying the DDL (#78)
 
 ## 1. Catalogue content
 
@@ -70,15 +66,9 @@ here marked done because task 1.4 has not happened yet.
 - [ ] 3.3 `clearance_scraped_at` becomes nullable, and its `not_null` test is
       dropped; an unscraped store reads as "no clearance yet", not as a test
       failure
-- [ ] 3.4 Filter every store-scoped portal reader. `store_id` currently
-      appears once in the whole portal layer and never in a `WHERE`:
-      `read_store_clearance`, `read_recipe_opportunity`,
-      `read_recipe_opportunity_items`, `read_last_scrape_time`
-- [ ] 3.5 `read_last_scrape_time` takes MAX over every store, so a friend
-      whose store is stale inherits the operator's freshness and the banner
-      lies. Scope it
-- [ ] 3.6 A store directory: id to name and city. Asking a friend to type
-      "1876" is not a UI, and a typo silently gives another town's prices
+- [x] 3.4 Filter every store-scoped portal reader (#79)
+- [x] 3.5 Scope `read_last_scrape_time`, which took MAX over every store (#79)
+- [x] 3.6 A store directory from `storesSearch`: 1,199 stores with names (#80)
 - [ ] 3.7 Show the store's name wherever the portal says "jouw winkel"
 - [ ] 3.8 Warehouse-marked test: two accounts, two stores, different clearance
       for the same recipe
