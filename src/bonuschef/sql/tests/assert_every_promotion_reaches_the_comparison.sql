@@ -13,5 +13,6 @@ SELECT b.webshop_id
 FROM {{ ref('stg_ah__bonus_products') }} AS b
 LEFT JOIN {{ ref('fct_bonus_price_comparison') }} AS c
     ON b.webshop_id = c.webshop_id
-WHERE b.is_bonus
-  AND c.webshop_id IS NULL
+WHERE
+    b.is_bonus
+    AND c.webshop_id IS NULL
