@@ -19,7 +19,11 @@ import re
 from dagster import AssetExecutionContext, AssetKey, RetryPolicy, asset
 from sqlalchemy import text
 
-from bonuschef.portal.db import get_engine, propose_products
+from bonuschef.portal.db import (
+    ensure_catalogue_tables,
+    get_engine,
+    propose_products,
+)
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
 from bonuschef.portal.classification import cohort, judge, without_packaging
@@ -75,6 +79,11 @@ _UNRESOLVED_CONCEPTS = """
 def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
     """Match unresolved pool concepts against the product catalogue."""
     engine = get_engine()
+    # The portal owns these tables, and normally creates them - but the asset
+    # must not depend on a person having opened the page first. It failed in
+    # production for exactly that reason: ah_ingredient_flags did not exist,
+    # because nothing had visited the portal since the table was added.
+    ensure_catalogue_tables(engine)
 
     with engine.begin() as conn:
         rows = conn.execute(text(_UNRESOLVED_CONCEPTS)).mappings().all()
