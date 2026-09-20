@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.11.0 (2026-09-20)
+
+### Features
+
+- A recipe you are shown can be kept ([#62](https://github.com/levyvankempen/bonuschef/pull/62),
+  [`2097114`](https://github.com/levyvankempen/bonuschef/commit/2097114728ef7f6cbb30b8c6e742a6e2b8bd29b5))
+
+
 ## v1.10.2 (2026-09-20)
 
 ### Bug Fixes
