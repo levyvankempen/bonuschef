@@ -1225,3 +1225,75 @@ def replace_proposals(engine, concept_id: int, products: list[dict]) -> int:
                 },
             )
     return len(products)
+
+
+def keep_recipe(engine, recipe_id: int) -> bool:
+    """Adopt a pool recipe, so it survives the next pool refresh.
+
+    The page offered "Niet voor mij" and nothing else, while its own docstring
+    said "Keep it, or never see it again". A person could reject a recipe they
+    disliked and had no way to hold on to one they liked - Monday's refresh
+    replaces the pool wholesale, and a recipe absent from the new enumeration
+    is simply gone.
+
+    Copied from the pool tables rather than refetched from the retailer: the
+    recipe and its ingredients are already here, and a keep that depends on
+    the network can fail at the moment a person is trying to act.
+
+    Returns False when there was nothing to copy - a recipe that has already
+    been kept, or one the pool no longer holds.
+    """
+    with engine.begin() as conn:
+        header = conn.execute(
+            text("""
+                INSERT INTO public.ah_recipes
+                    (recipe_id, title, servings, url, image_url, cook_time_min)
+                SELECT
+                    recipe_id, title, COALESCE(servings, 4), url, image_url,
+                    cook_time_min
+                FROM public."ah__pool_recipes"
+                WHERE recipe_id = :rid
+                ON CONFLICT (recipe_id) DO NOTHING
+                RETURNING recipe_id
+            """),
+            {"rid": int(recipe_id)},
+        ).first()
+        if header is None:
+            return False
+        conn.execute(
+            text("""
+                INSERT INTO public.ah_recipe_ingredients
+                    (recipe_id, line_no, concept_id, concept_name, quantity,
+                     unit, raw_text)
+                SELECT
+                    recipe_id, line_no, concept_id,
+                    COALESCE(concept_name, ''), COALESCE(quantity, 1),
+                    COALESCE(unit, ''), COALESCE(raw_text, '')
+                FROM public."ah__pool_recipe_ingredients"
+                WHERE recipe_id = :rid AND concept_id IS NOT NULL
+                ON CONFLICT (recipe_id, line_no) DO NOTHING
+            """),
+            {"rid": int(recipe_id)},
+        )
+        # A kept recipe is no longer a candidate for rejection, and leaving a
+        # stale verdict would hide it from the page it was just kept for.
+        conn.execute(
+            text("DELETE FROM public.ah_recipe_verdicts WHERE recipe_id = :rid"),
+            {"rid": int(recipe_id)},
+        )
+    # Same as reject_recipe: the ranking the page is showing was read before
+    # this, and a kept recipe changes which rows it may evict.
+    read_recipe_opportunity.clear()
+    return True
+
+
+def is_kept(engine, recipe_id: int) -> bool:
+    """Whether this recipe has already been adopted."""
+    with engine.begin() as conn:
+        return (
+            conn.execute(
+                text("SELECT 1 FROM public.ah_recipes WHERE recipe_id = :rid"),
+                {"rid": int(recipe_id)},
+            ).first()
+            is not None
+        )

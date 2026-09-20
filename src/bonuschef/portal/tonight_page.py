@@ -39,6 +39,7 @@ from bonuschef.portal.db import (
     read_bonus_feed_loaded_at,
     read_pipeline_health,
     read_marts_built_at,
+    keep_recipe,
     read_recipe_opportunity,
     read_recipe_opportunity_items,
     read_rejected_recipes,
@@ -343,6 +344,25 @@ def _render_verdict_controls(engine, row) -> None:
         return
     recipe_id = int(row["recipe_id"])
     with st.container(horizontal=True):
+        # Keeping was the missing half. The page could reject a recipe and not
+        # hold on to one, so a recommendation a person liked was gone at the
+        # next pool refresh - which replaces the pool wholesale every Monday.
+        if st.button(
+            "Bewaren",
+            key=f"keep_{recipe_id}",
+            icon=":material/bookmark_add:",
+            help="Zet dit recept bij je eigen recepten, zodat het blijft staan",
+        ):
+            # Say what happened. A kept recipe looks identical on this page
+            # until the next pool refresh would have removed it, so without
+            # this the click reads as having done nothing.
+            if keep_recipe(engine, recipe_id):
+                st.toast(
+                    "Bewaard bij je eigen recepten", icon=":material/bookmark_added:"
+                )
+            else:
+                st.toast("Stond al bij je eigen recepten", icon=":material/check:")
+            st.rerun()
         if st.button(
             "Niet voor mij", key=f"reject_{recipe_id}", icon=":material/block:"
         ):
