@@ -18,6 +18,11 @@ from bonuschef.config import DatabaseConfig
 # calls on the refresh paths keep a manual refresh immediate.
 _CACHE_TTL_S = 900
 
+# The store directory changes about never - shops open and close on a scale of
+# years - so it is cached for an hour rather than for the seconds that price
+# data gets.
+_STORE_DIRECTORY_TTL_S = 3600
+
 # Upper bound for the diagnostic surfaces, which are not the product.
 _DIAGNOSTIC_ROW_LIMIT = 500
 
@@ -46,6 +51,42 @@ def _env_store_id() -> int:
     except ValueError:
         return 1876
     return value if value > 0 else 1876
+
+
+def replace_store_directory(engine, stores) -> int:
+    """Store the directory, replacing whatever was there.
+
+    Replace rather than merge: a store that closed should stop being offered,
+    and a merge would keep it on the list forever. The write is a single
+    transaction so a failed refresh cannot leave an empty picker behind.
+    """
+    rows = [{"i": s.store_id, "n": s.name} for s in stores]
+    if not rows:
+        # Nothing fetched is not evidence that nothing exists. Refusing to
+        # write keeps the previous directory, which is stale at worst; wiping
+        # it would leave a person unable to choose a store at all.
+        return 0
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM public.ah_stores"))
+        conn.execute(
+            text("INSERT INTO public.ah_stores (store_id, name) VALUES (:i, :n)"),
+            rows,
+        )
+    return len(rows)
+
+
+@st.cache_data(ttl=_STORE_DIRECTORY_TTL_S)
+def read_store_directory(_engine) -> list[tuple[int, str]]:
+    """Every store a person can choose, as (id, label), ordered by name.
+
+    Not store-scoped, despite the name: this is the list you pick FROM, so it
+    is the same for everybody and shared caching is correct here.
+    """
+    with _engine.begin() as conn:
+        rows = conn.execute(
+            text("SELECT store_id, name FROM public.ah_stores ORDER BY name")
+        ).fetchall()
+    return [(int(r[0]), f"AH {r[1]}") for r in rows]
 
 
 def _get_schema() -> str:

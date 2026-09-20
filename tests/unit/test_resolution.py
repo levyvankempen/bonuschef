@@ -1053,8 +1053,14 @@ class TestTheAssetOwnsItsSchema:
         than pinning the one table that has already bitten."""
         import re
 
-        db = (ROOT / "src" / "bonuschef" / "portal" / "db.py").read_text()
-        created = set(re.findall(r"CREATE TABLE IF NOT EXISTS public\.(\w+)", db))
+        portal = ROOT / "src" / "bonuschef" / "portal"
+        db = (portal / "db.py").read_text()
+        # schema.py is the second place DDL lives, and deliberately so: the
+        # ensure_* helpers here run lazily from whichever writer needs a
+        # table, which cannot alter a populated one and cannot run before the
+        # portal starts. Both are DDL sources, so both count as "created".
+        ddl = db + (portal / "schema.py").read_text()
+        created = set(re.findall(r"CREATE TABLE IF NOT EXISTS public\.(\w+)", ddl))
         written = set(
             re.findall(r"(?:INSERT INTO|DELETE FROM|UPDATE)\s+public\.(\w+)", db)
         )
