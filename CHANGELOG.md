@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.1 (2026-09-20)
+
+### Bug Fixes
+
+- One clearance unit is claimed once, and an offer keeps its key
+  ([#63](https://github.com/levyvankempen/bonuschef/pull/63),
+  [`254b9b8`](https://github.com/levyvankempen/bonuschef/commit/254b9b850d2268019ac8742e99ed275839a0112c))
+
+
 ## v1.11.0 (2026-09-20)
 
 ### Features
