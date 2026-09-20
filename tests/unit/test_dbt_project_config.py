@@ -304,3 +304,46 @@ def test_no_jinja_expression_has_been_given_a_table_alias():
     assert not offenders, (
         "a table alias was attached to a Jinja expression:\n" + "\n".join(offenders)
     )
+
+
+def test_every_published_mart_declares_its_grain():
+    """One mart had no grain test, and nothing said so.
+
+    fct_recipe_cost_breakdown_bonus declared only not_null on recipe_id and did
+    not even document item_key, though its grain is the pair. A duplicated line
+    would silently double that ingredient's contribution to the recipe's cost.
+
+    Pinning that one mart would have closed the instance and left the class
+    open, so this sweeps them all: the next mart cannot skip a grain quietly.
+    """
+    import yaml as _yaml
+
+    marts = sorted((MODELS / "marts").rglob("*.sql"))
+    assert marts, "no marts found"
+
+    # A grain is declared either way: a compound one as a model-level
+    # unique_combination_of_columns, a single-column one as `unique` on that
+    # column. Reading only the first form reported fct_recipe_cost_latest as
+    # undeclared when it keys on recipe_id and says so.
+    declared: dict[str, bool] = {}
+    for spec in (MODELS / "marts").rglob("*.yml"):
+        doc = _yaml.safe_load(spec.read_text()) or {}
+        for model in doc.get("models") or []:
+            compound = any(
+                "unique_combination_of_columns" in str(t)
+                for t in model.get("tests") or []
+            )
+            single = any(
+                "unique" in [str(t) for t in (column.get("tests") or [])]
+                for column in model.get("columns") or []
+            )
+            declared[model["name"]] = compound or single
+
+    missing = [
+        m.stem
+        for m in marts
+        # dim_* tables are keyed by a single column carrying its own unique
+        # test; the sweep is about fact grains, which are compound.
+        if m.stem.startswith("fct_") and not declared.get(m.stem, False)
+    ]
+    assert not missing, f"published marts with no declared grain: {missing}"
