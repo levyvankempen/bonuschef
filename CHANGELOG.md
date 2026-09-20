@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.14.0 (2026-09-20)
+
+### Features
+
+- **portal**: Every store-scoped read is told which store
+  ([#79](https://github.com/levyvankempen/bonuschef/pull/79),
+  [`3f8b67e`](https://github.com/levyvankempen/bonuschef/commit/3f8b67eebc7ec42768a5956a3dd6599bd4e21a30))
+
+
 ## v1.13.1 (2026-09-20)
 
 ### Bug Fixes
