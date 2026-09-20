@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.8.1 (2026-09-20)
+
+### Bug Fixes
+
+- The portal's cache follows the data, not a wall clock
+  ([#57](https://github.com/levyvankempen/bonuschef/pull/57),
+  [`c3b7b93`](https://github.com/levyvankempen/bonuschef/commit/c3b7b93ab15fc0b8495345290f7b46028f2485c3))
+
+
 ## v1.8.0 (2026-09-20)
 
 ### Features
