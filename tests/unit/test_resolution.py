@@ -358,13 +358,16 @@ class TestAHLookupResilience:
             seen.append(term)
             if len(seen) == 1:
                 raise AHRecipeUnavailable("Read timed out")
-            return [ProductHit(webshop_id=4164, title="AH Courgette")]
+            # The title has to name the term. This asset withholds candidates
+            # it cannot recognise as the ingredient, so a fixture that returns
+            # a courgette for "prei" measures the floor, not the retry.
+            return [ProductHit(webshop_id=4164, title=f"AH {term.title()}")]
 
         monkeypatch.setattr(resolution, "search_products", flaky)
         monkeypatch.setattr(
             resolution,
             "_webshop_id_to_product",
-            lambda e: {4164: ("/x", "AH Courgette")},
+            lambda e: {4164: ("/x", "AH Product")},
         )
         proposals, spent, unreachable = resolution._propose_from_ah(
             object(), {1: "ui", 2: "prei", 3: "kaas"}, build_asset_context()
@@ -408,7 +411,7 @@ class TestAHLookupResilience:
         monkeypatch.setattr(
             resolution,
             "_webshop_id_to_product",
-            lambda e: {4164: ("/x", "AH Courgette")},
+            lambda e: {4164: ("/x", "AH Product")},
         )
         proposals, _, _ = resolution._propose_from_ah(
             object(), {1: "courgette"}, build_asset_context()
