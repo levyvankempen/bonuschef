@@ -169,13 +169,18 @@ models:
   - name: fct_bonus_price_comparison
     tests:
       - dbt_utils.unique_combination_of_columns:
-          combination_of_columns: [product_link]
+          combination_of_columns: [webshop_id]
     description: "Comparison of tracked product prices with AH bonus prices to detect price inflation."
     columns:
-      - name: product_link
-        description: "Link slug of the product."
+      - name: webshop_id
+        description: "AH's product id, present for every promotion."
         tests:
           - not_null
+      - name: product_link
+        description: >
+          Link slug in our own catalogue, or null when the promoted product has
+          never been seen in a price snapshot. Null means the observed saving is
+          unknown, not zero.
       - name: product_name
         description: "Name of the product."
       - name: tracked_price

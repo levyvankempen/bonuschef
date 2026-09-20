@@ -32,8 +32,15 @@ live_bonus AS (
 matched AS (
 
     SELECT
+        -- Driven by the promotion, not by our catalogue. The retailer's own
+        -- claim is the thing being reported; whether we have ever priced the
+        -- product independently is a separate question, and answering "no"
+        -- must not delete the claim.
+        bp.webshop_id,
         cw.product_link,
-        cw.product_name,
+        -- Fall back to the promotion's own name, so an unreconciled row is
+        -- still readable by a person rather than an id with a price.
+        COALESCE(cw.product_name, bp.product_name) AS product_name,
         cw.tracked_price,
         cw.price_observed_at,
         cw.price_age_days,
@@ -77,9 +84,14 @@ matched AS (
                 AND cw.price_age_days <= {{ var('max_price_age_days') }}
                 THEN bp.price_before_bonus > cw.tracked_price
         END AS is_inflated
-    FROM crosswalk AS cw
-    INNER JOIN live_bonus AS bp
-        ON cw.webshop_id = bp.webshop_id
+    -- LEFT, and driven from the feed. An INNER JOIN here dropped every
+    -- promoted product we have never seen a price for, so its advertised
+    -- saving was not reported as unknown - it was not reported at all, and
+    -- nothing counted what went missing. The clearance mart has always done
+    -- it this way; this one did not.
+    FROM live_bonus AS bp
+    LEFT JOIN crosswalk AS cw
+        ON bp.webshop_id = cw.webshop_id
 
 )
 

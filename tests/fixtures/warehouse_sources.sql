@@ -77,3 +77,18 @@ CREATE TABLE IF NOT EXISTS public.ah__pool_recipe_ingredients (
     raw_text     TEXT,
     fetched_at   TEXT
 );
+
+-- One promotion for a product no price snapshot has ever carried.
+--
+-- Without a row like this every check over these tables passes vacuously: an
+-- empty warehouse proves the SQL parses, not that it keeps anything. This one
+-- reproduces the defect that dropped 72% of the promotional feed, so the
+-- comparison mart must emit it with product_link null and the observed saving
+-- unknown rather than omitting it.
+INSERT INTO public.ah__bonus_products
+    (webshop_id, title, bonus_mechanism, bonus_start_date, bonus_end_date,
+     price_before_bonus, bonus_price, loaded_at, is_bonus)
+VALUES
+    (999999001, 'Onbekend product in de bonus', '25% KORTING',
+     '2020-01-01', '2100-01-01', 4.00, 3.00, '2020-01-01T00:00:00', TRUE)
+ON CONFLICT DO NOTHING;
