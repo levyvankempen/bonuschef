@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.11.7 (2026-09-20)
+
+### Bug Fixes
+
+- **resolution**: Apply the naming test to links already in the database
+  ([#72](https://github.com/levyvankempen/bonuschef/pull/72),
+  [`c673fdd`](https://github.com/levyvankempen/bonuschef/commit/c673fdd7a715c72d233e4161abfbf51a0c3eb330))
+
+### Chores
+
+- Remove the code and tables nothing uses
+  ([#71](https://github.com/levyvankempen/bonuschef/pull/71),
+  [`f4e18a8`](https://github.com/levyvankempen/bonuschef/commit/f4e18a8665d8c20a604e5dcf742811bc49a6ea7e))
+
+
 ## v1.11.6 (2026-09-20)
 
 ### Bug Fixes
