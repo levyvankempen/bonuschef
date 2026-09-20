@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.3 (2026-09-20)
+
+### Bug Fixes
+
+- Three things the system computed and never showed
+  ([#65](https://github.com/levyvankempen/bonuschef/pull/65),
+  [`c7ce9a6`](https://github.com/levyvankempen/bonuschef/commit/c7ce9a6ffd1b25abbdac00fa5538e3956e8628ea))
+
+
 ## v1.11.2 (2026-09-20)
 
 ### Bug Fixes
