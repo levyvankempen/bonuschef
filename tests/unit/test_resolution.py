@@ -44,7 +44,18 @@ def engine():
         eng = create_engine(url, pool_pre_ping=True)
         with eng.begin() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception:
+    except Exception as exc:
+        if os.getenv("CI"):
+            # These six tests cover the SQL behind portal/db.py - every SELECT
+            # the portal renders, and the module with the lowest coverage in
+            # the project. They skipped in CI from the day they were written,
+            # so that SQL has never been exercised by a gate. A skip is a
+            # green check that proves nothing, and in CI a database is
+            # provided, so its absence is a broken workflow rather than a
+            # developer without one running locally.
+            raise AssertionError(
+                f"CI provides a database and these tests must run against it: {exc}"
+            ) from exc
         # ty cannot see through pytest's @_with_exception decorator, so it
         # reads skip() as taking no arguments. Upstream limitation, not ours.
         pytest.skip("no local Postgres")  # ty: ignore[too-many-positional-arguments]
@@ -954,3 +965,45 @@ class TestReproposingStaleResolutions:
         assert body.index("repropose_stale(") < body.index(
             "recheck_existing_links(engine, context)"
         )
+
+
+class TestTheAssetOwnsItsSchema:
+    """The asset must not assume a person has opened the portal first.
+
+    It failed in production on `relation "public.ah_ingredient_flags" does not
+    exist`: the table is created by the portal's ensure_catalogue_tables, and
+    nothing had visited the portal since the table was added.
+
+    Every unit test of this path monkeypatched flag_concepts, so the write
+    that needed the table never happened. The tests stubbed out precisely the
+    thing that broke.
+    """
+
+    def test_the_asset_creates_the_tables_it_writes_to(self):
+        body = (
+            ROOT
+            / "src"
+            / "bonuschef"
+            / "dags"
+            / "defs"
+            / "assets"
+            / "resolution"
+            / "__init__.py"
+        ).read_text()
+        assert "ensure_catalogue_tables(engine)" in body, (
+            "the asset assumes the portal created its tables"
+        )
+
+    def test_every_portal_table_the_asset_writes_to_is_in_the_ddl(self):
+        """A second table added the same way would fail the same way. This
+        compares what the asset writes against what the DDL creates, rather
+        than pinning the one table that has already bitten."""
+        import re
+
+        db = (ROOT / "src" / "bonuschef" / "portal" / "db.py").read_text()
+        created = set(re.findall(r"CREATE TABLE IF NOT EXISTS public\.(\w+)", db))
+        written = set(
+            re.findall(r"(?:INSERT INTO|DELETE FROM|UPDATE)\s+public\.(\w+)", db)
+        )
+        missing = written - created
+        assert not missing, f"db.py writes to {sorted(missing)} but never creates them"

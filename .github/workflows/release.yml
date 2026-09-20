@@ -14,6 +14,23 @@ jobs:
       group: ${{ github.workflow }}-release
       cancel-in-progress: false
 
+    # The same database CI has. The check list now includes a session that
+    # executes the warehouse, and a gate that cannot run the list is the
+    # failure this whole arrangement exists to prevent - it is how v1.3.0
+    # came not to be cut.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     permissions:
       contents: write
 
@@ -49,6 +66,12 @@ jobs:
         run: |
           uv python install 3.12
           uvx nox
+        env:
+          PG_HOST: localhost
+          PG_PORT: "5432"
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DB: postgres
 
       - name: Semantic version release
         id: release

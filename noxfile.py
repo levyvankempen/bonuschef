@@ -2,13 +2,21 @@ import os
 import nox
 from nox.sessions import Session
 
+# The canonical check list. Every gate runs exactly this, and nothing names a
+# subset of it - that is what broke the v1.3.0 release.
+#
+# format_python and format_sql are deliberately NOT here. They REWRITE the
+# tree (`ruff check --fix`, `sqlfluff fix`), and a gate that modifies the code
+# before checking it verifies something other than the commit it is about to
+# release. Their checking equivalents already run: lint_python ends with
+# `ruff format --diff` and lint_sql with `sqlfluff lint`. Both remain
+# available as `nox -s format_python` for local use.
 nox.options.sessions = [
     "lint_python",
     "lint_sql",
-    "format_python",
-    "format_sql",
     "types",
     "tests",
+    "warehouse",
 ]
 locations_python = "src", "tests", "noxfile.py"
 locations_sql = ["src/bonuschef/sql"]
@@ -44,6 +52,54 @@ def _dbt_parse(session: Session) -> None:
         *locations_sql,
         "--profiles-dir",
         *locations_sql,
+    )
+
+
+@nox.session(python=["3.12"], venv_backend="uv")
+def warehouse(session: Session) -> None:
+    """Execute the SQL, rather than deciding it looks plausible.
+
+    `dbt parse` does not read SQL grammar - it is a Jinja and graph
+    operation. Verified: a model containing `selec 1 as a,, from x` parses
+    clean and exits 0. sqlfluff catches the grammar but not a broken `ref()`,
+    because with the jinja templater `ref` is stubbed to a placeholder string.
+
+    Between them they cover neither of the two things that have actually
+    broken here: SQL that renders to nonsense (`> i.{{ var(...) }}` becoming
+    `> i.45`, which lints clean and parses clean because Jinja renders to text
+    that LOOKS valid), and a model that stops producing a column something
+    downstream selects.
+
+    Only a database answers those, and it answers them on an EMPTY database -
+    the statements are executed either way. So this needs a Postgres, and
+    needs no fixture data to earn its place.
+
+    It also runs the 134 data tests and 6 singular tests in the project, not
+    one of which has ever executed in CI.
+    """
+    session.run("uv", "sync", "--active", "--dev")
+    _dbt_parse(session)
+    session.run("uv", "run", "--active", "python", "scripts/seed_warehouse_sources.py")
+    session.run(
+        "uv",
+        "run",
+        "--active",
+        "dbt",
+        "build",
+        "--project-dir",
+        *locations_sql,
+        "--profiles-dir",
+        *locations_sql,
+        env={
+            # Defaults matching the service container in ci.yml. Overridable so
+            # the same session runs against a local database.
+            "PG_HOST": os.getenv("PG_HOST", "localhost"),
+            "PG_PORT": os.getenv("PG_PORT", "5432"),
+            "PG_USER": os.getenv("PG_USER", "postgres"),
+            "PG_PASSWORD": os.getenv("PG_PASSWORD", "postgres"),
+            "PG_DB": os.getenv("PG_DB", "postgres"),
+            "ENVIRONMENT": os.getenv("ENVIRONMENT", "default"),
+        },
     )
 
 

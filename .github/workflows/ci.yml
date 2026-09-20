@@ -7,6 +7,30 @@ on:
 jobs:
   nox:
     runs-on: ubuntu-latest
+
+    # A database, for two reasons that are easy to conflate.
+    #
+    # The warehouse session executes the SQL rather than parsing it, which is
+    # the only thing that catches a rendered-to-nonsense expression or a model
+    # that stops producing a column. It needs no data to do that.
+    #
+    # And six tests in test_resolution.py skip themselves when no Postgres is
+    # reachable. They have been skipping in CI since they were written, which
+    # means the SQL behind portal/db.py - every SELECT the portal renders - has
+    # never been exercised by a gate. A silent skip is a green check that
+    # proves nothing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     permissions:
       contents: read
     steps:
@@ -40,3 +64,22 @@ jobs:
       # Tests
       - name: nox -s tests
         run: uvx nox -s tests
+        env:
+          PG_HOST: localhost
+          PG_PORT: "5432"
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DB: postgres
+
+      # Not path-gated on src/bonuschef/sql. A Python change that renames a
+      # column a page reads still needs the database to catch it, and a
+      # conditionally-run check is one that is not run - which is how the
+      # release gate came to omit the session the test suite depended on.
+      - name: nox -s warehouse
+        run: uvx nox -s warehouse
+        env:
+          PG_HOST: localhost
+          PG_PORT: "5432"
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DB: postgres
