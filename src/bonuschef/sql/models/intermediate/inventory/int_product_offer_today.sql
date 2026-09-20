@@ -65,7 +65,17 @@ bonus_offers AS (
         ) AS requires_multibuy
     FROM {{ ref('fct_bonus_price_comparison') }} AS b
     CROSS JOIN {{ ref('int_store') }} AS s
-    WHERE b.bonus_price IS NOT NULL
+    -- product_link IS NOT NULL, as the clearance branch above already
+    -- requires. The comparison mart deliberately keeps promotions for products
+    -- we have never priced - that is the retailer's claim, and reporting it is
+    -- the point of that mart. But an offer with no link cannot be attached to
+    -- a recipe ingredient, which is what THIS table is for.
+    --
+    -- Without it the mart's 1,112 unreconcilable promotions arrive here with a
+    -- null key and fail this model's own not_null test. That did not show up
+    -- when the change landed because int_store was empty in the fixture, so
+    -- the cross join produced nothing and the test passed over zero rows.
+    WHERE b.bonus_price IS NOT NULL AND b.product_link IS NOT NULL
 
 )
 
