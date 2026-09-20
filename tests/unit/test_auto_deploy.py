@@ -337,3 +337,34 @@ def test_a_checkout_beside_the_script_still_wins(server):
     )
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
     assert "up to date" in result.stdout
+
+
+def test_it_notices_when_main_is_ahead_of_the_newest_tag(server):
+    """A failed release is invisible: main is correct, CI is green, and the
+    only symptom is a tag that never appeared. The timer said "up to date" on
+    every tick throughout, because as far as tags go it was.
+
+    Two releases failed this way before anyone noticed.
+    """
+    # Commit to upstream main WITHOUT tagging it - a merged PR whose release
+    # failed.
+    seed = server.seed
+    (seed / "notes.txt").write_text("merged, never released\n")
+    _git(seed, "add", "-A")
+    _git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "feat: x")
+    _git(seed, "push", "-q", "origin", "main")
+
+    r = _tick(server)
+    assert r.returncode == 0, "an unreleased commit is not a deployment failure"
+    assert "ahead of it" in r.stdout, (
+        f"the timer did not notice main had moved without a release:\n{r.stdout}"
+    )
+    assert _deployed(server) == [], "it deployed something that was never tagged"
+
+
+def test_it_stays_quiet_when_main_and_the_tag_agree(server):
+    """The ordinary case must not start emitting a warning, or the signal is
+    worthless within a week."""
+    r = _tick(server)
+    assert "ahead of it" not in r.stdout
+    assert "up to date" in r.stdout

@@ -56,6 +56,20 @@ fi
 current="$(git describe --tags --exact-match HEAD 2>/dev/null || echo none)"
 
 if [ "$current" = "$latest" ]; then
+    # Up to date with the newest TAG. That is not the same as up to date with
+    # main, and the difference is where a failed release hides: main can be
+    # several merges ahead while no tag was ever cut, and every tick here says
+    # "up to date" because as far as tags go, it is.
+    #
+    # Two releases failed exactly this way and nobody noticed - main was
+    # correct, CI was green, and the only symptom was a tag that never
+    # appeared. Nothing alerts on something that did not happen.
+    behind="$(git rev-list --count "${latest}..origin/main" 2>/dev/null || echo 0)"
+    if [ "${behind:-0}" -gt 0 ]; then
+        log "up to date ($current), but main is $behind commit(s) ahead of it"
+        log "  no release has been cut for them - check the Release workflow"
+        exit 0
+    fi
     log "up to date ($current)"
     exit 0
 fi

@@ -38,6 +38,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # The token the later push will use. Without it here, checkout
+          # configures the remote with GITHUB_TOKEN and semantic-release
+          # pushes as the Actions app regardless of what it is handed.
+          token: ${{ secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN }}
           ref: ${{ github.ref_name }}
           # Full history and tags, or semantic-release cannot see the last
           # release and computes the next version from nothing. The default
@@ -73,11 +77,29 @@ jobs:
           PG_PASSWORD: postgres
           PG_DB: postgres
 
+      # BONUSCHEF_PAT, not GITHUB_TOKEN.
+      #
+      # main requires the `nox` check, and semantic-release pushes its
+      # version-bump commit straight to main - a commit that by construction
+      # has no check. GITHUB_TOKEN acts as the Actions app, which is not an
+      # admin, so the push is rejected:
+      #
+      #   remote: - Required status check "nox" is expected.
+      #   ! [remote rejected] main -> main (protected branch hook declined)
+      #
+      # A ruleset can exempt an app, but only in an organisation; this is a
+      # personal repository and the API refuses the bypass actor. An admin's
+      # token is the remaining way, and works because the protection is set
+      # to let admins through.
+      #
+      # It falls back to GITHUB_TOKEN so the workflow is not broken by the
+      # secret being absent - it just fails at the push again, which is where
+      # it fails today.
       - name: Semantic version release
         id: release
         uses: python-semantic-release/python-semantic-release@v10
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN }}
           git_committer_name: "github-actions"
           git_committer_email: "actions@users.noreply.github.com"
 
@@ -85,5 +107,5 @@ jobs:
         uses: python-semantic-release/publish-action@v10
         if: steps.release.outputs.released == 'true'
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN }}
           tag: ${{ steps.release.outputs.tag }}
