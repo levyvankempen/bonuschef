@@ -13,11 +13,17 @@ from tests.conftest import run_app
 class TestRecipesPage:
     def _wire(self, monkeypatch, summary):
         monkeypatch.setattr(recipes_page, "get_engine", lambda: object())
-        monkeypatch.setattr(recipes_page, "read_recipe_summary", lambda e: summary)
+        # The readers take the marts' build stamp as a cache key, so a rebuild
+        # invalidates them exactly. *_ so the fixture need not be edited again
+        # if another key joins it.
+        monkeypatch.setattr(
+            recipes_page, "read_marts_built_at", lambda e: "2026-01-01T00:00:00"
+        )
+        monkeypatch.setattr(recipes_page, "read_recipe_summary", lambda e, *_: summary)
         monkeypatch.setattr(
             recipes_page,
             "read_recipe_bonus_summary",
-            lambda e: pd.DataFrame(
+            lambda e, *_: pd.DataFrame(
                 {
                     "recipe_id": [1],
                     "recipe_name": ["Pasta"],
@@ -31,7 +37,7 @@ class TestRecipesPage:
         monkeypatch.setattr(
             recipes_page,
             "read_recipe_breakdown_bonus",
-            lambda e, rid: pd.DataFrame(
+            lambda e, rid, *_: pd.DataFrame(
                 {
                     "recipe_id": [1, 1],
                     "recipe_name": ["Pasta", "Pasta"],

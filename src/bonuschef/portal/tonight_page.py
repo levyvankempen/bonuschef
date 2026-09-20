@@ -406,6 +406,29 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
     st.caption(
         f"Berekend over {pool} recept(en); {rankable} daarvan zijn vandaag goedkoper."
     )
+
+    # Why the rest are not here.
+    #
+    # The mart has always computed exclusion_reason, the reader has always
+    # selected it, and _EXCLUSION_TEXT has always held the three values it can
+    # take - and nothing rendered any of it. "Berekend over 900 recepten; 200
+    # daarvan zijn vandaag goedkoper" invites exactly one question, and the
+    # answer was sitting in the dataframe unread.
+    #
+    # It distinguishes the two states the caption above conflates: a recipe
+    # that COULD be ranked and simply is not cheaper today, and one that could
+    # not be ranked at all because nothing in it has a price.
+    if "exclusion_reason" in df.columns:
+        reasons = df["exclusion_reason"].dropna()
+        if not reasons.empty:
+            counts = reasons.value_counts()
+            parts = [
+                f"{int(n)}× {_EXCLUSION_TEXT[reason].rstrip('.').lower()}"
+                for reason, n in counts.items()
+                if reason in _EXCLUSION_TEXT
+            ]
+            if parts:
+                st.caption("Niet meegerekend: " + "; ".join(parts) + ".")
     # Flagged concepts are a different kind of work from unlinked ones: the
     # recipe already has a price, it is just wrong. That reads as nothing being
     # amiss, so it has to be said out loud or it never gets looked at.

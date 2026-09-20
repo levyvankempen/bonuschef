@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.ah__pool_recipe_ingredients (
 DELETE FROM public.ah__bonus_products WHERE webshop_id >= 999000000;
 DELETE FROM public.ah__store_markdowns WHERE webshop_id >= 999000;
 DELETE FROM public.github__products WHERE l LIKE 'wi999%';
+DELETE FROM public.ah__bonus_products WHERE webshop_id = 999003;
 DELETE FROM public."ah__pool_recipe_ingredients" WHERE recipe_id >= 999900000;
 DELETE FROM public."ah__pool_recipes" WHERE recipe_id >= 999900000;
 DELETE FROM public.ah_ingredient_products WHERE concept_id >= 999000;
@@ -145,3 +146,21 @@ INSERT INTO public.ah_ingredient_products
 VALUES
     (999001, 'wi999002/ah-uien', 'AH Uien', now(), now()),
     (999002, 'wi999002/ah-uien', 'AH Uien', now(), now());
+
+-- A promotion on a product we DO have a price for, so a bonus offer exists at
+-- all. Without one, "does a bonus offer carry its pack size" is a question
+-- about an empty table.
+--
+-- The pack size is the point: it was CAST(NULL AS text) for every promotion,
+-- so "hele verpakking: 500 g" only ever appeared on clearance lines and a
+-- recipe needing 100 g of a promoted 500 g pack was costed at the pack with
+-- nothing on the page to say so.
+INSERT INTO public.github__products (n, l, p, s, snapshot_sha, snapshot_at)
+VALUES ('AH Roomboter', 'wi999003/ah-roomboter', 3.00, '250 g', 'seed', now());
+
+INSERT INTO public.ah__bonus_products
+    (webshop_id, title, bonus_mechanism, bonus_start_date, bonus_end_date,
+     price_before_bonus, bonus_price, loaded_at, is_bonus)
+VALUES
+    (999003, 'AH Roomboter', '25% KORTING', '2020-01-01', '2100-01-01',
+     3.00, 2.25, to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'), TRUE);

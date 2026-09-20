@@ -39,7 +39,7 @@ def get_engine():
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_summary(_engine) -> pd.DataFrame:
+def read_recipe_summary(_engine, built_at: str = "") -> pd.DataFrame:
     """Fetch current recipe costs from fct_recipe_cost_latest."""
     schema = _get_schema()
     sql = text(f"""
@@ -55,7 +55,7 @@ def read_recipe_summary(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_cost_history(_engine) -> pd.DataFrame:
+def read_recipe_cost_history(_engine, built_at: str = "") -> pd.DataFrame:
     """Fetch historical recipe costs from fct_recipe_cost_history."""
     schema = _get_schema()
     sql = text(f"""
@@ -71,7 +71,9 @@ def read_recipe_cost_history(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
+def read_recipe_breakdown_bonus(
+    _engine, recipe_id: int, built_at: str = ""
+) -> pd.DataFrame:
     """Fetch ingredient breakdown with bonus info for a recipe."""
     schema = _get_schema()
     sql = text(f"""
@@ -118,7 +120,7 @@ def read_recipe_breakdown_bonus(_engine, recipe_id: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_bonus_summary(_engine) -> pd.DataFrame:
+def read_recipe_bonus_summary(_engine, built_at: str = "") -> pd.DataFrame:
     """Fetch bonus summary per recipe: how many ingredients on bonus, total savings."""
     schema = _get_schema()
     sql = text(f"""

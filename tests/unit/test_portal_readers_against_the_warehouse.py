@@ -182,3 +182,36 @@ def test_the_readers_are_actually_executed(warehouse):
     assert "recipe_id" in returned and "opportunity_rank" in returned, (
         "the opportunity reader did not come back with its own key columns"
     )
+
+
+def test_every_reader_of_a_rebuilt_mart_takes_the_build_stamp():
+    """Only the two Vanavond readers took it. The Recepten page cached its
+    costs on a wall clock, so after a SCHEDULED rebuild - which is how the
+    nightly runs - it served the previous answer for up to fifteen minutes
+    with nothing to indicate it.
+
+    That is the same defect the build stamp was introduced to fix, left in
+    place on the other page.
+    """
+    import inspect
+
+    from bonuschef.portal import db
+
+    for name in (
+        "read_recipe_opportunity",
+        "read_recipe_opportunity_items",
+        "read_recipe_summary",
+        "read_recipe_breakdown_bonus",
+        "read_recipe_bonus_summary",
+        "read_recipe_cost_history",
+    ):
+        params = inspect.signature(getattr(db, name)).parameters
+        assert "built_at" in params, f"{name} cannot be invalidated by a rebuild"
+
+
+def test_both_pages_pass_the_stamp():
+    for page in ("tonight_page.py", "recipes_page.py"):
+        body = (PORTAL / page).read_text()
+        assert "read_marts_built_at(engine)" in body, (
+            f"{page} reads the marts without asking when they were built"
+        )

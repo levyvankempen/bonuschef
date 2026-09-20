@@ -50,7 +50,17 @@ bonus_offers AS (
         -- campaign boundary, not a use-by date, and mixing the two would let a
         -- week-long offer masquerade as an item that must be eaten tonight.
         CAST(NULL AS date) AS expires_on,
-        CAST(NULL AS text) AS sales_unit_size,
+        -- The pack the promotion applies to.
+        --
+        -- This was NULL for every bonus offer, so "hele verpakking: 500 g"
+        -- only ever appeared on clearance lines. A recipe needing 100 g of a
+        -- promoted 500 g pack is costed at the pack - that is what has to be
+        -- bought - and the page said nothing to explain why the saving looked
+        -- so large. The caveat existed and could not fire.
+        --
+        -- The clearance feed carries its own size; a promotion does not, so it
+        -- comes from the product.
+        d.amount AS sales_unit_size,
         b.bonus_mechanism,
         b.bonus_is_ongoing,
         -- 146 of 256 live matched promotions are multibuy: bonus_price is the
@@ -65,6 +75,7 @@ bonus_offers AS (
         ) AS requires_multibuy
     FROM {{ ref('fct_bonus_price_comparison') }} AS b
     CROSS JOIN {{ ref('int_store') }} AS s
+    LEFT JOIN {{ ref('dim_product') }} AS d ON b.product_link = d.product_link
     -- product_link IS NOT NULL, as the clearance branch above already
     -- requires. The comparison mart deliberately keeps promotions for products
     -- we have never priced - that is the retailer's claim, and reporting it is
