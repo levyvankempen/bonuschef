@@ -37,7 +37,9 @@ see. Revisit if the request count becomes a problem.
 ## 5. Show it — NOT DONE
 
 - [x] 5.1 The dialog says why a flagged concept came back
-- [ ] 5.2 Candidate rows show their classification — still open
+- [x] 5.2 Candidate rows show their classification, best-effort: one batched
+      request per dialog, and a failure drops the annotation rather than the
+      page
 
 
 ## 6. Rank and narrow (added after the first round)
