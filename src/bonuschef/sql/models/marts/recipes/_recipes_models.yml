@@ -100,8 +100,19 @@ models:
         description: "Percentage of total recipe cost this ingredient represents."
 
   - name: fct_recipe_cost_breakdown_bonus
+    tests:
+      # The one published mart with no declared grain. Its grain is the pair -
+      # a recipe's ingredient LINE, not the recipe - and without this a
+      # duplicated line silently doubles that ingredient's contribution to the
+      # recipe's cost on the Recepten page.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [recipe_id, item_key]
     description: "Recipe ingredient cost breakdown enriched with current AH bonus data."
     columns:
+      - name: item_key
+        description: "Identifies the ingredient line within the recipe."
+        tests:
+          - not_null
       - name: recipe_id
         description: "ID of the recipe."
         tests:
