@@ -126,3 +126,39 @@ def test_the_script_refuses_rather_than_guessing(repo):
     not happen cannot be mistaken for one that did."""
     for args in ((), ("main",), ("v9.9.9",)):
         assert _deploy(repo, *args).returncode != 0
+
+
+def test_a_deploy_reclaims_the_cache_it_creates():
+    """Every deploy runs `--build`, and every build leaves layers behind.
+
+    That was tolerable while deploys were occasional and manual. With the
+    auto-deploy timer it happens on every release, and the cache reached 5.6 GB
+    of a 16 GB rootfs - 100% reclaimable, and larger than the database, the
+    images and the logs combined.
+
+    For proportion: the Dagster event_logs that dagster.yaml warns about were
+    41 MB at the same moment.
+    """
+    body = DEPLOY.read_text()
+    assert "docker builder prune" in body, (
+        "the deploy builds every time and never reclaims the cache"
+    )
+    assert body.index("docker compose up -d --build") < body.index(
+        "docker builder prune"
+    ), "the cache is pruned before the build that creates it"
+
+
+def test_reclaiming_keeps_recent_cache():
+    """-a would start every rebuild cold. The aim is to bound growth, not to
+    throw away the week of cache that makes a rebuild quick."""
+    body = DEPLOY.read_text()
+    assert "--filter until=" in body, "the prune is unbounded"
+    assert "builder prune -af" not in body
+
+
+def test_a_failed_prune_does_not_fail_the_deploy():
+    """The stack is already up by then. Losing a deploy over housekeeping
+    would be the tail wagging the dog."""
+    body = DEPLOY.read_text()
+    line = next(row for row in body.splitlines() if "docker builder prune" in row)
+    assert "|| true" in line, line

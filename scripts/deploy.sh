@@ -76,6 +76,24 @@ echo "deploying ${BONUSCHEF_VERSION} (${BONUSCHEF_COMMIT:0:12})"
 
 docker compose up -d --build
 
+# Reclaim the build cache this rebuild just produced.
+#
+# Every deploy runs `--build`, and every build leaves its intermediate layers
+# behind. That was tolerable while deploys were occasional and done by hand;
+# with the auto-deploy timer it happens on every release, and the cache grew
+# to 5.6 GB of a 16 GB rootfs - 100% reclaimable, and larger than the database,
+# the images and the logs put together.
+#
+# Measured on 2026-09-20: 9.3G used -> 5.8G. The Dagster event_logs that
+# dagster.yaml worries about were 41 MB, which is to say the disk was filling
+# from somewhere nobody was watching.
+#
+# --filter until=168h, not -a: the last week of cache still speeds up a
+# rebuild, and the point is to bound the growth rather than to start cold
+# every time. Failure here is not a failed deploy - the stack is already up.
+docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
+
 # Refresh the auto-deployer's runner, which lives OUTSIDE this checkout.
 #
 # It used to be run straight from scripts/. That made the deployer part of the
