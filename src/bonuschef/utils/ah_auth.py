@@ -391,8 +391,15 @@ class AHTokenManager:
                 used_fallback=index > 0,
             )
         raise AHAuthError(
+            # The token file path belongs here as much as the command does.
+            # This is read by someone on an unattended host who has just been
+            # told their credentials are gone; "re-run the login" is only half
+            # an instruction if they cannot see what it will overwrite, and
+            # the path is configurable via AH_TOKEN_FILE so it cannot be
+            # guessed from the message alone.
             "All known AH refresh tokens were rejected — "
-            f"{LOGIN_HINT}. Details: {' | '.join(errors)}",
+            f"{LOGIN_HINT} (token file: {self.store.path}). "
+            f"Details: {' | '.join(errors)}",
             status=401,
         )
 

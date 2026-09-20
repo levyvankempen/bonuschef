@@ -264,6 +264,13 @@ class TestAHTokenManager:
             mgr.get_access_token()
         assert exc.value.status == 401
         assert refresher.calls == ["dead", "env"]
+        # Both halves of the instruction. This is read by someone on an
+        # unattended host who has just been told their credentials are gone,
+        # and "re-run the login" is half an answer if they cannot see what it
+        # will overwrite - the path is configurable, so it cannot be inferred.
+        assert str(mgr.store.path) in str(exc.value), (
+            "the message says how to recover but not where the credentials are"
+        )
 
     def test_no_tokens_anywhere_raises_clear_error(self, tmp_path):
         mgr = _manager(tmp_path, FakeRefresher())
@@ -455,3 +462,55 @@ class TestTokenStoreDurability:
             assert TokenStore(path).load() is None
         assert "could not be parsed" in caplog.text
         assert "ah_login" in caplog.text
+
+
+class TestARejectedCredentialIsNotAnEmptyResult:
+    """An auth failure must break the pipeline, not produce zero rows.
+
+    The clearance feed is an append-only snapshot: a run that records nothing
+    is indistinguishable from a day with no markdowns. If an expired
+    credential yielded an empty snapshot, the portal would report "geen
+    laatste kans koopjes" - a plausible answer - and the only signal that
+    authentication had lapsed would be its continued absence.
+
+    This is the half of the requirement that was unverified. The failure path
+    was correct; nothing held it that way.
+    """
+
+    def test_an_auth_failure_propagates_out_of_the_feed(self, tmp_path, monkeypatch):
+        from bonuschef.config import AHMarkdownConfig
+        from bonuschef.dags.defs.assets.dlt import ah_markdowns
+
+        class _Dead:
+            def graphql(self, *_a, **_k):
+                raise AHAuthError(
+                    "All known AH refresh tokens were rejected", status=401
+                )
+
+        monkeypatch.setattr(ah_markdowns, "token_manager", lambda cfg: _Dead())
+        cfg = AHMarkdownConfig(store_id=1876, token_file=tmp_path / "t.json")
+
+        with pytest.raises(AHAuthError):
+            list(ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z"))
+
+    def test_the_feed_does_not_swallow_it_into_zero_rows(self, tmp_path, monkeypatch):
+        """The distinction that matters: raising, versus returning nothing."""
+        from bonuschef.config import AHMarkdownConfig
+        from bonuschef.dags.defs.assets.dlt import ah_markdowns
+
+        class _Dead:
+            def graphql(self, *_a, **_k):
+                raise AHAuthError("rejected", status=401)
+
+        monkeypatch.setattr(ah_markdowns, "token_manager", lambda cfg: _Dead())
+        cfg = AHMarkdownConfig(store_id=1876, token_file=tmp_path / "t.json")
+
+        rows = None
+        try:
+            rows = list(ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z"))
+        except AHAuthError:
+            pass
+        assert rows is None, (
+            "an expired credential produced an empty snapshot, which reads as "
+            "'no clearance items today' rather than as a failure"
+        )
