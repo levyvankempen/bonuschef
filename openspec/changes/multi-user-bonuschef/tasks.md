@@ -27,9 +27,10 @@ here marked done because task 1.4 has not happened yet.
 
 ## 2. Accounts
 
-- [ ] 2.1 Decide and record how a session persists across a browser reload -
-      query params, a cookie component, or tailnet identity headers. Streamlit
-      1.50 cannot set a cookie, so this cannot be left to implementation
+- [x] 2.1 Decided: a cookie component. Not tailnet identity, which would be
+      building for the stopgap rather than for a system meant to reach people
+      who are not on the tailnet; not a URL token, which puts a live session
+      into browser history and into the Referer of every ah.nl link
 - [ ] 2.2 Accounts table; sessions in Postgres, revocable, idle lifetime
       enforced against the row on each rerun
 - [ ] 2.3 If passwords: scrypt via `cryptography` at `n=2**15, r=8, p=1`,

@@ -47,6 +47,23 @@ rather than discovered:
    but the proxy can set the header, which compose already guarantees and
    `test_compose_config.py` already enforces.
 
+**Decided: the cookie component.** Not the tailnet identity, though it is
+cheaper and would have deleted most of section 2. The reasoning for rejecting
+it is the right one: friends on a tailnet is a stopgap for a system meant to
+reach people who are not on it, and building auth around an identity source
+that disappears the moment the app is public means writing section 2 twice.
+The cookie is what the eventual shape needs, so it is what gets built.
+
+Not the URL token either: it survives reload, costs nothing, and puts a live
+session token into browser history and into the `Referer` of every link to
+ah.nl on the page. Acceptable for a tailnet alpha, not for the thing this is
+building towards, and the whole point of the decision above is not to build
+for the stopgap.
+
+The cost is honest: a JavaScript dependency, and a first read that returns
+`None` and forces a rerun, which is the flicker-then-login every Streamlit
+auth implementation has.
+
 Whichever is chosen, the session record lives in Postgres - a restart must not
 sign everybody out - and idle expiry is enforced against that row on each
 rerun, not against the cookie, because Streamlit reads cookies only at connect.
