@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.10.1 (2026-09-20)
+
+### Bug Fixes
+
+- An auth failure says where the credentials are, and is never an empty day
+  ([#60](https://github.com/levyvankempen/bonuschef/pull/60),
+  [`d0b3830`](https://github.com/levyvankempen/bonuschef/commit/d0b3830d834b756cf92a7e470bb5b55f631e645b))
+
+
 ## v1.10.0 (2026-09-20)
 
 ### Features
