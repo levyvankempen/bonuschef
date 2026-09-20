@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.9.0 (2026-09-20)
+
+### Features
+
+- Check what a page reads against what its query returns
+  ([#58](https://github.com/levyvankempen/bonuschef/pull/58),
+  [`e81dd9c`](https://github.com/levyvankempen/bonuschef/commit/e81dd9cc54b105d95217119b64be8bf0374549bb))
+
+
 ## v1.8.1 (2026-09-20)
 
 ### Bug Fixes
