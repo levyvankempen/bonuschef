@@ -166,10 +166,10 @@ def test_never_made_is_distinguishable_from_never_recorded(applied):
 
 
 def test_the_backfill_leaves_resolutions_alone():
-    """Roughly 1900 concept-to-product links, 86 of them confirmed by hand,
-    each having cost a search against AH. They are facts about the catalogue,
-    so scoping them to an account would hand every new person an unpriceable
-    catalogue and ask them to redo work already done."""
+    """4,161 links over 1,903 concepts, 86 of them confirmed by hand, each
+    concept having cost a search against AH. They are facts about the
+    catalogue, so scoping them to an account would hand every new person an
+    unpriceable catalogue and ask them to redo work already done."""
     body = BOOTSTRAP.read_text()
     writes = [
         line
@@ -202,3 +202,33 @@ def test_the_store_is_seeded_from_the_existing_configuration():
     """The markdown history already carries store_id 1876. An operator account
     with a different store would orphan it."""
     assert "AH_STORE_ID" in BOOTSTRAP.read_text()
+
+
+# --- a dry run must not write ----------------------------------------------
+
+
+def test_a_dry_run_does_not_apply_the_schema():
+    """Found by rehearsing the script against a clone of production: it
+    applied the DDL before checking the flag.
+
+    The statements are idempotent and additive, which is what made it look
+    harmless. It is not. A dry run that alters the schema of the database it
+    is inspecting is not a dry run, and looking before touching anything is
+    the only reason to offer one.
+    """
+    body = BOOTSTRAP.read_text()
+    before, after = body.split("if args.dry_run:", 1)
+    assert "ensure_account_tables(engine)" not in before, (
+        "the schema is applied before the dry-run flag is even read"
+    )
+    assert "ensure_account_tables(engine)" in after
+
+
+def test_the_dry_run_survives_an_unmigrated_database():
+    """The dry run's whole audience is a database that has not been migrated,
+    so it must not query a column the migration is what creates. Otherwise it
+    fails with a column-does-not-exist error that reads like a bug rather than
+    like "nothing has been migrated yet"."""
+    body = BOOTSTRAP.read_text()
+    assert "information_schema.columns" in body
+    assert "column_name = 'account_id'" in body
