@@ -227,6 +227,16 @@ SELECT
                     c.recipe_id ASC
             )
     END AS opportunity_rank
+    ,
+    -- When this mart was built.
+    --
+    -- The portal caches its reads for fifteen minutes on a wall clock, which
+    -- has nothing to do with when the data underneath actually changed. A
+    -- rebuild triggered from Dagster - which is how the nightly runs - left
+    -- the page showing the previous answer with no way to know. Keying the
+    -- cache on this makes a rebuild invalidate it exactly, and a run that
+    -- changes nothing cost nothing.
+    CURRENT_TIMESTAMP AS built_at
 FROM classified AS c
 INNER JOIN {{ ref('int_store') }} AS s ON c.store_id = s.store_id
 -- INNER is safe: every row in agg came from a recipe item, and every recipe

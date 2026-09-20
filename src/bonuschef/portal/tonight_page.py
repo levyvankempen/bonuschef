@@ -38,6 +38,7 @@ from bonuschef.portal.db import (
     get_engine,
     read_bonus_feed_loaded_at,
     read_pipeline_health,
+    read_marts_built_at,
     read_recipe_opportunity,
     read_recipe_opportunity_items,
     read_rejected_recipes,
@@ -67,7 +68,9 @@ _EXCLUSION_TEXT = {
 def _load(engine):
     """Read the mart, distinguishing "not built yet" from "cannot reach"."""
     try:
-        return read_recipe_opportunity(engine), None
+        # The build stamp is the cache key: a rebuild invalidates this read
+        # exactly, and a run that changed nothing costs nothing.
+        return read_recipe_opportunity(engine, read_marts_built_at(engine)), None
     except ProgrammingError:
         return None, "unbuilt"
     except SQLAlchemyError as exc:
@@ -212,7 +215,9 @@ def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) ->
     render one line, which reads as broken rather than as selective. The list is
     the thing people open it for; the discount is an annotation on it.
     """
-    items = read_recipe_opportunity_items(engine, recipe_id)
+    items = read_recipe_opportunity_items(
+        engine, recipe_id, read_marts_built_at(engine)
+    )
     if items.empty:
         st.caption("Voor dit recept zijn geen ingrediënten bekend.")
         return

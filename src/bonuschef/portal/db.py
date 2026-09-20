@@ -716,8 +716,40 @@ def upsert_product_image(_engine, product_link: str, image_url: str) -> None:
         )
 
 
+# Short, because this is the query that decides whether everything else is
+# stale. Fifteen minutes here would reintroduce the problem it exists to
+# solve; thirty seconds is one cheap MAX() against a table the page already
+# reads.
+_FRESHNESS_TTL_S = 30
+
+
+@st.cache_data(ttl=_FRESHNESS_TTL_S)
+def read_marts_built_at(_engine) -> str:
+    """When the recipe marts were last rebuilt.
+
+    Passed into the expensive readers so their cache key changes when, and
+    only when, the data underneath them does. The portal used to cache for
+    fifteen minutes on a wall clock, which is unrelated to when anything
+    changed: a rebuild from Dagster left the page showing the previous answer,
+    and the only remedy was to wait or restart the container.
+
+    Returns a string rather than a timestamp because it is a cache key, and
+    a stable one matters more than its type. Falls back to a constant if the
+    column is missing, so a portal running against a warehouse built before
+    this existed degrades to the old behaviour instead of failing.
+    """
+    try:
+        with _engine.begin() as conn:
+            value = conn.execute(
+                text("SELECT MAX(built_at) FROM public_marts.fct_recipe_opportunity")
+            ).scalar()
+        return str(value) if value else "unknown"
+    except Exception:
+        return "unknown"
+
+
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_opportunity(_engine) -> pd.DataFrame:
+def read_recipe_opportunity(_engine, built_at: str = "") -> pd.DataFrame:
     """What is worth cooking today, and why every other recipe is not.
 
     Reads the whole table rather than filtering to the ranked rows. The mart
@@ -753,7 +785,9 @@ def read_recipe_opportunity(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_opportunity_items(_engine, recipe_id: int) -> pd.DataFrame:
+def read_recipe_opportunity_items(
+    _engine, recipe_id: int, built_at: str = ""
+) -> pd.DataFrame:
     """The ingredients behind one recipe's ranking, discounted or not.
 
     Not filtered to discounted lines: "the rest of the basket did not move" is

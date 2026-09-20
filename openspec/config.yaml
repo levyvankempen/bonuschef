@@ -30,3 +30,32 @@ schema: spec-driven
 #     archive:
 #       guidance:
 #         - Summarize the archive outcome before finishing
+
+context: |
+  A personal Dutch grocery-price pipeline: dlt -> Postgres -> dbt -> Dagster
+  -> Streamlit. Python, uv, nox. One maintainer. Deployed to a 2 GB Proxmox
+  container that auto-deploys the newest git tag.
+
+  The check list is `nox.options.sessions`, and every gate runs exactly that.
+  No gate names a subset: doing so is what stopped releases being cut for two
+  months. It includes `warehouse`, which executes the dbt project against a
+  real Postgres, because `dbt parse` does not read SQL grammar and sqlfluff
+  does not resolve refs.
+
+  Tests ship with every change, and the suite stays free of network and of a
+  database except where a test says otherwise.
+
+rules:
+  tasks:
+    - >
+      A task that adds a guard records the one-line edit to the source that
+      made the guard fail. A check never seen red is not yet evidence: a test
+      asserting that a brand preference could not decide an outcome passed
+      while checking nothing, because another term dominated the case and the
+      flag under test could not have changed the answer either way. Two
+      minutes at authoring time; it is the only thing that catches this.
+    - >
+      A task that fixes wrong output says which record it fixes, and what that
+      record produced before and after. A correction pass that was right in
+      principle repaired none of the actual bad rows, and its unit tests all
+      passed - they proved the code ran, not that anything changed.
