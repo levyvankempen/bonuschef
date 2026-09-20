@@ -212,3 +212,53 @@ def test_an_absent_secret_does_not_break_the_workflow():
     checkout with something harder to read."""
     text = RELEASE.read_text()
     assert "secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN" in text
+
+
+# --- the superseded-run race ------------------------------------------------
+
+
+def _step_named(fragment: str) -> dict:
+    for step in _release_steps():
+        if fragment.lower() in str(step.get("name", "")).lower():
+            return step
+    raise AssertionError(f"no release step named like {fragment!r}")
+
+
+def test_a_superseded_run_stands_down_instead_of_failing():
+    """Two PRs merging inside one run's lifetime is now normal - auto-merge
+    fires the moment checks go green.
+
+    The run pins itself to github.sha and then spends minutes in `nox`. If main
+    moves in that window, semantic-release refuses to push and the run goes
+    red, even though the merge that moved main triggers its own release run
+    that releases both commits. Release #44 failed exactly this way and #45
+    cut 1.11.6 containing both.
+
+    A red check that is routine and harmless is worse than the race it
+    reports, because it teaches that red means nothing.
+    """
+    guard = _step_named("stand down")
+    assert guard.get("id") == "tip", "the release step gates on this id"
+    assert "rev-parse origin/" in guard["run"], "it must compare against the tip"
+    assert "superseded=true" in guard["run"]
+
+
+def test_the_release_step_is_gated_on_that_check():
+    release = _step_named("semantic version release")
+    assert release["if"] == "steps.tip.outputs.superseded != 'true'"
+
+
+def test_standing_down_does_not_publish_a_release():
+    """The publish step must not fire off a skipped release - it would tag
+    nothing, or worse, tag an empty output."""
+    publish = _step_named("publish github release")
+    assert publish["if"] == "steps.release.outputs.released == 'true'"
+
+
+def test_the_guard_runs_after_the_verification():
+    """Checking the tip before `nox` would leave the whole verification window
+    open, which is the window the race actually happens in."""
+    names = [str(s.get("name", "")).lower() for s in _release_steps()]
+    assert names.index("verify before releasing") < names.index(
+        "stand down if another push superseded this run"
+    )

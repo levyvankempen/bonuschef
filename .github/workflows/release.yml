@@ -77,6 +77,36 @@ jobs:
           PG_PASSWORD: postgres
           PG_DB: postgres
 
+      # Two PRs merging inside one run's lifetime is now normal, because
+      # auto-merge fires the moment checks go green. This run pinned itself to
+      # github.sha and then spent four minutes in `nox`; if main moved in that
+      # window, semantic-release computes a version from a tree that is no
+      # longer the tip, refuses to push, and the run goes red:
+      #
+      #   [LOCAL SHA] 84adc6a != ee51175 [UPSTREAM SHA]
+      #   Upstream branch 'origin/main' has changed!
+      #
+      # Refusing is right. Going red is not: the merge that moved main
+      # triggered its own release run, which releases both commits, so there
+      # is nothing lost and nothing to do. Release #44 failed this way and
+      # #45 cut 1.11.6 containing both.
+      #
+      # A red check that is routine and harmless is worse than the race it
+      # reports, because it teaches that red means nothing. So this run stands
+      # down when it has been superseded, and stays red for every other reason
+      # a push can fail.
+      - name: Stand down if another push superseded this run
+        id: tip
+        run: |
+          git fetch --quiet origin ${{ github.ref_name }}
+          upstream=$(git rev-parse origin/${{ github.ref_name }})
+          if [ "$upstream" != "${{ github.sha }}" ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::main is now $upstream, this run is for ${{ github.sha }}. Its release is cut by the newer run."
+          else
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # BONUSCHEF_PAT, not GITHUB_TOKEN.
       #
       # main requires the `nox` check, and semantic-release pushes its
@@ -97,6 +127,7 @@ jobs:
       # it fails today.
       - name: Semantic version release
         id: release
+        if: steps.tip.outputs.superseded != 'true'
         uses: python-semantic-release/python-semantic-release@v10
         with:
           github_token: ${{ secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN }}
