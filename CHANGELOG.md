@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.11.6 (2026-09-20)
+
+### Bug Fixes
+
+- **deploy**: Reclaim the build cache each deploy creates
+  ([#69](https://github.com/levyvankempen/bonuschef/pull/69),
+  [`84adc6a`](https://github.com/levyvankempen/bonuschef/commit/84adc6a710ba8336a3dc3cdc06e367820d43d59c))
+
+- **matching**: Propose nothing when the best candidate is unrecognisable
+  ([#70](https://github.com/levyvankempen/bonuschef/pull/70),
+  [`ee51175`](https://github.com/levyvankempen/bonuschef/commit/ee51175e70df96546c1f15eed89ea90148bdad11))
+
+### Documentation
+
+- The backup restores, and this says what that does not prove
+  ([#68](https://github.com/levyvankempen/bonuschef/pull/68),
+  [`33f8ae3`](https://github.com/levyvankempen/bonuschef/commit/33f8ae3707ef081d1c7eb98efac82560e512b957))
+
+
 ## v1.11.5 (2026-09-20)
 
 ### Bug Fixes
