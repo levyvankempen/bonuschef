@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.5 (2026-09-20)
+
+### Bug Fixes
+
+- Bound what grows unattended, and ask a probe a real question
+  ([#67](https://github.com/levyvankempen/bonuschef/pull/67),
+  [`2030945`](https://github.com/levyvankempen/bonuschef/commit/2030945f333daffebb568524e1b12e3fa798e724))
+
+
 ## v1.11.4 (2026-09-20)
 
 ### Bug Fixes
