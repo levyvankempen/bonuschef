@@ -10,6 +10,8 @@ settles it for every recipe that will ever use it.
 
 from __future__ import annotations
 
+import re
+
 import streamlit as st
 from dagster import DagsterRunStatus
 
@@ -32,6 +34,7 @@ from bonuschef.portal.dagster_client import (
     get_run_status,
 )
 from bonuschef.portal.rebuild import start_recipe_rebuild
+from bonuschef.utils.ah_recipes import fetch_product_taxonomy
 
 
 def _options(engine, concept_id: int, name: str) -> dict[str, str]:
@@ -43,6 +46,37 @@ def _options(engine, concept_id: int, name: str) -> dict[str, str]:
     for cand in candidates(engine, name):
         options.setdefault(cand.product_name, cand.product_link)
     return options
+
+
+def _kinds(options: dict[str, str]) -> dict[str, str]:
+    """What kind of thing each candidate is, for showing beside it.
+
+    "AH Witte kaas 40+" and "AH Truffelsalami parmezaanse kaas" read alike in
+    a list of names. One is classified as Witte kaas and the other as Salami,
+    and that is the distinction a person is being asked to make.
+
+    Best-effort. One batched request covers every candidate in the dialog, and
+    if it fails the dialog renders without the annotation rather than not at
+    all - a person who opened this is mid-task, and a network error is not a
+    reason to take the page away from them.
+    """
+    ids: dict[int, str] = {}
+    for label, link in options.items():
+        match = re.match(r"wi(\d+)/", link or "")
+        if match:
+            ids[int(match.group(1))] = label
+    if not ids:
+        return {}
+    try:
+        classified = fetch_product_taxonomy(list(ids))
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for webshop_id, hit in classified.items():
+        label = ids.get(webshop_id)
+        if label and hit.taxonomy_leaf:
+            out[label] = hit.taxonomy_leaf
+    return out
 
 
 def _preselected(engine, concept_id: int, options: dict[str, str]) -> list[str]:
@@ -159,12 +193,18 @@ def _render_body(engine, concepts) -> None:
         elif not options:
             st.badge("nog geen product gevonden", color="gray")
 
+        kinds = _kinds(options)
         picked = st.multiselect(
             name,
             options=list(options),
             default=_preselected(engine, concept_id, options),
             key=f"pick_{concept_id}",
             label_visibility="collapsed",
+            # The retailer's own classification, beside the name. Without it
+            # the choice between similarly-named products is a guess.
+            format_func=lambda label: (
+                f"{label}  ·  {kinds[label]}" if label in kinds else label
+            ),
         )
         chosen[concept_id] = [options[p] for p in picked]
         st.divider()

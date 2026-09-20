@@ -113,3 +113,53 @@ def test_counting_flags_survives_a_database_without_the_table():
             raise RuntimeError("relation does not exist")
 
     assert count_flagged_concepts(_Engine()) == 0
+
+
+# --- what kind of thing each candidate is ---------------------------------
+
+
+def test_the_dialog_shows_what_kind_each_candidate_is():
+    """ "AH Witte kaas 40+" and "AH Truffelsalami parmezaanse kaas" read alike
+    in a list of names. One is classified Witte kaas and the other Salami, and
+    that is exactly the distinction the person is being asked to make."""
+    body = REVIEW.read_text()
+    assert "format_func" in body, "candidates are shown as bare names"
+    assert "_kinds(" in body
+
+
+def test_a_failed_lookup_does_not_take_the_dialog_away(monkeypatch):
+    """A person who opened this is mid-task. A network error is a reason to
+    drop the annotation, not the page."""
+    import bonuschef.portal.review as review
+
+    def _boom(ids):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(review, "fetch_product_taxonomy", _boom)
+    assert review._kinds({"AH Dille": "wi123/ah-dille"}) == {}
+
+
+def test_a_candidate_without_a_webshop_id_is_skipped_not_fatal():
+    import bonuschef.portal.review as review
+
+    assert review._kinds({"Iets": "not-a-webshop-link"}) == {}
+    assert review._kinds({}) == {}
+
+
+def test_only_classified_candidates_are_annotated(monkeypatch):
+    """A product the retailer declines to classify is shown as a bare name
+    rather than with an empty suffix."""
+    import bonuschef.portal.review as review
+    from bonuschef.utils.ah_recipes import ProductHit
+
+    monkeypatch.setattr(
+        review,
+        "fetch_product_taxonomy",
+        lambda ids: {
+            1: ProductHit(
+                webshop_id=1, title="a", taxonomy_path=("Kaas", "Witte kaas")
+            ),
+            2: ProductHit(webshop_id=2, title="b"),
+        },
+    )
+    assert review._kinds({"A": "wi1/a", "B": "wi2/b"}) == {"A": "Witte kaas"}
