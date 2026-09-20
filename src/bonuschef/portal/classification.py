@@ -168,7 +168,7 @@ _QUALIFIERS = frozenset(
 # arachideolie, bosuitje and chilivlokken their only correct product.
 #
 # So the score orders candidates and never rejects them. Rejection lives in
-# _recognisable(), which asks whether a candidate is the same THING as the
+# recognisable(), which asks whether a candidate is the same THING as the
 # ingredient rather than how good a match it is - a question naming can answer
 # and a number cannot.
 
@@ -530,7 +530,7 @@ def cohort(ingredient_name: str, candidates: list) -> list:
     # whether this ingredient was understood at all. Either evidence suffices -
     # the taxonomy leaf names the ingredient, or the head nouns agree - so
     # "broccoli" -> AH Biologisch Broccoli still passes on the head noun alone.
-    if not _recognisable(ingredient_name, best):
+    if not recognisable(ingredient_name, best):
         return []
 
     key = normalise(getattr(best, "taxonomy_leaf", ""))
@@ -542,7 +542,7 @@ def cohort(ingredient_name: str, candidates: list) -> list:
     return [c for c in candidates if normalise(getattr(c, "taxonomy_leaf", "")) == key]
 
 
-def _recognisable(ingredient_name: str, candidate) -> bool:
+def recognisable(ingredient_name: str, candidate) -> bool:
     """Whether a candidate is identifiably the ingredient, by either evidence.
 
     Deliberately not a score threshold. Scores were measured against the

@@ -27,7 +27,12 @@ from bonuschef.portal.db import (
 )
 from bonuschef.portal.matching import propose_for
 from bonuschef.utils.ah_auth import AHAuthError
-from bonuschef.portal.classification import cohort, judge, without_packaging
+from bonuschef.portal.classification import (
+    cohort,
+    judge,
+    recognisable,
+    without_packaging,
+)
 from bonuschef.utils.ah_recipes import DEPARTMENT_NON_FOOD
 from bonuschef.portal.db import (
     flag_concepts,
@@ -520,7 +525,7 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
     flag_rows: list[tuple[int, str]] = []
     for concept_id, rows in by_concept.items():
         name = rows[0]["concept_name"]
-        contradicting, acceptable = [], []
+        contradicting, acceptable, unrecognisable = [], [], []
         for row in rows:
             wid = _webshop_id(row["product_link"])
             hit = classified.get(wid) if wid is not None else None
@@ -528,10 +533,37 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
                 # Unknown is not wrong. A delisted product still counts as a
                 # candidate here rather than being withdrawn on no evidence.
                 acceptable.append(row)
-            elif row["confirmed"] or judge(name, hit.department).accepted:
+            elif row["confirmed"]:
                 acceptable.append(row)
-            else:
+            elif not judge(name, hit.department).accepted:
                 contradicting.append((row, hit.department))
+            elif not recognisable(name, hit):
+                unrecognisable.append(row)
+            else:
+                acceptable.append(row)
+
+        # Products that are simply not this ingredient, whatever else survives.
+        #
+        # judge() only compares form and department, so "blauwe kaas-blokjes"
+        # resolved to AH Blauwe bessen passes it - both food, both Vers - and
+        # the recheck left it priced as blueberries. The naming test is what
+        # catches it, and applying it only to new proposals fixes nothing,
+        # because the wrong answers are already recorded.
+        #
+        # Withdrawn whether or not the concept keeps anything else, unlike a
+        # form mismatch. A wrong form is a worse match; this is a different
+        # product. Emptying the concept is the intended outcome here - it
+        # shows up unresolved, and the flag puts it in the review queue rather
+        # than leaving it silent.
+        if unrecognisable:
+            withdraw.extend((concept_id, r["product_link"]) for r in unrecognisable)
+            flag_rows.append(
+                (
+                    concept_id,
+                    f"{len(unrecognisable)} product(en) zijn niet herkenbaar "
+                    "als dit ingrediënt en zijn ingetrokken.",
+                )
+            )
 
         if not contradicting:
             continue
@@ -572,7 +604,7 @@ def recheck_existing_links(engine, context: AssetExecutionContext) -> dict:
             len(flagged),
             ", ".join(flagged[:10]),
         )
-    return {"checked": len(links), "withdrawn": removed, "flagged": len(flagged)}
+    return {"checked": len(links), "withdrawn": removed, "flagged": len(flag_rows)}
 
 
 def _webshop_id(product_link: str) -> int | None:

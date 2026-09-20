@@ -702,6 +702,56 @@ class TestRecheckingExistingLinks:
 
         return ProductHit(webshop_id=wid, title=title, department=dept)
 
+    def test_a_product_that_is_not_the_ingredient_is_withdrawn(self, monkeypatch):
+        """The case this check exists for, straight from production.
+
+        judge() passes it - AH Blauwe bessen and blauwe kaas-blokjes are both
+        food and both Vers - so before the naming test the recheck looked at
+        this link and left the recipe priced as blueberries.
+        """
+        links = [self._link(1, "blauwe kaas-blokjes", 2, "AH Blauwe bessen")]
+        classified = {2: self._hit(2, "AH Blauwe bessen", "Vers")}
+        stats, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == [(1, "wi2/x")]
+        assert stats["flagged"] == 1, "emptied silently instead of queued"
+
+    def test_it_empties_a_concept_rather_than_leave_it_wrong(self, monkeypatch):
+        """Unlike a form mismatch, this withdraws even when nothing survives.
+
+        A wrong form is a worse match - dried tarragon will do. A different
+        product is not a worse match, it is the wrong answer, and the call
+        here is that unresolved beats wrongly priced.
+        """
+        links = [self._link(7, "salade-uitjes", 9, "AH Ei salade")]
+        classified = {9: self._hit(9, "AH Ei salade", "Vers")}
+        _, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == [(7, "wi9/x")]
+
+    def test_a_confirmed_link_survives_the_naming_test(self, monkeypatch):
+        """A person decided it. That outranks every rule in this module - and
+        the confirmed set contains pairings no naming rule can see, such as
+        bospaddenstoelenfond to AH Bouillon paddenstoel.
+        """
+        links = [
+            self._link(1, "bospaddenstoelenfond", 2, "AH Bouillon paddenstoel", True)
+        ]
+        classified = {2: self._hit(2, "AH Bouillon paddenstoel", "Houdbaar")}
+        _, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == []
+
+    def test_a_recognisable_product_is_left_alone(self, monkeypatch):
+        links = [self._link(1, "broccoli", 2, "AH Biologisch Broccoli")]
+        classified = {2: self._hit(2, "AH Biologisch Broccoli", "Vers")}
+        _, removed, _ = self._run(monkeypatch, links, classified)
+        assert removed == []
+
+    def test_an_unclassifiable_product_is_not_withdrawn(self, monkeypatch):
+        """Unknown is not wrong. A product AH no longer classifies must not be
+        removed on the strength of evidence nobody has."""
+        links = [self._link(1, "blauwe kaas-blokjes", 2, "AH Blauwe bessen")]
+        _, removed, _ = self._run(monkeypatch, links, {})
+        assert removed == []
+
     def test_a_contradicting_proposal_is_withdrawn(self, monkeypatch):
         links = [
             self._link(1, "verse dille", 2, "Verstegen Dille"),
