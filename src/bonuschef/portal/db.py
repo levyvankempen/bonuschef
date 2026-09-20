@@ -375,17 +375,6 @@ def ensure_catalogue_tables(_engine) -> None:
             )
         """)
         )
-        conn.execute(
-            text("""
-            -- 6 of 467 sampled ingredient names carry two concept ids
-            -- (courgette is both 1853 and 219282). Without this, resolving an
-            -- ingredient once fails to serve both for about one in seventy-eight.
-            CREATE TABLE IF NOT EXISTS public.ah_ingredient_aliases (
-                concept_id           BIGINT PRIMARY KEY,
-                canonical_concept_id BIGINT NOT NULL
-            )
-        """)
-        )
 
 
 def confirm_resolution(_engine, concept_id: int, product_links: list[str]) -> None:

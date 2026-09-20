@@ -151,23 +151,6 @@ def leaf_names_ingredient(ingredient_name: str, taxonomy_leaf: str) -> bool:
     return bool(ing) and bool(leaf) and ing == leaf
 
 
-def rank(ingredient_name: str, candidates: list) -> list:
-    """Reorder candidates so the taxonomy-named ones come first.
-
-    Only reorders; never drops. A candidate no leaf names is not thereby
-    wrong - it usually means the taxonomy is coarser than the ingredient, as
-    for "bladpeterselie", whose leaf is the broader "Verse kruiden".
-
-    Stable, so the retailer's own relevance ordering survives underneath.
-    """
-    return sorted(
-        candidates,
-        key=lambda c: not leaf_names_ingredient(
-            ingredient_name, getattr(c, "taxonomy_leaf", "")
-        ),
-    )
-
-
 # Words that describe a product without being what it is. "AH" and
 # "Biologisch" appear on half the catalogue; letting them count as content
 # makes every own-brand product look more specific than it is.
@@ -175,7 +158,7 @@ _QUALIFIERS = frozenset(
     {"ah", "biologisch", "bio", "verse", "vers", "de", "het", "een"}
 )
 
-# There is deliberately no confidence floor.
+# There is deliberately no confidence floor *on the score*.
 #
 # One was tried and measured against the human-confirmed links, and the scores
 # do not separate. Products a person confirmed score as low as -1.20
@@ -184,9 +167,10 @@ _QUALIFIERS = frozenset(
 # that removed a bad answer removed good ones with it: at 0.0 it cost
 # arachideolie, bosuitje and chilivlokken their only correct product.
 #
-# So the score orders candidates and never rejects them. Rejection is left to
-# the classification rules, which are about kind rather than degree and can say
-# why.
+# So the score orders candidates and never rejects them. Rejection lives in
+# _recognisable(), which asks whether a candidate is the same THING as the
+# ingredient rather than how good a match it is - a question naming can answer
+# and a number cannot.
 
 
 def _content_words(text: str) -> list[str]:

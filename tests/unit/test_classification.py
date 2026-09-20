@@ -19,7 +19,6 @@ from bonuschef.portal.classification import (
     without_packaging,
     leaf_names_ingredient,
     normalise,
-    rank,
     wants_ambient,
     wants_fresh,
 )
@@ -152,40 +151,6 @@ def test_a_broader_leaf_does_not_count_as_naming_it():
 def test_an_empty_leaf_never_matches():
     assert leaf_names_ingredient("dille", "") is False
     assert leaf_names_ingredient("", "Verse kruiden") is False
-
-
-# --- ranking ---------------------------------------------------------------
-
-
-def test_the_named_candidate_is_preferred():
-    candidates = [
-        hit(1, "AH Mosterd dille saus", "Houdbaar", ("Sauzen", "Mosterd")),
-        hit(2, "AH Witte kaas 40+", "Vers", ("Kaas", "Witte kaas")),
-    ]
-    assert [c.webshop_id for c in rank("witte kaas", candidates)] == [2, 1]
-
-
-def test_ranking_never_drops_a_candidate():
-    """It reorders. A candidate no leaf names is not thereby wrong."""
-    candidates = [hit(1, "a", "Vers", ("X",)), hit(2, "b", "Vers", ("Y",))]
-    assert len(rank("nothing matches this", candidates)) == 2
-
-
-def test_ranking_is_stable_when_nothing_is_named():
-    """AH's own relevance ordering must survive underneath, or this would
-    silently replace a good ranking with an arbitrary one."""
-    candidates = [hit(i, f"p{i}", "Vers", ("X",)) for i in range(6)]
-    assert [c.webshop_id for c in rank("unrelated", candidates)] == list(range(6))
-
-
-def test_ranking_preserves_relative_order_among_the_named():
-    named = [hit(1, "a", "Vers", ("Dille",)), hit(2, "b", "Vers", ("Dille",))]
-    other = [hit(3, "c", "Vers", ("Sauzen",))]
-    assert [c.webshop_id for c in rank("dille", other + named)] == [1, 2, 3]
-
-
-def test_ranking_an_empty_list_is_not_an_error():
-    assert rank("dille", []) == []
 
 
 # --- normalisation ---------------------------------------------------------
@@ -546,9 +511,9 @@ def test_a_synonym_the_floor_cannot_see_is_a_known_loss():
     and the floor drops it: a fond IS a bouillon, but no spelling of either
     word contains the other, so there is nothing to recognise it by.
 
-    Recorded rather than worked around. Fixing it needs a synonym, which is
-    what ah_ingredient_aliases is for - and that table is currently written
-    and read by nothing. This test exists so the day it is wired up, the
-    failure points at the reason.
+    Recorded rather than worked around. Fixing it needs a word-synonym
+    mechanism, which this project does not have - ah_ingredient_aliases, which
+    sounds like it, maps duplicate concept IDs and would not help. This test
+    exists so that the day synonyms arrive, the failure points at the reason.
     """
     assert cohort("bospaddenstoelenfond", [hit(1, "AH Bouillon paddenstoel", "")]) == []
