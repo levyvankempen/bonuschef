@@ -121,6 +121,21 @@ _STATEMENTS: tuple[str, ...] = (
     )
     """,
     # ------------------------------------------------------------------
+    # The store directory
+    # ------------------------------------------------------------------
+    #
+    # Cached locally rather than queried per page load. Choosing a store is
+    # rare and the list is ~1,200 rows that change about never, so hitting AH
+    # every time somebody opens their settings would spend a request on a
+    # question whose answer was already known.
+    """
+    CREATE TABLE IF NOT EXISTS public.ah_stores (
+        store_id    BIGINT      PRIMARY KEY,
+        name        TEXT        NOT NULL,
+        refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    # ------------------------------------------------------------------
     # Verdicts become personal
     # ------------------------------------------------------------------
     #
