@@ -22,6 +22,32 @@ _CACHE_TTL_S = 900
 _DIAGNOSTIC_ROW_LIMIT = 500
 
 
+def active_store_id() -> int:
+    """Which Albert Heijn store the portal is reading for.
+
+    A function rather than a constant because it is about to stop being one.
+    Today it answers from the environment; once an account carries a store it
+    answers from the signed-in account, and every reader below already takes
+    the answer as an argument rather than reaching for the environment itself.
+
+    The point of routing it through here now is that the readers stop being
+    silently global. Until this change `store_id` appeared exactly once in the
+    whole portal layer and never in a WHERE, so every clearance figure was
+    "whatever store happens to be in the warehouse" - correct only because
+    there has only ever been one.
+    """
+    return _env_store_id()
+
+
+def _env_store_id() -> int:
+    raw = os.getenv("AH_STORE_ID", "1876")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 1876
+    return value if value > 0 else 1876
+
+
 def _get_schema() -> str:
     """Return the target dbt schema name (never exposed to UI)."""
     return os.getenv("TARGET_SCHEMA", "public_marts")
@@ -221,8 +247,15 @@ def list_products(_engine) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_store_clearance(_engine) -> pd.DataFrame:
-    """Fetch current store clearance ("laatste kans koopjes")."""
+def read_store_clearance(_engine, store_id: int, built_at: str = "") -> pd.DataFrame:
+    """Fetch one store's current clearance ("laatste kans koopjes").
+
+    `store_id` is a plain argument, not `_store_id`. The underscore prefix is
+    this module's convention for "do not put this in the cache key", which is
+    right for the engine and would be catastrophic here: st.cache_data is
+    shared by every visitor to the process, so an unkeyed store means the
+    first person to load the page decides what everybody else sees.
+    """
     schema = _get_schema()
     sql = text(f"""
         SELECT
@@ -231,6 +264,7 @@ def read_store_clearance(_engine) -> pd.DataFrame:
             stock, price_was, price_now, markdown_amount,
             tracked_price, real_savings_vs_tracked, image_url, scraped_at
         FROM "{schema}"."fct_store_clearance"
+        WHERE store_id = :store_id
         -- Lowest stock first: at 17:30 the deciding question is whether it
         -- will still be there, not which percentage is largest.
         ORDER BY
@@ -239,12 +273,19 @@ def read_store_clearance(_engine) -> pd.DataFrame:
             markdown_amount DESC NULLS LAST
     """)
     with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn)
+        return pd.read_sql_query(sql, conn, params={"store_id": store_id})
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_last_scrape_time(_engine) -> pd.Timestamp | None:
-    """When the store was last scraped, whether or not it found any items.
+def read_last_scrape_time(
+    _engine, store_id: int, built_at: str = ""
+) -> pd.Timestamp | None:
+    """When THIS store was last scraped, whether or not it found any items.
+
+    Scoped to one store because a MAX over the whole table is a lie the moment
+    there are two: a store nobody has scraped for weeks inherits the freshness
+    of one that scraped this morning, and the page then says clearance is
+    current when it is not.
 
     Sourced from the append-only history rather than the current-items mart, so
     a scrape that succeeded and found nothing is still dated. Without this, an
@@ -252,9 +293,12 @@ def read_last_scrape_time(_engine) -> pd.Timestamp | None:
     and an expired member token is the documented way that happens.
     """
     schema = _get_schema()
-    sql = text(f'SELECT MAX(scraped_at) FROM "{schema}"."fct_store_clearance_history"')
+    sql = text(
+        f'SELECT MAX(scraped_at) FROM "{schema}"."fct_store_clearance_history" '
+        "WHERE store_id = :store_id"
+    )
     with _engine.begin() as conn:
-        value = conn.execute(sql).scalar()
+        value = conn.execute(sql, {"store_id": store_id}).scalar()
     return None if value is None else pd.to_datetime(value, utc=True)
 
 
@@ -740,7 +784,7 @@ def read_marts_built_at(_engine) -> str:
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_recipe_opportunity(_engine, built_at: str = "") -> pd.DataFrame:
+def read_recipe_opportunity(_engine, store_id: int, built_at: str = "") -> pd.DataFrame:
     """What is worth cooking today, and why every other recipe is not.
 
     Reads the whole table rather than filtering to the ranked rows. The mart
@@ -769,15 +813,16 @@ def read_recipe_opportunity(_engine, built_at: str = "") -> pd.DataFrame:
             earliest_expiry, clearance_items_expiry_unknown,
             has_insufficient_stock
         FROM "{schema}"."fct_recipe_opportunity"
+        WHERE store_id = :store_id
         ORDER BY opportunity_rank ASC NULLS LAST, recipe_name ASC
     """)
     with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn)
+        return pd.read_sql_query(sql, conn, params={"store_id": store_id})
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
 def read_recipe_opportunity_items(
-    _engine, recipe_id: int, built_at: str = ""
+    _engine, recipe_id: int, store_id: int, built_at: str = ""
 ) -> pd.DataFrame:
     """The ingredients behind one recipe's ranking, discounted or not.
 
@@ -800,11 +845,13 @@ def read_recipe_opportunity_items(
             reference_is_comparable, offer_withheld_stale_reference,
             ordinary_price_age_days
         FROM "{schema}"."fct_recipe_opportunity_items"
-        WHERE recipe_id = CAST(:recipe_id AS bigint)
+        WHERE recipe_id = CAST(:recipe_id AS bigint) AND store_id = :store_id
         ORDER BY item_saving DESC NULLS LAST, item_label ASC
     """)
     with _engine.begin() as conn:
-        return pd.read_sql_query(sql, conn, params={"recipe_id": int(recipe_id)})
+        return pd.read_sql_query(
+            sql, conn, params={"recipe_id": int(recipe_id), "store_id": store_id}
+        )
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)

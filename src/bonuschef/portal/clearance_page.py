@@ -15,6 +15,7 @@ from bonuschef.portal.dagster_client import (
 from bonuschef.portal import freshness
 from bonuschef.portal.db import (
     get_engine,
+    active_store_id,
     read_last_scrape_time,
     read_store_clearance,
 )
@@ -38,7 +39,7 @@ _FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
 def _load(engine) -> pd.DataFrame | None:
     """Read clearance data, returning None if the mart isn't built yet."""
     try:
-        return read_store_clearance(engine)
+        return read_store_clearance(engine, active_store_id())
     except ProgrammingError:  # relation does not exist → job never ran
         return None
 
@@ -305,7 +306,9 @@ def render_clearance() -> None:
     try:
         engine = get_engine()
         df = _load(engine)
-        last_scrape = read_last_scrape_time(engine) if df is not None else None
+        last_scrape = (
+            read_last_scrape_time(engine, active_store_id()) if df is not None else None
+        )
     except Exception as exc:
         st.error(f"Geen verbinding met de database: {exc}")
         return
