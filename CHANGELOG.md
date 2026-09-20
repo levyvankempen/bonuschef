@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.13.1 (2026-09-20)
+
+### Bug Fixes
+
+- **backfill**: A dry run must not alter the schema it is inspecting
+  ([#78](https://github.com/levyvankempen/bonuschef/pull/78),
+  [`3128a67`](https://github.com/levyvankempen/bonuschef/commit/3128a67aa8207ad5788735e955b98878505bda98))
+
+
 ## v1.13.0 (2026-09-20)
 
 ### Features
