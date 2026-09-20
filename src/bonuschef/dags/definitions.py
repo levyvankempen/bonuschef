@@ -11,6 +11,7 @@ from bonuschef.dags.defs.jobs import (
     markdowns_refresh_job,
     recipe_pool_refresh_job,
     recipes_rebuild_job,
+    prune_run_history_job,
     source_freshness_job,
     token_heartbeat_job,
 )
@@ -19,6 +20,7 @@ from bonuschef.dags.defs.schedules import (
     daily_refresh_schedule,
     markdowns_refresh_schedule,
     recipe_pool_refresh_schedule,
+    prune_run_history_schedule,
     source_freshness_schedule,
     token_heartbeat_schedule,
 )
@@ -39,11 +41,13 @@ defs = Definitions(
         markdowns_refresh_job,
         recipe_pool_refresh_job,
         recipes_rebuild_job,
+        prune_run_history_job,
         source_freshness_job,
         token_heartbeat_job,
     ],
     schedules=[
         daily_refresh_schedule,
+        prune_run_history_schedule,
         markdowns_refresh_schedule,
         recipe_pool_refresh_schedule,
         source_freshness_schedule,

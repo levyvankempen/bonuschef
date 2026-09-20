@@ -197,7 +197,20 @@ services:
         - CMD
         - python
         - -c
-        - 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=5).status == 200 else 1)'
+        # Three things, because the first alone has been observed to lie:
+        # docs/deployment.md records /_stcore/health returning 200 with a
+        # `raise` in app.py. Streamlit's health endpoint reports the server,
+        # not the app it serves.
+        #
+        # So: the server answers, the app's modules import, and the warehouse
+        # is reachable. That covers a broken deploy, a bad dependency and a
+        # database that is down - the states in which the page cannot do its
+        # work and previously said it could.
+        #
+        # It does NOT catch a logic error part-way through a render. No cheap
+        # probe does, and claiming otherwise would repeat the mistake this
+        # replaces.
+        - 'import urllib.request,sys; urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=5); import bonuschef.portal.app_health as h; sys.exit(0 if h.ready() else 1)'
       interval: 30s
       timeout: 10s
       retries: 3

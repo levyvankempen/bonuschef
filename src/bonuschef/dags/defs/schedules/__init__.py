@@ -7,6 +7,7 @@ from bonuschef.dags.defs.jobs import (
     markdowns_refresh_job,
     recipe_pool_refresh_job,
     source_freshness_job,
+    prune_run_history_job,
     token_heartbeat_job,
 )
 
@@ -59,6 +60,16 @@ recipe_pool_refresh_schedule = ScheduleDefinition(
 # has landed, early enough that a stale feed is known before the day's answers
 # are read. Not hourly: the tightest declared threshold is 3 hours, and a check
 # that fires more often than the thing it checks only adds noise.
+# Weekly, early on a Sunday: nothing else runs then, and a prune that finds
+# nothing costs nothing. Monthly would let three months of runs arrive in one
+# deletion, which is the kind of long-idle operation that surprises a queue.
+prune_run_history_schedule = ScheduleDefinition(
+    job=prune_run_history_job,
+    cron_schedule="15 3 * * 0",
+    execution_timezone=LOCAL_TIMEZONE,
+    default_status=DefaultScheduleStatus.RUNNING,
+)
+
 source_freshness_schedule = ScheduleDefinition(
     job=source_freshness_job,
     cron_schedule="45 9 * * *",
