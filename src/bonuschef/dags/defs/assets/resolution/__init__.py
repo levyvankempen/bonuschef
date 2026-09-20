@@ -199,6 +199,14 @@ def _propose_from_ah(
 ) -> tuple[list[dict], int, bool]:
     """Ask AH for the concepts the local matcher could not settle.
 
+    Known limitation, measured rather than guessed: 6 of 467 sampled
+    ingredient names carry two different concept ids - courgette is both 1853
+    and 219282 - so resolving one of them leaves the other unresolved for
+    roughly one ingredient in seventy-eight. An ah_ingredient_aliases table
+    was created for this and never populated or read by anything, so it has
+    been removed; the duplication is recorded here instead of in an empty
+    table that looked like a solution.
+
     Returns the proposals, how many lookups were spent, and whether AH became
     unreachable. Stops on the first failure that survives the auth layer's own
     retry rather than working through 1,400 rejections: the credential is the
@@ -267,8 +275,8 @@ def _propose_from_ah(
         spent += 1
         # AH's relevance is good but not about *kind*: it returns Verstegen
         # Dille, a jar of dried dill, for "verse dille". Its own classification
-        # says so, and rank() then puts a candidate the taxonomy actually names
-        # ahead of one that merely mentions the ingredient in its title.
+        # says so, and cohort() then puts a candidate the taxonomy actually
+        # names ahead of one that merely mentions the ingredient in its title.
         # Reject on kind first, then keep only the candidates that are the
         # same kind as the best one. Proposing all of a search's hits is what
         # lets a wrong one poison a cost: downstream the cheapest candidate
