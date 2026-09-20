@@ -25,7 +25,12 @@ plausible, the store name is theirs, and only the shelf disagrees.
 #### Scenario: One account's session expires
 
 - **WHEN** one account's refresh token stops working
-- **THEN** only that account is affected, and the others continue
+- **THEN** only that account is affected, the others continue, and no other account's credential is used in its place
+
+#### Scenario: An account's credential is exercised to keep it alive
+
+- **WHEN** credentials are exercised on a schedule so that disuse does not expire them
+- **THEN** every account's credential is exercised, each outcome is reported separately, and one failure neither hides nor causes another
 
 ### Requirement: A stored Albert Heijn credential is encrypted at rest
 

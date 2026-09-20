@@ -114,3 +114,18 @@ dates, store and credentials - SHALL be readable only by that account.
 
 - **WHEN** a person edits or annotates a recipe from the shared catalogue
 - **THEN** every other account continues to see the recipe as it was
+
+#### Scenario: Two accounts use the portal at the same time
+
+- **WHEN** two accounts read the same account-scoped or store-scoped view from one running portal
+- **THEN** each is served its own data, and neither is served a value computed for the other
+
+#### Scenario: One person rejects a recipe
+
+- **WHEN** a person marks a recommended recipe as not for them
+- **THEN** it stops being recommended to them and continues to be recommended to everybody else
+
+#### Scenario: One person adopts a recipe
+
+- **WHEN** a person adopts a recipe from the pool of recommendations
+- **THEN** it remains available for every other account to be recommended and to adopt

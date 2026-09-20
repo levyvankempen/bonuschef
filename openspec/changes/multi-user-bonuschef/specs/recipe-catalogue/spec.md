@@ -46,6 +46,35 @@ question being asked of it is usually "what have I not had for a while".
 - **WHEN** a person's saved recipe has no recorded date
 - **THEN** that is shown as not yet made, rather than as an empty or zero date
 
+### Requirement: How an ingredient resolves to a product is shared, not personal
+
+The link between an ingredient identity and the products that satisfy it
+SHALL be a property of the catalogue, visible to and usable by every account.
+
+This is the line between a fact and an opinion. That "sjalot" is satisfied by
+AH Sjalotten is true for everybody; that a recipe should use half the garlic
+is not. There are roughly 1,900 such resolutions and each cost a search
+against the retailer. Scoping them per account would hand every new person an
+unpriceable catalogue and ask them to redo work already done.
+
+It also preserves the existing requirements that a correction applies to every
+recipe using that ingredient, which would otherwise be contradicted.
+
+#### Scenario: A person corrects a match
+
+- **WHEN** a person corrects which product satisfies an ingredient
+- **THEN** the correction applies to every recipe using that ingredient, for every account
+
+#### Scenario: A new account opens a recipe
+
+- **WHEN** an account that has resolved nothing itself opens a recipe
+- **THEN** it is priced from the catalogue's existing resolutions
+
+#### Scenario: A person changes a quantity
+
+- **WHEN** a person changes how much of an ingredient their copy of a recipe uses
+- **THEN** only their copy changes, because a quantity is theirs while a resolution is the catalogue's
+
 ## MODIFIED Requirements
 
 ### Requirement: A recipe can be adopted from the retailer's catalogue
