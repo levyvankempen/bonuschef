@@ -36,6 +36,10 @@ from sqlalchemy import create_engine, text
 
 from bonuschef.portal import db
 
+# Needs the marts to exist, so it runs in the `warehouse` session after the
+# build - not in `tests`, which runs first and would find nothing there.
+pytestmark = pytest.mark.warehouse
+
 PORTAL = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "portal"
 
 # Which reader feeds which page, and what it needs to be called with. A page

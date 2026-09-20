@@ -101,6 +101,24 @@ def warehouse(session: Session) -> None:
             "ENVIRONMENT": os.getenv("ENVIRONMENT", "default"),
         },
     )
+    # Now that it is built, check what reads from it. These live here rather
+    # than in `tests` because they need the marts, and `tests` runs first.
+    session.run(
+        "uv",
+        "run",
+        "--active",
+        "pytest",
+        "-m",
+        "warehouse",
+        env={
+            "PG_HOST": os.getenv("PG_HOST", "localhost"),
+            "PG_PORT": os.getenv("PG_PORT", "5432"),
+            "PG_USER": os.getenv("PG_USER", "postgres"),
+            "PG_PASSWORD": os.getenv("PG_PASSWORD", "postgres"),
+            "PG_DB": os.getenv("PG_DB", "postgres"),
+            "CI": os.getenv("CI", ""),
+        },
+    )
 
 
 @nox.session(python=["3.12"], venv_backend="uv")
@@ -115,6 +133,9 @@ def tests(session: Session) -> None:
         "run",
         "--active",
         "pytest",
+        # The warehouse-backed checks run in that session, after the build.
+        "-m",
+        "not warehouse",
         "--cov",
         "--cov-report=term-missing",
         *args,
