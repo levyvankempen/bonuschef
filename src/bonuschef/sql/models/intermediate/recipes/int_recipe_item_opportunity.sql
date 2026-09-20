@@ -154,6 +154,30 @@ joined AS (
 
 ),
 
+claimed AS (
+
+    SELECT
+        *,
+        -- Which line gets the clearance unit, when several want it.
+        --
+        -- "ui" and "rode ui" both resolve to a generic onion pack; one unit on
+        -- clearance cannot satisfy both. The count of claimants was already
+        -- carried here, and the flag derived from it was already selected by
+        -- the portal - but the saving was summed regardless, so the recipe
+        -- claimed a discount it could not buy twice. The spec's word is
+        -- "unnoticed", and it was exactly that: computed, and never applied.
+        --
+        -- Ordered by item_key so the allocation is deterministic across
+        -- rebuilds. Which line wins is arbitrary; that it is the same line
+        -- each time is not.
+        ROW_NUMBER() OVER (
+            PARTITION BY store_id, recipe_id, offer_product_link
+            ORDER BY item_key
+        ) AS claim_rank
+    FROM joined
+
+),
+
 scored AS (
 
     SELECT
@@ -164,8 +188,20 @@ scored AS (
         -- dearer than the product we would ordinarily buy, and a discount must
         -- never make an ingredient more expensive.
         CASE
-            WHEN reference_is_comparable AND offer_price IS NOT NULL
+            WHEN
+                reference_is_comparable AND offer_price IS NOT NULL
+                -- A clearance unit is claimed once. Past the stock, this line
+                -- falls back to what it would have cost on promotion alone -
+                -- not to the ordinary price, because a bonus on the same
+                -- product is still available to it.
+                AND (
+                    offer_kind <> 'clearance'
+                    OR stock IS NULL
+                    OR claim_rank <= stock
+                )
                 THEN LEAST(price_ordinary, offer_price)
+            WHEN reference_is_comparable AND bonus_offer_price IS NOT NULL
+                THEN LEAST(price_ordinary, bonus_offer_price)
             ELSE price_ordinary
         END AS price_today,
         CASE
@@ -173,7 +209,7 @@ scored AS (
                 THEN LEAST(price_ordinary, bonus_offer_price)
             ELSE price_ordinary
         END AS price_today_bonus_only
-    FROM joined
+    FROM claimed
 
 )
 

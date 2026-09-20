@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS public.ah__pool_recipe_ingredients (
     fetched_at   TEXT
 );
 
+-- Seeded rows are removed first. ON CONFLICT DO NOTHING needs a constraint
+-- to fire, and these source tables have none - dlt creates them from the shape
+-- of what it loaded - so re-running the seed duplicated every row and broke
+-- the uniqueness tests that the seed exists to exercise.
+DELETE FROM public.ah__bonus_products WHERE webshop_id >= 999000000;
+DELETE FROM public.ah__store_markdowns WHERE webshop_id >= 999000;
+DELETE FROM public.github__products WHERE l LIKE 'wi999%';
+DELETE FROM public."ah__pool_recipe_ingredients" WHERE recipe_id >= 999900000;
+DELETE FROM public."ah__pool_recipes" WHERE recipe_id >= 999900000;
+DELETE FROM public.ah_ingredient_products WHERE concept_id >= 999000;
+
 -- One promotion for a product no price snapshot has ever carried.
 --
 -- Without a row like this every check over these tables passes vacuously: an
@@ -90,5 +101,47 @@ INSERT INTO public.ah__bonus_products
      price_before_bonus, bonus_price, loaded_at, is_bonus)
 VALUES
     (999999001, 'Onbekend product in de bonus', '25% KORTING',
-     '2020-01-01', '2100-01-01', 4.00, 3.00, '2020-01-01T00:00:00', TRUE)
-ON CONFLICT DO NOTHING;
+     '2020-01-01', '2100-01-01', 4.00, 3.00, '2020-01-01T00:00:00', TRUE);
+
+-- Two ingredients of one recipe, one clearance unit between them.
+--
+-- "ui" and "rode ui" both resolve to the same onion pack; the pack is on
+-- clearance with one left. The recipe used to claim the discount twice,
+-- because the count of claimants was carried and the flag derived from it was
+-- even selected by the portal - and the saving was summed regardless.
+--
+-- The spec's word is "unnoticed". It was computed and never applied.
+INSERT INTO public."ah__pool_recipes"
+    (recipe_id, title, servings, url, image_url, description, cook_time_min,
+     rating_average, rating_count, modified_at, fetched_at)
+VALUES
+    (999900002, 'Uientest', 2, 'u', 'i', 'd', 20, 4.0, 10,
+     '2020-01-01T00:00:00', '2020-01-01T00:00:00');
+
+INSERT INTO public."ah__pool_recipe_ingredients"
+    (recipe_id, line_no, concept_id, concept_name, quantity, unit, raw_text,
+     fetched_at)
+VALUES
+    (999900002, 1, 999001, 'ui',      1, 'stuk', '1 ui',      '2020-01-01T00:00:00'),
+    (999900002, 2, 999002, 'rode ui', 1, 'stuk', '1 rode ui', '2020-01-01T00:00:00');
+
+-- One product, priced, that both concepts resolve to.
+INSERT INTO public.github__products (n, l, p, s, snapshot_sha, snapshot_at)
+VALUES ('AH Uien', 'wi999002/ah-uien', 2.00, '1 kg', 'seed', now());
+
+-- On clearance, with exactly one left.
+INSERT INTO public.ah__store_markdowns
+    (store_id, webshop_id, title, brand, sales_unit_size, image_url,
+     category_title, markdown_type, markdown_percentage,
+     markdown_expiration_date, stock, price_was, price_now, scraped_at)
+VALUES
+    (1876, 999002, 'AH Uien', 'AH', '1 kg', NULL, 'Groente', 'PERCENT', 50,
+     '2100-01-01', 1, 2.00, 1.00, to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'));
+
+-- Both concepts resolved to that one pack, which is what makes them compete.
+-- Confirmed, so nothing re-derives them out from under the fixture.
+INSERT INTO public.ah_ingredient_products
+    (concept_id, product_link, product_name, confirmed_at, proposed_at)
+VALUES
+    (999001, 'wi999002/ah-uien', 'AH Uien', now(), now()),
+    (999002, 'wi999002/ah-uien', 'AH Uien', now(), now());

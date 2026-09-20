@@ -43,7 +43,16 @@ def main() -> int:
     ensure_verdict_table(engine)
 
     with engine.begin() as conn:
-        for statement in FIXTURE.read_text().split(";"):
+        # Strip comments BEFORE splitting on ";". A semicolon inside a
+        # comment - "one clearance unit; the recipe claimed it twice" - would
+        # otherwise split a statement in half and send the remainder to the
+        # database as SQL.
+        sql = "\n".join(
+            line
+            for line in FIXTURE.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("--")
+        )
+        for statement in sql.split(";"):
             if statement.strip():
                 conn.execute(text(statement))
 
