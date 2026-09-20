@@ -140,7 +140,7 @@ wheels = [
 
 [[package]]
 name = "bonuschef"
-version = "1.10.2"
+version = "1.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "dagster" },
