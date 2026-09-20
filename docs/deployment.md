@@ -375,35 +375,49 @@ What is recoverable from where:
 | markdown curve, hand-typed recipes, confirmed resolutions | **the backup only** |
 | AH credential | the backup, or a browser. Never unattended |
 
-### The backup has not been restore-tested
+### The backup, and the one thing a restore still has not proven
 
-**This is the one unverified claim in this document, and it is the most
-consequential.**
+Restore-tested on 2026-09-20, against that morning's 03:29 GB archive.
 
-§8 prescribes nightly `vzdump` and says "restore it once to a scratch VMID".
-Every other claim here that was actually exercised carries a measured result —
-"all four containers up and healthy 11 seconds after start", the sensor race
-during the first restore, the stale manifest. §8 carries none. Nothing in the
-repository configures the backup, schedules it, or checks that it still runs,
-and nothing alerts if it stops.
+The nightly job exists and runs — this document previously implied otherwise,
+and it was wrong. It is configured in Proxmox rather than in this repository,
+which is why nothing here found it:
 
-What depends on it cannot be rebuilt from anywhere: the clearance price curve,
-which is append-only and has no upstream; the hand-confirmed ingredient
-resolutions; the AH refresh credential.
-
-A backup fails once, at the moment you need it. Until a restore has actually
-been performed, treat the recovery story as unproven rather than as written
-down. To close it:
-
-```bash
-# on the Proxmox host
-vzdump 101 --mode snapshot --compress zstd --storage local
-pct restore 999 /var/lib/vz/dump/<the-file>.tar.zst --storage local-lvm
-pct start 999 && pct exec 999 -- docker compose -f /opt/bonuschef/docker-compose.yml ps
-# then compare row counts against the live guest, and destroy 999
+```
+scheduled   03:00 daily, vmid 101, enabled, storage local
+on disk     2026-09-18 3.91G · 2026-09-19 3.92G · 2026-09-20 3.29G
 ```
 
-Record the result here the way §6 records its reboots.
+**The drill, and how to repeat it.** Restore to a scratch VMID with the
+network link DOWN. That part is not optional: a clone of this stack has
+Dagster schedules at `default_status=RUNNING`, so the moment it boots with a
+live link it starts scraping AH on the same credential and firing ntfy alerts
+from a machine you have forgotten exists.
+
+```bash
+pct restore 999 /var/lib/vz/dump/vzdump-lxc-101-<date>.tar.zst \
+    --storage local-lvm --hostname bonuschef-restoretest \
+    --net0 name=eth0,bridge=vmbr0,link_down=1,type=veth
+pct start 999
+pct exec 999 -- docker compose -f /opt/bonuschef/docker-compose.yml up -d postgres
+pct exec 999 -- docker exec pg_bonuschef psql -U postgres -At -c \
+    "SELECT count(*) FROM public.ah__store_markdowns"   # compare against 101
+pct destroy 999 --force
+```
+
+Check headroom first. The archive is ~3.3 GB and the rootfs ~8 GB used of a
+16 GB volume; `local` and `local-lvm` each had ~23 GB free when this was run.
+Filling the host would take the production guest down with it.
+
+**What the 2026-09-20 run proved, and what it did not.** The archive restores:
+`vzrestore` completed OK and produced a 16 GB rootfs on `local-lvm`, which was
+then destroyed and the space returned. Container 101 was untouched throughout.
+
+It did **not** verify the data inside. That needs `pct exec` into the started
+clone, which needs a shell on the Proxmox host — the API alone cannot do it.
+So what is settled today is that the backup is restorable, not that the
+database within it is complete. The row-count comparison above is the step
+that would close that, and it has not been run.
 
 ### What grows, and what bounds it
 
