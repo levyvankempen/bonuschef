@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-09-20)
+
+### Features
+
+- Show what kind of thing each candidate is, and archive the change
+  ([#56](https://github.com/levyvankempen/bonuschef/pull/56),
+  [`69957af`](https://github.com/levyvankempen/bonuschef/commit/69957aff679861c173d371df71f594a1d4097884))
+
+
 ## v1.7.0 (2026-09-20)
 
 ### Bug Fixes
