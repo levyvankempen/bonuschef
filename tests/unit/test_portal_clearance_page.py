@@ -53,8 +53,11 @@ class ReadStub:
     def __init__(self, outcome):
         self.outcome = outcome
         self.cleared = 0
+        # Recorded so a test can assert the page asks for a store at all.
+        self.store_ids: list[int] = []
 
-    def __call__(self, engine):
+    def __call__(self, engine, store_id, built_at=""):
+        self.store_ids.append(store_id)
         if isinstance(self.outcome, Exception):
             raise self.outcome
         return self.outcome
@@ -75,8 +78,10 @@ class ScrapeTimeStub:
         self.outcome = outcome
         self.advance_to = advance_to
         self.cleared = 0
+        self.store_ids: list[int] = []
 
-    def __call__(self, engine):
+    def __call__(self, engine, store_id, built_at=""):
+        self.store_ids.append(store_id)
         return self.outcome
 
     def clear(self):

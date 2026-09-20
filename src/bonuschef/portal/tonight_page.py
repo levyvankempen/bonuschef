@@ -33,6 +33,7 @@ from bonuschef.portal.review import (
     render_resolution_result,
 )
 from bonuschef.portal.db import (
+    active_store_id,
     count_flagged_concepts,
     CREDENTIAL_JOB,
     get_engine,
@@ -71,7 +72,12 @@ def _load(engine):
     try:
         # The build stamp is the cache key: a rebuild invalidates this read
         # exactly, and a run that changed nothing costs nothing.
-        return read_recipe_opportunity(engine, read_marts_built_at(engine)), None
+        return (
+            read_recipe_opportunity(
+                engine, active_store_id(), read_marts_built_at(engine)
+            ),
+            None,
+        )
     except ProgrammingError:
         return None, "unbuilt"
     except SQLAlchemyError as exc:
@@ -217,7 +223,7 @@ def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) ->
     the thing people open it for; the discount is an annotation on it.
     """
     items = read_recipe_opportunity_items(
-        engine, recipe_id, read_marts_built_at(engine)
+        engine, recipe_id, active_store_id(), read_marts_built_at(engine)
     )
     if items.empty:
         st.caption("Voor dit recept zijn geen ingrediënten bekend.")

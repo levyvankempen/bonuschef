@@ -42,12 +42,30 @@ pytestmark = pytest.mark.warehouse
 
 PORTAL = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "portal"
 
+# The store the fixture's rows belong to. A store-scoped reader has to be told
+# which store, and told the RIGHT one: passing an arbitrary id here would make
+# every query return nothing, and a test that asserts on the columns of an
+# empty frame passes without checking anything.
+FIXTURE_STORE_ID = 1876
+
+# Readers the fixture is known to populate. Asserting these come back
+# non-empty is what stops the column checks below from passing vacuously.
+# Deliberately not every reader: some legitimately have nothing to say about
+# the seeded rows, and demanding rows from those would be a false alarm.
+MUST_RETURN_ROWS = frozenset(
+    {
+        "read_recipe_opportunity",
+        "read_store_clearance",
+        "read_recipe_summary",
+    }
+)
+
 # Which reader feeds which page, and what it needs to be called with. A page
 # may read from several.
 PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
     "tonight_page.py": (
-        ("read_recipe_opportunity", ()),
-        ("read_recipe_opportunity_items", (1,)),
+        ("read_recipe_opportunity", (FIXTURE_STORE_ID,)),
+        ("read_recipe_opportunity_items", (1, FIXTURE_STORE_ID)),
         ("read_pipeline_health", ()),
     ),
     "recipes_page.py": (
@@ -55,7 +73,7 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
         ("read_recipe_breakdown_bonus", (1,)),
         ("read_recipe_bonus_summary", ()),
     ),
-    "clearance_page.py": (("read_store_clearance", ()),),
+    "clearance_page.py": (("read_store_clearance", (FIXTURE_STORE_ID,)),),
     "analysis_page.py": (
         ("read_bonus_price_comparison", ()),
         ("read_price_changes", ()),
@@ -147,6 +165,20 @@ def _columns_returned(engine, readers: tuple[tuple[str, tuple], ...]) -> set[str
         fn = getattr(db, reader)
         fn = getattr(fn, "func", fn)
         frame = fn(engine, *args)
+        if reader in MUST_RETURN_ROWS:
+            # A frame with no rows still has columns, so every assertion
+            # downstream passes on it. Proved by mutation: pointing the
+            # store-scoped readers at store 999999 emptied all of them and
+            # the whole warehouse suite stayed green.
+            #
+            # That matters most for exactly the readers that gained a store
+            # filter, because "the filter excludes everything" is the way a
+            # store filter fails.
+            assert not frame.empty, (
+                f"{reader} returned no rows, so every column assertion about "
+                "it passes without checking anything. Either the fixture no "
+                "longer covers it or its filter excludes everything."
+            )
         names.update(str(c).lower() for c in frame.columns)
     return names
 
