@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.10.2 (2026-09-20)
+
+### Bug Fixes
+
+- A promotion survives our never having priced the product
+  ([#61](https://github.com/levyvankempen/bonuschef/pull/61),
+  [`784ffe2`](https://github.com/levyvankempen/bonuschef/commit/784ffe2227380c4cb0bbfe067e048a1461f3a2da))
+
+
 ## v1.10.1 (2026-09-20)
 
 ### Bug Fixes
