@@ -63,3 +63,84 @@ models:
         description: "URL of the product image scraped from Albert Heijn."
         tests:
           - not_null
+
+  # The four models below had no schema entry at all, so nothing about them was
+  # tested - not their grain, not their keys, not the reference that carries the
+  # most expensive human work in the system.
+  - name: stg_portal__ah_recipes
+    description: "Recipes a person adopted from the retailer's catalogue."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [ah_recipe_id]
+    columns:
+      - name: ah_recipe_id
+        description: "The retailer's recipe id."
+        tests:
+          - not_null
+      - name: recipe_name
+        tests:
+          - not_null
+
+  - name: stg_portal__ah_recipe_ingredients
+    description: "Ingredient lines of an adopted recipe."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [ah_recipe_id, line_no]
+    columns:
+      - name: ah_recipe_id
+        tests:
+          - not_null
+          # An ingredient line whose recipe is gone costs nothing and ranks
+          # nowhere. Warn: one orphan must not block every other result.
+          - relationships:
+              to: ref('stg_portal__ah_recipes')
+              field: ah_recipe_id
+              config:
+                severity: warn
+      - name: concept_id
+        description: "The retailer's stable ingredient identity."
+        tests:
+          - not_null
+
+  - name: stg_portal__ah_ingredient_products
+    description: >
+      Which products satisfy an ingredient. Rows with confirmed_at set are a
+      person's own decisions - the most expensive human work in the system.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [concept_id, product_link]
+    columns:
+      - name: concept_id
+        tests:
+          - not_null
+      - name: product_link
+        description: "Link slug of the product that satisfies the ingredient."
+        tests:
+          - not_null
+          # The direct path has had this test for a long time; this one is
+          # where the CONFIRMED resolutions live and had none. A slug that no
+          # longer resolves removes the ingredient from its recipe's cost
+          # through an INNER JOIN downstream, so the recipe quietly gets
+          # cheaper. Warn, for the same reason as the other.
+          - relationships:
+              to: ref('dim_product')
+              field: product_link
+              config:
+                severity: warn
+
+  - name: stg_portal__ah_recipe_verdicts
+    description: "Recipes a person has dismissed."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [ah_recipe_id]
+    columns:
+      - name: ah_recipe_id
+        tests:
+          - not_null
+      - name: verdict
+        description: "Only 'rejected' survives the staging filter."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['rejected']
+

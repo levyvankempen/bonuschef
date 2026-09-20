@@ -23,10 +23,21 @@ sources:
           Append-only snapshots of store-specific markdowns ("laatste kans
           koopjes") — reduced-to-clear and discontinued stock. One row per
           item per scrape; the discount deepens intraday.
-        # Scraped hourly 11:00-20:00, so two hours inside the window is late.
+        # Scraped hourly 11:00-20:00 and judged once at 09:45, which is the
+        # furthest point from the last scrape rather than the nearest.
+        #
+        # Three hours is the right tolerance INSIDE the window and meaningless
+        # outside it: at 09:45 the freshest possible scrape is yesterday's
+        # 20:00 one, 13h45m old, so this warned on every single run it ever
+        # made. A threshold that always fires reports nothing - it just makes
+        # the one that matters harder to see.
+        #
+        # Sixteen hours is the band that means something at that hour: a
+        # healthy night is 13h45m and passes, while 16-24h means the evening
+        # scrapes stopped, and beyond 24h the error already covered it.
         loaded_at_field: scraped_at
         freshness:
-          warn_after: {count: 3, period: hour}
+          warn_after: {count: 16, period: hour}
           error_after: {count: 24, period: hour}
         meta:
           dagster:

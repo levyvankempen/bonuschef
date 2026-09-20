@@ -99,3 +99,61 @@ class TestTheDeclarationsThemselves:
         assert source_freshness_job.name == "source_freshness"
         # It stands alone; nothing else depends on it having passed.
         assert len(source_freshness_job.graph.node_defs) == 1
+
+
+def test_a_threshold_is_reachable_at_the_hour_it_is_judged():
+    """A warn that fires on every healthy run reports nothing.
+
+    store_markdowns declared warn_after 3 hours while freshness is evaluated
+    once at 09:45 and the scrape window closes at 20:00 - so the freshest
+    possible reading was 13h45m old and the threshold warned every time. Pure
+    noise, and noise is what hides the warn anyone would care about.
+
+    This checks the general shape: a source whose warn window is shorter than
+    the gap between its last possible load and the evaluation is a threshold
+    that cannot pass.
+    """
+    import yaml as _yaml
+
+    root = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "sql" / "models"
+    schedules = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "bonuschef"
+        / "dags"
+        / "defs"
+        / "schedules"
+        / "__init__.py"
+    ).read_text()
+
+    # The hour freshness is judged at.
+    import re
+
+    match = re.search(
+        r'cron_schedule="(\d+) (\d+) \* \* \*"',
+        schedules[schedules.index("source_freshness_schedule") :],
+    )
+    assert match, "could not find the freshness schedule"
+    judged_at = int(match.group(2)) + int(match.group(1)) / 60
+
+    # The last hour the markdown scrape can run.
+    window = re.search(r'cron_schedule="0 (\d+)-(\d+) \* \* \*"', schedules)
+    assert window, "could not find the markdown schedule"
+    last_scrape = int(window.group(2))
+
+    gap_h = (24 - last_scrape) + judged_at
+
+    for spec in root.rglob("*sources.yml"):
+        doc = _yaml.safe_load(spec.read_text()) or {}
+        for source in doc.get("sources") or []:
+            for table in source.get("tables") or []:
+                fresh = table.get("freshness") or {}
+                warn = fresh.get("warn_after") or {}
+                if table["name"] != "store_markdowns" or not warn:
+                    continue
+                assert warn.get("period") == "hour"
+                assert warn["count"] > gap_h, (
+                    f"store_markdowns warns after {warn['count']}h but the "
+                    f"freshest possible reading at {judged_at:.2f}h is "
+                    f"{gap_h:.2f}h old - it can never pass"
+                )
