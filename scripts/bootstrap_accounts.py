@@ -6,9 +6,9 @@ this is where they get attributed.
 
 What it does NOT touch, deliberately:
 
-  Resolutions. public.ah_ingredient_products holds roughly 1,900
-  concept-to-product links, each of which cost a search against AH, and 86 of
-  them were confirmed by hand. Those are facts about the catalogue - that
+  Resolutions. public.ah_ingredient_products holds 4,161
+  concept-to-product links over 1,903 ingredient concepts, each concept
+  having cost a search against AH, and 86 of the links confirmed by hand. Those are facts about the catalogue - that
   "sjalot" is satisfied by AH Sjalotten is true for everybody - and scoping
   them to an account would hand every new person an unpriceable catalogue and
   ask them to redo work already done. The script prints that it skipped them,
@@ -31,7 +31,7 @@ import os
 from sqlalchemy import create_engine, text
 
 from bonuschef.config import DatabaseConfig
-from bonuschef.portal.schema import ensure_account_tables
+from bonuschef.portal.schema import _STATEMENTS, ensure_account_tables
 
 # Adopted recipes, hand-entered recipes, and the verdicts that hide a recipe
 # from the recommendations. All three were global; all three become the
@@ -55,6 +55,41 @@ UPDATE public.ah_recipe_verdicts
 SET account_id = :account_id
 WHERE account_id IS NULL
 """
+
+
+def _unclaimed_verdicts(conn) -> int:
+    """Verdicts not yet attributed to an account.
+
+    Has to cope with the column not existing. Under --dry-run the migration
+    has deliberately not run, so `WHERE account_id IS NULL` would fail against
+    exactly the database the dry run exists to inspect - and it would fail
+    with a column-does-not-exist error that reads like a bug rather than like
+    "nothing has been migrated yet".
+    """
+    has_column = conn.execute(
+        text("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'ah_recipe_verdicts'
+              AND column_name = 'account_id'
+        """)
+    ).scalar()
+    if not has_column:
+        return int(
+            conn.execute(
+                text("SELECT count(*) FROM public.ah_recipe_verdicts")
+            ).scalar()
+            or 0
+        )
+    return int(
+        conn.execute(
+            text(
+                "SELECT count(*) FROM public.ah_recipe_verdicts "
+                "WHERE account_id IS NULL"
+            )
+        ).scalar()
+        or 0
+    )
 
 
 def _operator_account(conn, username: str, store_id: int) -> tuple[int, bool]:
@@ -92,8 +127,16 @@ def main() -> int:
     args = parser.parse_args()
 
     engine = create_engine(DatabaseConfig.from_env().url)
-    applied = ensure_account_tables(engine)
-    print(f"schema: {applied} statement(s) applied")
+
+    # Not under --dry-run. The statements are idempotent and additive, so
+    # applying them early looked harmless, and it is not: a dry run that
+    # alters the schema of the database it is inspecting is not a dry run,
+    # and the whole reason to offer one is to look before touching anything.
+    # Found by rehearsing this script against a clone of production.
+    if args.dry_run:
+        print(f"schema: {len(_STATEMENTS)} statement(s) would be applied")
+    else:
+        print(f"schema: {ensure_account_tables(engine)} statement(s) applied")
 
     with engine.begin() as conn:
         counts = {
@@ -103,12 +146,7 @@ def main() -> int:
             "hand-entered recipes": conn.execute(
                 text("SELECT count(*) FROM public.recipes")
             ).scalar(),
-            "verdicts": conn.execute(
-                text(
-                    "SELECT count(*) FROM public.ah_recipe_verdicts "
-                    "WHERE account_id IS NULL"
-                )
-            ).scalar(),
+            "verdicts": _unclaimed_verdicts(conn),
             "resolutions (untouched)": conn.execute(
                 text("SELECT count(*) FROM public.ah_ingredient_products")
             ).scalar(),
