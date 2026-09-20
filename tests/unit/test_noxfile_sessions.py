@@ -69,3 +69,36 @@ def _session_helper() -> ast.FunctionDef:
         if isinstance(node, ast.FunctionDef) and node.name == "_dbt_parse":
             return node
     raise AssertionError("noxfile.py has no _dbt_parse helper")
+
+
+def test_warehouse_backed_tests_run_in_exactly_one_session():
+    """They need the marts, and `tests` runs before `warehouse` builds them.
+
+    Encoding that as session ORDER is fragile - CI listed its steps
+    independently and ran `tests` first, so the checks errored on a database
+    with no marts in it. The dependency is a prerequisite, so it is expressed
+    as a marker: `tests` deselects it, `warehouse` selects it after building.
+
+    The danger of a marker is a test that belongs to neither selection and
+    quietly runs nowhere, so both halves are pinned here.
+    """
+    source = NOXFILE.read_text()
+    tests_body = ast.get_source_segment(source, _session("tests")) or ""
+    warehouse_body = ast.get_source_segment(source, _session("warehouse")) or ""
+
+    assert '"not warehouse"' in tests_body, (
+        "the tests session would run checks that need marts it has not built"
+    )
+    assert '"warehouse"' in warehouse_body and '"pytest"' in warehouse_body, (
+        "nothing runs the warehouse-backed checks after the build"
+    )
+
+
+def test_the_marker_is_declared():
+    """An undeclared marker is a typo away from selecting nothing, and pytest
+    does not complain by default."""
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    markers = config["tool"]["pytest"]["ini_options"]["markers"]
+    assert any(m.startswith("warehouse:") for m in markers), markers
