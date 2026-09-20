@@ -43,15 +43,21 @@
 
 ## 4. Readers checked against what they return
 
-- [ ] 4.1 Execute each portal reader against the built warehouse and compare
-      its columns with what the pages read
-- [ ] 4.2 Delete `test_portal_query_columns.py`
-- [ ] 4.3 Confirm the new check catches what the old one was written for
+- [x] 4.1 Each reader is executed against the built warehouse and its returned
+      columns compared with what the pages read. An empty warehouse suffices -
+      pandas returns the column names of a result set with no rows
+- [x] 4.2 `test_portal_query_columns.py` deleted, not refined a fifth time
+- [x] 4.3 **Negative control, run twice.** Dropping `opportunity_rank` from a
+      SELECT: both catch it. The bug the new check FOUND on its first run -
+      `read_pipeline_health`'s fail-soft path returning 4 columns where the
+      happy path returns 7 - old heuristic 5 passed, new check failed naming
+      `is_overdue` and `what`. The old one had been green on that for its
+      entire life, because it reads SQL text and this is runtime shape
 
 ## 5. Write the habit down
 
-- [ ] 5.1 Record the negative-control convention where a change author will
-      see it
+- [x] 5.1 Recorded in `openspec/config.yaml`, which is shown to whoever
+      creates a change, along with the reason
 
 
 ## 6. Found while doing this

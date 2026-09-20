@@ -997,8 +997,21 @@ def read_pipeline_health(_engine) -> pd.DataFrame:
         # Fail soft. A schema change on a Dagster upgrade, or a database that
         # cannot be read, degrades this page to what it did before this existed
         # rather than replacing an answer with an error.
+        # Every column the happy path produces, or the degraded frame is a
+        # different shape from the healthy one and the page reads columns that
+        # are not there. pandas returns None for those rather than raising, so
+        # the health panel renders confidently wrong at exactly the moment
+        # something is already wrong.
         return pd.DataFrame(
-            {"job_name": [], "last_success": [], "failures_today": [], "overdue_h": []}
+            {
+                "job_name": [],
+                "last_success": [],
+                "failures_today": [],
+                "overdue_h": [],
+                "tolerance_h": [],
+                "what": [],
+                "is_overdue": [],
+            }
         )
 
     known = set(df["job_name"]) if not df.empty else set()
