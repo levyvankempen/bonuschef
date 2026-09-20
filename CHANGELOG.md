@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.13.0 (2026-09-20)
+
+### Features
+
+- **accounts**: The account schema and the backfill that claims existing data
+  ([#77](https://github.com/levyvankempen/bonuschef/pull/77),
+  [`349278a`](https://github.com/levyvankempen/bonuschef/commit/349278aae3baf9f42be5e725505cd68c9c49368a))
+
+
 ## v1.12.0 (2026-09-20)
 
 ### Documentation
