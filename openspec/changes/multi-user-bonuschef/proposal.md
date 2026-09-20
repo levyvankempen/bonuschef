@@ -12,14 +12,20 @@ Three specialist reviews - architecture, backend, frontend - were run against
 the first draft of this proposal. They found four things in it that were
 simply wrong, and those corrections are the most useful part of this document.
 
-**Clearance may not be member-scoped at all.** The first draft justified
-per-user Albert Heijn credentials by claiming a shared session would give a
-friend "clearance that is really the operator's". The query is
-`bargainItems(storeId: $storeId)` - store-parameterised and authentication-
-*gated*. Whether the response also varies by member is **untested**, and it
-decides the grain of six models. If gated, per-user credentials are still
-worth having - for rate limiting, and for not lending one bonuskaart session
-to four people - but that is a different and smaller justification.
+**Clearance is not member-scoped, and the whole of the credential work was
+built on assuming it was.** The first draft justified per-user Albert Heijn
+credentials by claiming a shared session would give a friend "clearance that
+is really the operator's". Measured on 2026-09-20 against real store ids: one
+credential returned 217 items for Driebergen, 183 for Doorn and 242 for
+Zeist, none of them the operator's own store's 90. The feed is store-scoped
+and authentication-gated.
+
+So per-user credentials buy nothing, and the entire section built on them is
+deleted: holding other people's supermarket sessions, encrypting them at
+rest, rotating the key, a revocation surface, a per-account heartbeat, and a
+connect flow that required a friend to copy an authorization code out of
+desktop DevTools behind hCaptcha. That last one was the single largest
+constraint on who could be invited, and it is simply gone.
 
 **Today, an account without a credential would see nothing at all.**
 `int_store` is derived from scraped markdowns, and `int_product_offer_today`,
@@ -52,12 +58,11 @@ per account, and isolation of everything personal. Registration is by
 invitation: an open signup form on an application holding other people's
 supermarket sessions is a liability with no upside at four users.
 
-**Per-user Albert Heijn credentials**, encrypted at rest under a key held
-outside the database, revocable from the portal. Two hazards the review found
-in the existing code must be closed first: `AHTokenManager._candidates()`
-falls back to the bootstrap `AH_REFRESH_TOKEN`, so a friend's dead credential
-would silently refresh using the operator's; and `AH_TOKEN_FILE` is one shared
-file on a shared volume.
+**One Albert Heijn credential, fetching each distinct store.** No per-account
+credentials, because the measurement says they buy nothing. The two hazards
+the review found in the existing code - `_candidates()` falling back to the
+bootstrap token, and `AH_TOKEN_FILE` being one shared file - stop being
+hazards for the same reason: there is only ever one credential.
 
 **A three-way data split**, not two. Shared catalogue *including the ~1,900
 resolved concepts* - those are facts about the catalogue, not opinions, and
@@ -87,11 +92,10 @@ re-select a recipe you are already looking at.
 
 - Public internet exposure. A later change, and it should be a Cloudflare
   Tunnel - outbound-only from the LXC, so no port opens.
-- **Self-service Albert Heijn connection.** AH's OAuth client redirects to
-  `appie://login-exit`, a custom scheme no web page can receive, behind
-  hCaptcha. There is no server-side callback to build. Connecting means
-  copying a code out of a blocked redirect in desktop DevTools, or the
-  operator doing it for you. This materially limits who can be invited.
+- Per-account Albert Heijn credentials. Not out of scope because they are
+  hard, but because they were measured to be unnecessary. If request load ever
+  concentrates uncomfortably on one account, they return as an optimisation
+  with a reason.
 - Password reset by email. There is no mail path.
 - Any social feature between accounts.
 - Vercel or any serverless host. Streamlit holds a long-lived process and a

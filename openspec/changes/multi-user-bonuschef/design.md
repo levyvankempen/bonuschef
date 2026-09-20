@@ -1,28 +1,43 @@
 # Design
 
-## The unknown that should be settled first
+## The unknown, now measured
 
-Is `bargainItems` member-**gated** (authentication required, response depends
-only on `storeId`) or member-**varying** (response differs per bonuskaart)?
+**Clearance is store-scoped and authentication-gated. It does not vary by
+member.** One credential reads any store's clearance.
 
-Nothing in the repository answers it. The query takes `storeId` and nothing
-else, which points at gated; the module docstring says "member-gated". But the
-justification originally written for per-user credentials assumed varying.
+Measured on 2026-09-20 with the operator's live credential, against real
+store ids taken from ah.nl/winkels:
 
-It decides the grain of six models:
+    1876  own store                     90 items
+    1266  Driebergen, Binnenhof        217 items
+    1177  Doorn, Dorpsstraat           183 items
+    8758  Zeist, Hoog Kanje            242 items
+    5557  Driebergen, Hoofdstraat 129    0 items
 
-- **Gated** - clearance stays `[store_id, webshop_id]`. Two friends at one
-  store share a fetch. Per-user credentials are justified by rate limiting and
-  by not lending one session to four people, which is reason enough.
-- **Varying** - the grain becomes `[account_id, store_id, webshop_id]` and
-  propagates to `fct_store_clearance`, `fct_store_clearance_history`,
-  `int_product_offer_today`, `int_recipe_item_opportunity`,
-  `fct_recipe_opportunity` and `fct_recipe_opportunity_items`. Six
-  `unique_combination_of_columns` tests break, and section 5 roughly triples.
+The contents differ per store, so this is not one store's answer repeated.
+5557 returning nothing is a real answer too - a store can legitimately have no
+clearance - which matters for the portal: an empty list is not a failure.
 
-The experiment is two credentials against one `storeId`, comparing responses.
-It cannot be run today - only one credential exists - so it is the first task
-of section 4, before anything is built on the answer.
+**This removes the reason for per-user Albert Heijn credentials.** The first
+draft justified them by claiming a shared session would give a friend
+clearance that is really the operator's. It would not. A single credential
+fetching each distinct store is correct for everybody.
+
+What that deletes: storing other people's supermarket sessions, and with them
+the encryption-at-rest scheme, the key-rotation story, the revocation UI, the
+per-account heartbeat fan-out, and the connect flow that required a friend to
+copy an authorization code out of desktop DevTools behind hCaptcha - which was
+the single thing most limiting who could be invited.
+
+What remains true: the clearance grain stays `[store_id, webshop_id]`, and
+the six `unique_combination_of_columns` tests that an account dimension would
+have broken are untouched.
+
+What is given up, honestly: every store is fetched by one account, so the
+request load and any consequence of it concentrates there. At four stores
+that is four requests an hour against one that exists today. If that ever
+becomes a problem, per-user credentials return as an optimisation with a
+measured reason, rather than as an assumption.
 
 ## Authentication, and the part Streamlit makes ugly
 

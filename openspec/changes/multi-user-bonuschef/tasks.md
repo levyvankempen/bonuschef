@@ -83,39 +83,27 @@ here marked done because task 1.4 has not happened yet.
 - [ ] 3.8 Warehouse-marked test: two accounts, two stores, different clearance
       for the same recipe
 
-## 4. Per-user Albert Heijn credentials
+## 4. Albert Heijn credentials
 
-- [ ] 4.1 **Settle member-gated vs member-varying by experiment**: two
-      credentials, one `storeId`, compare responses. It decides the grain of
-      six models and everything below assumes the answer
-- [ ] 4.2 A per-account token manager that *cannot* fall back to
-      `AH_REFRESH_TOKEN`. `_candidates()` currently includes the bootstrap
-      token, so a friend's dead credential would silently refresh with the
-      operator's and return their clearance under the friend's store name
-- [ ] 4.3 A `TokenStore` protocol and a Postgres-backed implementation keyed
-      on the account, preserving the manager's rotation semantics. The shared
-      `AH_TOKEN_FILE` must never be reached for a non-operator account
-- [ ] 4.4 Encrypted credential column: AESGCM, key from `.env`, `account_id`
-      as associated data so a ciphertext cannot be moved between rows,
-      `key_id` for rotation
-- [ ] 4.5 The key reaches both the Dagster and the Streamlit containers - the
-      portal connects credentials, Dagster refreshes them
-- [ ] 4.6 Connect flow: a guided page that accepts the authorization code
-      copied out of the blocked `appie://login-exit` redirect, or the whole
-      URL, and exchanges it immediately. There is no server-side callback to
-      build. Document the operator-assisted fallback
-- [ ] 4.7 Record and display when a credential was last used. Nothing writes
-      this today and the requirement demands it
-- [ ] 4.8 Disconnect: credential deleted, clearance stops, recipes untouched
-- [ ] 4.9 Redact: a `__repr__` that cannot leak the token, an audit of
-      `AHAuthError`'s `resp.text[:200]`, and no reuse of `ah_login.py`'s
-      deliberate stdout print for a friend's flow
-- [ ] 4.10 Test with no DB and no network: wrong key fails, wrong account as
-      associated data fails, no credential appears in any log record
-- [ ] 4.11 The token heartbeat exercises every credential, reports each
-      separately, and one failure neither fails the others nor pages hourly
-- [ ] 4.12 Walk one friend through connecting, end to end, before inviting the
-      rest
+Measured 2026-09-20: `bargainItems` is store-scoped and auth-gated, not
+member-varying - one credential reads any store's clearance. Per-user
+credentials are therefore not needed for correctness, and this section is
+almost entirely deleted. See design.md for the measurement.
+
+- [x] 4.1 Settle member-gated vs member-varying by experiment. **Gated.**
+- [ ] 4.2 The single credential fetches each distinct store. Keep it the
+      operator's, in the existing token file; no per-account credential, no
+      encryption scheme, no connect flow, no revocation UI
+- [ ] 4.3 Guard the assumption: if a store ever returns another store's
+      contents, or a credential is rejected for a store that is not its own,
+      that is the measurement going stale and must be visible rather than
+      silently wrong
+
+Deleted with this section, and worth naming because they were the most
+expensive and most dangerous parts of the change: holding friends' Albert
+Heijn sessions, encrypting them at rest, rotating the key, revoking a
+connection, fanning the heartbeat out per account, and asking a friend to
+copy an authorization code out of desktop DevTools.
 
 ## 5. Clearance per store
 
@@ -128,8 +116,9 @@ here marked done because task 1.4 has not happened yet.
       in pipeline health. A single freshness threshold over the whole table
       stays green forever if the operator's store keeps scraping
 - [ ] 5.4 Bonus ingestion stays national and a single fetch
-- [ ] 5.5 An account without a credential sees bonus prices and a stated
-      reason for absent clearance - which depends on 3.2
+- [ ] 5.5 A store with no clearance shows that as an answer, not a failure.
+      Store 5557 returned zero items in the measurement while its neighbours
+      returned hundreds; an empty list is a real state
 
 ## 6. Recipes
 
@@ -201,5 +190,5 @@ here marked done because task 1.4 has not happened yet.
 - [ ] 9.2 Tell the people being invited what is stored about their AH account
       and how to end it
 - [ ] 9.3 Confirm a restart does not sign everyone out
-- [ ] 9.4 Re-run the restore drill against the new credential scheme - a
-      vzdump no longer restores a working system if the key lives outside it
+- [ ] 9.4 The restore drill is unchanged: the credential stays the single
+      token file that the last drill already verified survives a restore
