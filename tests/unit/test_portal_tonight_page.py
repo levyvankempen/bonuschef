@@ -758,3 +758,42 @@ class TestTheCacheFollowsTheData:
                 raise RuntimeError("column built_at does not exist")
 
         assert db.read_marts_built_at(_Engine()) == "unknown"
+
+
+class TestThePageSaysWhatItKnows:
+    """Three figures the system computed and never showed."""
+
+    def test_the_exclusion_reasons_are_rendered(self, wired, monkeypatch):
+        """The mart has always computed exclusion_reason, the reader has always
+        selected it, and _EXCLUSION_TEXT has always held the three values it
+        can take. Nothing rendered any of it.
+
+        "Berekend over 900 recepten; 200 daarvan zijn vandaag goedkoper"
+        invites exactly one question, and the answer was in the dataframe.
+        """
+        df = _opportunity()
+        df["opportunity_rank"] = [1, None]
+        df["exclusion_reason"] = [None, "no_priced_ingredient"]
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        body = _texts(page_run := run_app(page.render_tonight).run())
+        assert "Niet meegerekend" in body, body[-400:]
+        assert "prijs bekend" in body
+        assert page_run is not None
+
+    def test_it_says_nothing_when_every_recipe_is_rankable(self, wired, monkeypatch):
+        """A caption that fires on the ordinary case is noise."""
+        df = _opportunity()
+        df["exclusion_reason"] = [None, None]
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        assert "Niet meegerekend" not in _texts(run_app(page.render_tonight).run())
+
+    def test_an_unknown_reason_is_skipped_rather_than_crashing(
+        self, wired, monkeypatch
+    ):
+        """The mart could grow a fourth reason before the page learns its
+        wording. That must not take the page down."""
+        df = _opportunity()
+        df["exclusion_reason"] = [None, "something_new"]
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        at = run_app(page.render_tonight).run()
+        assert not at.exception

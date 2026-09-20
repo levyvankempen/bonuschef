@@ -10,6 +10,7 @@ from bonuschef.portal.review import (
 )
 from bonuschef.portal.db import (
     get_engine,
+    read_marts_built_at,
     read_recipe_bonus_summary,
     read_recipe_breakdown_bonus,
     read_recipe_summary,
@@ -59,7 +60,7 @@ def _render_recipe_summary(summary_df):
 
 def _render_bonus_highlights(engine):
     """Show which recipes have ingredients currently on bonus."""
-    bonus_df = read_recipe_bonus_summary(engine)
+    bonus_df = read_recipe_bonus_summary(engine, read_marts_built_at(engine))
     if bonus_df.empty or bonus_df["bonus_count"].sum() == 0:
         return
 
@@ -96,7 +97,9 @@ def _render_recipe_detail(engine, summary_df):
         return
 
     recipe_id = recipe_options[selected_name]
-    breakdown_df = read_recipe_breakdown_bonus(engine, recipe_id)
+    breakdown_df = read_recipe_breakdown_bonus(
+        engine, recipe_id, read_marts_built_at(engine)
+    )
 
     if breakdown_df.empty:
         st.warning("Voor dit recept zijn geen ingrediënten bekend.")
@@ -191,7 +194,10 @@ def render_recipes():
         st.error(f"Geen verbinding met de database: {e}")
         return
 
-    summary_df = read_recipe_summary(engine)
+    # Same cache key as Vanavond: a rebuild invalidates these exactly,
+    # rather than leaving the Recepten page serving costs from before it
+    # for up to fifteen minutes.
+    summary_df = read_recipe_summary(engine, read_marts_built_at(engine))
 
     if summary_df.empty:
         st.info("Nog geen recepten. Voeg er eerst een toe.")
