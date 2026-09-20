@@ -1044,17 +1044,39 @@ def read_pipeline_health(_engine) -> pd.DataFrame:
     return df.sort_values("job_name").reset_index(drop=True)
 
 
-_LINKED_FOR_RECHECK = """
+# Every ingredient line, from both kinds of recipe.
+#
+# Stated once because it was stated three times and two of them were wrong:
+# the re-check, the re-proposal and the asset's driving query all joined the
+# pool table alone, so a concept used only by a recipe a person had ADOPTED was
+# never re-judged. It kept whatever the unclassified local matcher gave it on
+# adoption day, permanently - and adopted recipes are the ones someone cared
+# enough to keep.
+#
+# The review queue always did this correctly; these did not.
+_ALL_INGREDIENT_LINES = """
+    SELECT recipe_id, concept_id, concept_name
+    FROM public.ah_recipe_ingredients
+    UNION ALL
+    SELECT recipe_id, concept_id, concept_name
+    FROM public."ah__pool_recipe_ingredients"
+"""
+
+_LINKED_FOR_RECHECK = (
+    """
     SELECT p.concept_id,
            MIN(i.concept_name) AS concept_name,
            p.product_link,
            p.product_name,
            p.confirmed_at IS NOT NULL AS confirmed
     FROM public.ah_ingredient_products AS p
-    JOIN public.ah__pool_recipe_ingredients AS i ON i.concept_id = p.concept_id
+    JOIN ("""
+    + _ALL_INGREDIENT_LINES
+    + """) AS i ON i.concept_id = p.concept_id
     WHERE i.concept_name IS NOT NULL
     GROUP BY p.concept_id, p.product_link, p.product_name, p.confirmed_at
 """
+)
 
 
 def read_linked_products(engine) -> list[dict]:
@@ -1154,12 +1176,15 @@ def count_flagged_concepts(engine) -> int:
         return 0
 
 
-_STALE_CONCEPTS = """
+_STALE_CONCEPTS = (
+    """
     SELECT p.concept_id,
            MIN(i.concept_name) AS concept_name,
            COUNT(DISTINCT i.recipe_id) AS uses
     FROM public.ah_ingredient_products AS p
-    JOIN public."ah__pool_recipe_ingredients" AS i ON i.concept_id = p.concept_id
+    JOIN ("""
+    + _ALL_INGREDIENT_LINES
+    + """) AS i ON i.concept_id = p.concept_id
     WHERE i.concept_name IS NOT NULL
     GROUP BY p.concept_id
     -- Nothing a person confirmed. Their decision is the answer, and
@@ -1170,6 +1195,7 @@ _STALE_CONCEPTS = """
     ORDER BY MIN(p.proposed_at) ASC, uses DESC
     LIMIT :limit
 """
+)
 
 
 def read_stale_concepts(engine, limit: int) -> list[dict]:

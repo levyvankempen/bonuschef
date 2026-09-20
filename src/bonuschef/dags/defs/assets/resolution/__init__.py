@@ -20,6 +20,7 @@ from dagster import AssetExecutionContext, AssetKey, RetryPolicy, asset
 from sqlalchemy import text
 
 from bonuschef.portal.db import (
+    _ALL_INGREDIENT_LINES,
     ensure_catalogue_tables,
     get_engine,
     propose_products,
@@ -54,15 +55,21 @@ MAX_CONSECUTIVE_TRANSPORT_FAILURES = 3
 # Most-used concepts first. Concept frequency is steep - a few hundred cover
 # most ingredient lines - so if this is ever interrupted, the work that has
 # landed is the work that mattered.
-_UNRESOLVED_CONCEPTS = """
+# Both kinds of recipe. This joined the pool alone, so an ingredient belonging
+# only to a recipe a person had adopted was never proposed for at all.
+_UNRESOLVED_CONCEPTS = (
+    """
     SELECT i.concept_id, MIN(i.concept_name) AS concept_name, COUNT(*) AS uses
-    FROM public."ah__pool_recipe_ingredients" AS i
+    FROM ("""
+    + _ALL_INGREDIENT_LINES
+    + """) AS i
     LEFT JOIN public.ah_ingredient_products AS p
         ON i.concept_id = p.concept_id
-    WHERE p.concept_id IS NULL
+    WHERE p.concept_id IS NULL AND i.concept_id IS NOT NULL
     GROUP BY i.concept_id
     ORDER BY uses DESC, i.concept_id ASC
 """
+)
 
 
 @asset(
@@ -98,6 +105,22 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
     # The local matcher first: it is free, and its whole-word rule makes it the
     # conservative one. Whatever it settles never costs an AH request.
     proposals = propose_for(engine, concepts)
+
+    # ...but free is not the same as right. The matcher compares names and
+    # counts leftover words; it has no idea what a product IS. "AH Vormservet
+    # wortel" is a carrot-printed paper napkin two words longer than "wortel",
+    # which is inside its tolerance, so a napkin resolved a vegetable.
+    #
+    # The classification rules cannot live in matching.py - a test asserts that
+    # module imports no network code, and it is right to: the local matcher is
+    # the offline path. So the judging happens here, where a request is allowed,
+    # and the matcher stays a pure name match.
+    #
+    # Anything rejected falls through to the AH search below, which is already
+    # classified. A concept is not left unresolved by this; it is left to the
+    # path that can do better.
+    proposals, rejected_local = _drop_contradicting(proposals, concepts, context)
+
     propose_products(engine, proposals)
     local_resolved = {p["concept_id"] for p in proposals}
     context.log.info(
@@ -146,6 +169,9 @@ def ah__ingredient_proposals_asset(context: AssetExecutionContext) -> None:
             "unresolved_before": len(concepts),
             "concepts_matched": resolved,
             "matched_locally": len(local_resolved),
+            # Proposals the name match made and the classification refused.
+            # Non-zero is the local matcher being caught, not a failure.
+            "local_proposals_rejected": rejected_local,
             "matched_via_ah_search": resolved - len(local_resolved),
             "products_proposed": len(proposals) + len(ah_proposals),
             "ah_lookups_spent": spent,
@@ -287,6 +313,55 @@ def _propose_from_ah(
             rejected,
         )
     return proposals, spent, False
+
+
+def _drop_contradicting(
+    proposals: list[dict], concepts: dict[int, str], context: AssetExecutionContext
+) -> tuple[list[dict], int]:
+    """Remove local proposals whose product contradicts the ingredient.
+
+    Batched: one request classifies fifty products, so judging every proposal
+    the matcher made costs a handful of calls rather than one per concept.
+
+    Unknown is not wrong. A product AH declines to classify, or no longer
+    sells, is kept - withdrawing on no evidence is the one thing none of these
+    rules do.
+    """
+    if not proposals:
+        return proposals, 0
+
+    ids = sorted(
+        {wid for p in proposals if (wid := _webshop_id(p["product_link"])) is not None}
+    )
+    try:
+        classified = fetch_product_taxonomy(ids)
+    except AHRecipeUnavailable as exc:
+        # The matcher's answers are no worse than they were yesterday, and a
+        # run that cannot reach the retailer should not throw them away.
+        context.log.warning(
+            "Could not classify the local matcher's proposals: %s", str(exc)[:120]
+        )
+        return proposals, 0
+
+    kept, rejected = [], 0
+    for proposal in proposals:
+        wid = _webshop_id(proposal["product_link"])
+        hit = classified.get(wid) if wid is not None else None
+        name = concepts.get(proposal["concept_id"], "")
+        if hit is None or judge(name, hit.department).accepted:
+            kept.append(proposal)
+        else:
+            rejected += 1
+            context.log.debug(
+                "local matcher: rejected %s for %r", proposal["product_name"], name
+            )
+    if rejected:
+        context.log.info(
+            "%d local proposal(s) dropped as the wrong kind of thing; those "
+            "concepts fall through to the classified search",
+            rejected,
+        )
+    return kept, rejected
 
 
 def _candidates_for(name: str, crosswalk: dict) -> tuple[list[dict], int, int]:

@@ -1007,3 +1007,183 @@ class TestTheAssetOwnsItsSchema:
         )
         missing = written - created
         assert not missing, f"db.py writes to {sorted(missing)} but never creates them"
+
+
+class TestTheLocalMatcherIsClassifiedToo:
+    """The name match is free, and free is not the same as right.
+
+    `matching.py` compares names and counts leftover words; it has no idea what
+    a product IS. "AH Vormservet wortel" is a carrot-printed paper napkin two
+    words longer than "wortel" - inside `_MAX_EXTRA_WORDS` - so a napkin
+    resolved a vegetable, and because the matcher runs FIRST the concept never
+    reached the classified path at all.
+
+    The rules cannot live in matching.py: a test asserts that module imports no
+    network code, and it is right to. So the judging happens in the asset.
+    """
+
+    def _run(self, monkeypatch, proposals, concepts, classified):
+        import bonuschef.dags.defs.assets.resolution as mod
+
+        monkeypatch.setattr(mod, "fetch_product_taxonomy", lambda ids: classified)
+
+        class _Ctx:
+            class log:
+                @staticmethod
+                def debug(*a, **k):
+                    pass
+
+                @staticmethod
+                def info(*a, **k):
+                    pass
+
+                @staticmethod
+                def warning(*a, **k):
+                    pass
+
+        return mod._drop_contradicting(proposals, concepts, cast(Any, _Ctx()))
+
+    @staticmethod
+    def _hit(wid, title, dept):
+        from bonuschef.utils.ah_recipes import ProductHit
+
+        return ProductHit(webshop_id=wid, title=title, department=dept)
+
+    def test_the_napkin_no_longer_resolves_a_carrot(self, monkeypatch):
+        kept, rejected = self._run(
+            monkeypatch,
+            [
+                {
+                    "concept_id": 1,
+                    "product_link": "wi9/x",
+                    "product_name": "AH Vormservet wortel",
+                }
+            ],
+            {1: "wortel"},
+            {9: self._hit(9, "AH Vormservet wortel", "Non Food")},
+        )
+        assert kept == []
+        assert rejected == 1
+
+    def test_a_real_match_is_kept(self, monkeypatch):
+        kept, _ = self._run(
+            monkeypatch,
+            [
+                {
+                    "concept_id": 1,
+                    "product_link": "wi8/x",
+                    "product_name": "AH Winterpeen",
+                }
+            ],
+            {1: "wortel"},
+            {8: self._hit(8, "AH Winterpeen", "Vers")},
+        )
+        assert len(kept) == 1
+
+    def test_an_unclassified_product_is_kept(self, monkeypatch):
+        """Unknown is not wrong. Withdrawing on no evidence is the one thing
+        none of these rules do."""
+        kept, _ = self._run(
+            monkeypatch,
+            [{"concept_id": 1, "product_link": "wi7/x", "product_name": "Iets"}],
+            {1: "wortel"},
+            {},
+        )
+        assert len(kept) == 1
+
+    def test_an_unreachable_retailer_keeps_what_the_matcher_found(self, monkeypatch):
+        """Yesterday's answers are no worse than they were yesterday, and a run
+        that cannot reach the retailer should not throw them away."""
+        import bonuschef.dags.defs.assets.resolution as mod
+        from bonuschef.utils.ah_recipes import AHRecipeUnavailable
+
+        def _boom(ids):
+            raise AHRecipeUnavailable("down")
+
+        monkeypatch.setattr(mod, "fetch_product_taxonomy", _boom)
+
+        class _Ctx:
+            class log:
+                @staticmethod
+                def warning(*a, **k):
+                    pass
+
+        proposals = [{"concept_id": 1, "product_link": "wi9/x", "product_name": "x"}]
+        kept, rejected = mod._drop_contradicting(
+            proposals, {1: "wortel"}, cast(Any, _Ctx())
+        )
+        assert kept == proposals and rejected == 0
+
+    def test_the_asset_judges_before_it_stores(self):
+        """Order matters: propose_products writes, and a rejected proposal must
+        never be written at all."""
+        body = (
+            ROOT
+            / "src"
+            / "bonuschef"
+            / "dags"
+            / "defs"
+            / "assets"
+            / "resolution"
+            / "__init__.py"
+        ).read_text()
+        assert body.index("_drop_contradicting(") < body.index(
+            "propose_products(engine, proposals)"
+        )
+
+    def test_a_rejected_concept_falls_through_to_the_search(self):
+        """It is not left unresolved - it is left to the path that can do
+        better. local_resolved is computed from the SURVIVING proposals."""
+        body = (
+            ROOT
+            / "src"
+            / "bonuschef"
+            / "dags"
+            / "defs"
+            / "assets"
+            / "resolution"
+            / "__init__.py"
+        ).read_text()
+        assert body.index("_drop_contradicting(") < body.index(
+            'local_resolved = {p["concept_id"] for p in proposals}'
+        )
+
+
+class TestAdoptedRecipesAreNotSkipped:
+    """The three queries that drive re-judging joined the pool alone.
+
+    A concept belonging only to a recipe a person had ADOPTED was never
+    re-checked, never re-proposed, and never even proposed for in the first
+    place. It kept whatever the unclassified local matcher gave it on adoption
+    day, permanently - and adopted recipes are the ones someone cared enough to
+    keep.
+
+    The review queue always did this correctly, which is what makes the
+    omission a drift between three statements of one thing rather than a
+    misunderstanding.
+    """
+
+    def _sql(self, name: str) -> str:
+        import bonuschef.portal.db as db
+        import bonuschef.dags.defs.assets.resolution as res
+
+        return getattr(db, name, None) or getattr(res, name)
+
+    @pytest.mark.parametrize(
+        "query", ["_LINKED_FOR_RECHECK", "_STALE_CONCEPTS", "_UNRESOLVED_CONCEPTS"]
+    )
+    def test_every_driving_query_sees_both_kinds_of_recipe(self, query):
+        sql = self._sql(query)
+        assert "ah_recipe_ingredients" in sql, f"{query} does not see adopted recipes"
+        assert "ah__pool_recipe_ingredients" in sql, f"{query} does not see the pool"
+
+    def test_the_line_source_is_stated_once(self):
+        """It was stated three times and two were wrong. A shared fragment is
+        what stops the next one drifting."""
+        import bonuschef.portal.db as db
+
+        assert "UNION ALL" in db._ALL_INGREDIENT_LINES
+        for query in ("_LINKED_FOR_RECHECK", "_STALE_CONCEPTS"):
+            assert db._ALL_INGREDIENT_LINES.strip() in self._sql(query), (
+                f"{query} restates the line source instead of using it"
+            )
