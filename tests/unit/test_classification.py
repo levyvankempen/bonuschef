@@ -276,10 +276,82 @@ def test_own_brand_words_do_not_count_as_specificity():
     )
 
 
-def test_an_unclassified_field_does_not_narrow_anything():
-    """Narrowing on no evidence is the one thing every rule here refuses."""
-    cands = [hit(1, "Iets", ""), hit(2, "Iets anders", "")]
+def test_an_unclassified_field_does_not_narrow_a_recognisable_winner():
+    """Narrowing on no evidence is the one thing every rule here refuses.
+
+    Once the winner is recognisably the ingredient, a missing taxonomy on the
+    others is not grounds to drop them - there is no "same kind" to compare
+    against, so everything stays.
+    """
+    cands = [
+        hit(1, "AH Dille", "Vers", ("Kruiden", "Verse kruiden")),
+        hit(2, "AH Biologisch Dille", "Vers", ("Kruiden", "Verse kruiden")),
+    ]
     assert len(cohort("dille", cands)) == 2
+
+
+def test_nothing_recognisable_proposes_nothing():
+    """An unrecognisable best candidate withholds the whole cohort.
+
+    Ranking always produces a winner, even when every candidate is wrong, and
+    a cost built on a wrong product is worse than a missing one because it
+    looks right. Neither of these is dille by name or by taxonomy.
+    """
+    cands = [hit(1, "Iets", ""), hit(2, "Iets anders", "")]
+    assert cohort("dille", cands) == []
+
+
+def test_the_floor_withholds_the_matches_that_prompted_it():
+    """Both shipped to production and both looked plausible: same department,
+    both food, one shared word. Nothing downstream objected, which is exactly
+    why the test has to happen here.
+    """
+    assert (
+        cohort(
+            "blauwe kaas-blokjes",
+            [hit(1, "AH Blauwe bessen", "Vers", ("Fruit", "Blauwe bessen"))],
+        )
+        == []
+    )
+    assert (
+        cohort(
+            "salade-uitjes", [hit(1, "AH Ei salade", "Vers", ("Salades", "Salades"))]
+        )
+        == []
+    )
+
+
+def test_the_floor_keeps_a_match_named_only_by_its_head_noun():
+    """Either evidence suffices. The leaf need not name the ingredient when the
+    title does, or this would withhold most of the own-brand range."""
+    assert (
+        cohort(
+            "broccoli",
+            [hit(1, "AH Biologisch Broccoli", "Vers", ("Groente", "Broccoli"))],
+        )
+        != []
+    )
+
+
+def test_a_diminutive_still_finds_the_plain_noun():
+    """Recipes are written in diminutives - "uitjes", "tomaatjes" - while the
+    shelf label is the plain noun. Without this the floor withholds them."""
+    assert (
+        cohort("bosuitje", [hit(1, "AH Bosui", "Vers", ("Groente", "Verse kruiden"))])
+        != []
+    )
+
+
+def test_a_compound_is_recognised_by_the_general_term():
+    """Dutch puts the head of a compound last, so runderbouillon IS a bouillon.
+    The leaf is frequently the general term and the recipe the specific one."""
+    assert (
+        cohort(
+            "runderbouillon van tablet",
+            [hit(1, "Bouillonblokjes", "Houdbaar", ("Soepen", "Bouillon"))],
+        )
+        != []
+    )
 
 
 def test_the_cohort_of_nothing_is_nothing():
@@ -439,3 +511,44 @@ def test_dutch_compounds_split_across_a_product_name(ingredient, title, matches)
     "Slagroom", which is the prefix mistake in another form.
     """
     assert head_noun_match(ingredient, title) is matches
+
+
+# --- the floor, measured against what a human confirmed ---------------------
+
+# Every link a human confirmed in production, as of 2026-09-20. The floor
+# withholds a product when it cannot recognise it, so the only question that
+# decides whether it may ship is how many of these it would have thrown away.
+#
+# Taxonomy is not stored in the warehouse - it comes from the live search at
+# resolution time - so these carry the title only. That makes this a LOWER
+# bound: the floor also accepts on the leaf, which rescues at least
+# "iets kruimige aardappel" (leaf Aardappelen).
+CONFIRMED_LINKS = [
+    ("bloem", "AH Tarwebloem"),
+    ("friszoete appel", "AH Appels"),
+    ("milde olijfolie", "AH Olijfolie mild"),
+    ("plantaardige kipbraadworst", "AH Scharrel kipbraadworst 4 stuks"),
+    ("plantenmargarine lactosevrij", "AH Terra Plantaardige margarine"),
+    ("rozijnen", "AH Rozijnen"),
+    ("zuurkool", "AH Zuurkool"),
+]
+
+
+@pytest.mark.parametrize(("ingredient", "title"), CONFIRMED_LINKS)
+def test_the_floor_keeps_what_a_human_confirmed(ingredient, title):
+    """A human looked at this pairing and said yes. Withholding it is a
+    regression no matter how defensible the rule that did it sounds."""
+    assert cohort(ingredient, [hit(1, title, "")]) != []
+
+
+def test_a_synonym_the_floor_cannot_see_is_a_known_loss():
+    """ "bospaddenstoelenfond" is a confirmed link to "AH Bouillon paddenstoel",
+    and the floor drops it: a fond IS a bouillon, but no spelling of either
+    word contains the other, so there is nothing to recognise it by.
+
+    Recorded rather than worked around. Fixing it needs a synonym, which is
+    what ah_ingredient_aliases is for - and that table is currently written
+    and read by nothing. This test exists so the day it is wired up, the
+    failure points at the reason.
+    """
+    assert cohort("bospaddenstoelenfond", [hit(1, "AH Bouillon paddenstoel", "")]) == []

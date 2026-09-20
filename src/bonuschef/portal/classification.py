@@ -193,6 +193,60 @@ def _content_words(text: str) -> list[str]:
     return [w for w in normalise(text).split() if w not in _QUALIFIERS]
 
 
+# Dutch diminutive endings, longest first so "bosuitje" loses "tje" and not
+# just "je". The plural forms are here too: a recipe writes "uitjes" far more
+# often than "uitje".
+_DIMINUTIVES = (
+    "etjes",
+    "etje",
+    "tjes",
+    "tje",
+    "pjes",
+    "pje",
+    "kjes",
+    "kje",
+    "jes",
+    "je",
+)
+
+
+def _undiminutive(word: str) -> set[str]:
+    """The noun a Dutch diminutive was built from, if it is one.
+
+    Recipes are written in diminutives constantly - "uitjes", "worstjes",
+    "tomaatjes" - while the shelf label is the plain noun. Without this,
+    "bosuitje" does not match "Bosui" and a correct product is withheld.
+
+    Returns a set because the shortening is ambiguous: "bolletje" gives both
+    "boll" and, after collapsing the doubled consonant, "bol". Let the caller
+    try both rather than guess here.
+    """
+    stems: set[str] = set()
+    for ending in _DIMINUTIVES:
+        if not word.endswith(ending):
+            continue
+        stem = word[: -len(ending)]
+        # Every ending is tried, never just the longest: the -t- in "tomaatje"
+        # belongs to the stem, so stripping "tje" gives the fragment "tomaa"
+        # and only stripping "je" gives "tomaat". Which one is real depends on
+        # the word, so keep both and let the comparison decide.
+        #
+        # Two characters, not three: "uitje" -> "ui" and "eitje" -> "ei" are
+        # the cases this function exists for. Over-generating is safe because
+        # the caller tests the stems for equality, never as a prefix.
+        if len(stem) < 2:
+            continue
+        stems.add(stem)
+        # Dutch doubles the consonant before -etje: bonnetje -> bon.
+        if len(stem) > 3 and stem[-1] == stem[-2]:
+            stems.add(stem[:-1])
+    return stems
+
+
+def _base_forms(word: str) -> set[str]:
+    return {word} | _undiminutive(word)
+
+
 def _same_word(a: str, b: str) -> bool:
     """Whether two Dutch words are the same noun, allowing for plurals.
 
@@ -200,6 +254,11 @@ def _same_word(a: str, b: str) -> bool:
     "Bloemkoolrijst" (cauliflower rice), which is how flour came to be
     resolved as a vegetable.
     """
+    return any(_same_stem(x, y) for x in _base_forms(a) for y in _base_forms(b))
+
+
+def _same_stem(a: str, b: str) -> bool:
+    """The plural rules, applied to two words already stripped of diminutives."""
     if a == b:
         return True
     for suffix in ("en", "s", "n", "es"):
@@ -261,13 +320,84 @@ def head_noun_match(ingredient_name: str, title: str) -> bool:
     )
     if not title_words or not ingredient_words:
         return False
-    head = ingredient_words[-1]
-    if _same_word(head, title_words[-1]):
+    # The ingredient carries trailing qualifiers too - a recipe writes
+    # "plantenmargarine lactosevrij" - so its head is found the same way.
+    head = _title_head(ingredient_words)
+    if _same_word(head, _title_head(title_words)):
         return True
     # Dutch writes compounds as one word where a product name splits them:
     # "cannellinibonen" against "AH Terra Cannellini bonen". Without this the
     # bean does not match its own name, and a tin of tuna outscores it.
     return _matches_compound(head, title_words)
+
+
+# Words AH puts AFTER the noun, where Dutch would normally end the phrase:
+# a grade ("Olijfolie mild"), a pack count ("kipbraadworst 4 stuks"), a
+# production claim ("Tomaten bio"). Taking the last word as the head reads
+# these as the product, so "milde olijfolie" failed to match "AH Olijfolie
+# mild" - six of the nine human-confirmed links were lost this way.
+_TRAILING_QUALIFIERS = frozenset(
+    {
+        "mild",
+        "milde",
+        "pittig",
+        "pittige",
+        "zacht",
+        "zachte",
+        "extra",
+        "bio",
+        "biologisch",
+        "biologische",
+        "vers",
+        "verse",
+        "naturel",
+        "grof",
+        "grove",
+        "fijn",
+        "fijne",
+        "halfvol",
+        "halfvolle",
+        "mager",
+        "magere",
+        "vol",
+        "volle",
+        "licht",
+        "lichte",
+        "zoet",
+        "zoete",
+        "zout",
+        "zoute",
+        "ongezouten",
+        "gezouten",
+        "stuks",
+        "stuk",
+        "gram",
+        "ml",
+        "cl",
+        "liter",
+        "l",
+        "kg",
+        "g",
+        "pak",
+        "zak",
+        "bos",
+        "plakken",
+    }
+)
+
+
+def _title_head(title_words: list[str]) -> str:
+    """The title's head noun, looking past any trailing qualifiers.
+
+    Stops at the first word from the end that names something rather than
+    grading it. Never strips everything: a title that is nothing but
+    qualifiers keeps its last word, because guessing further would be worse
+    than the original rule.
+    """
+    words = list(title_words)
+    while len(words) > 1 and (words[-1] in _TRAILING_QUALIFIERS or words[-1].isdigit()):
+        words.pop()
+    return words[-1]
 
 
 def _matches_compound(head: str, title_words: list[str]) -> bool:
@@ -402,6 +532,23 @@ def cohort(ingredient_name: str, candidates: list) -> list:
         ),
     )
     best = candidates[ordered[0]]
+
+    # If the best candidate is not recognisably the same thing as the
+    # ingredient, propose nothing at all.
+    #
+    # Ranking always produces a winner, even when every candidate is wrong.
+    # That is how "blauwe kaas-blokjes" came to be priced as AH Blauwe bessen
+    # and "salade-uitjes" as AH Ei salade: both share a word with the
+    # ingredient, both are food, both are Vers, so nothing downstream objected.
+    # A cost built on those is worse than no cost, because it looks right.
+    #
+    # The test is the cohort winner's, not each candidate's: the winner decides
+    # whether this ingredient was understood at all. Either evidence suffices -
+    # the taxonomy leaf names the ingredient, or the head nouns agree - so
+    # "broccoli" -> AH Biologisch Broccoli still passes on the head noun alone.
+    if not _recognisable(ingredient_name, best):
+        return []
+
     key = normalise(getattr(best, "taxonomy_leaf", ""))
     if not key:
         # The best candidate is unclassified, so there is no "same kind" to
@@ -409,3 +556,65 @@ def cohort(ingredient_name: str, candidates: list) -> list:
         # which is the one thing every other rule in this module refuses to do.
         return list(candidates)
     return [c for c in candidates if normalise(getattr(c, "taxonomy_leaf", "")) == key]
+
+
+def _recognisable(ingredient_name: str, candidate) -> bool:
+    """Whether a candidate is identifiably the ingredient, by either evidence.
+
+    Deliberately not a score threshold. Scores were measured against the
+    human-confirmed links and did not separate: confirmed products scored as
+    low as -1.20 while correct-but-unconfirmed ones scored 10.00, so any cut
+    that removed the wrong matches removed good ones too. Naming does separate,
+    because it asks a different question - not "how good is this?" but "is this
+    the same thing?"
+    """
+    # The packaging comes off first. A shelf label says "Kuhne Mierikswortel",
+    # never "mierikswortel in pot", so comparing the raw ingredient text finds
+    # no agreement and withholds a correct product.
+    # without_packaging() returns "" to mean "nothing was stripped", which is a
+    # signal to its other caller and not a name. Fall back to the original.
+    name = without_packaging(ingredient_name) or ingredient_name
+    leaf = getattr(candidate, "taxonomy_leaf", "") or ""
+    if leaf_names_ingredient(name, leaf) or leaf_names_ingredient(
+        ingredient_name, leaf
+    ):
+        return True
+    title = getattr(candidate, "title", "") or ""
+    if head_noun_match(name, title) or head_noun_match(ingredient_name, title):
+        return True
+    # Both directions. The recipe is usually the specific term and the shelf
+    # the general one ("runderbouillon" for a Bouillon), but AH inverts it as
+    # often: the recipe says "bloem" and the shelf says "AH Tarwebloem".
+    # Suffix matching stays safe either way, because Dutch compounds name
+    # their head last - a tarwebloem is a bloem, and a bloemkool, which does
+    # not end in "bloem", is still not one.
+    return (
+        _specialises(name, leaf)
+        or _specialises(leaf, name)
+        or _specialises(name, title)
+        or _specialises(title, name)
+    )
+
+
+def _specialises(ingredient_name: str, text: str) -> bool:
+    """Whether the ingredient is a compound ending in one of the other's words.
+
+    Dutch puts the head of a compound last, so "runderbouillon" IS a bouillon
+    and "arachideolie" IS an oil, even though neither equals the leaf that
+    names it. Without this the floor withholds them, which is a real loss: the
+    leaf is frequently the general term and the recipe the specific one.
+
+    Matching the suffix rather than the prefix is the whole point, and is why
+    this does not reintroduce the bug the prefix ban exists for: "bloem" is not
+    a "bloemkool" because flour is not a kind of cauliflower, and "bloemkool"
+    does not end in "bloem".
+
+    Four characters minimum, so that short heads like "ei" or "ui" cannot make
+    every word that happens to end in them a match.
+    """
+    words = {w for w in normalise(text).split() if len(w) >= 4}
+    return any(
+        w != head and head.endswith(w)
+        for head in normalise(ingredient_name).split()
+        for w in words
+    )
