@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.11.8 (2026-09-20)
+
+### Bug Fixes
+
+- **release**: A superseded run stands down instead of going red
+  ([#73](https://github.com/levyvankempen/bonuschef/pull/73),
+  [`86b0862`](https://github.com/levyvankempen/bonuschef/commit/86b0862e8576b8cc63b329b4d9bcffaae864deb9))
+
+
 ## v1.11.7 (2026-09-20)
 
 ### Bug Fixes
