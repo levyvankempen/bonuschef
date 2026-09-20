@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.10.0 (2026-09-20)
+
+### Features
+
+- A stand-in may replace a component's effects, not its interface
+  ([#59](https://github.com/levyvankempen/bonuschef/pull/59),
+  [`86d4130`](https://github.com/levyvankempen/bonuschef/commit/86d4130c8b9014e0eacb35fc020aec885ec2d2ee))
+
+
 ## v1.9.0 (2026-09-20)
 
 ### Features
