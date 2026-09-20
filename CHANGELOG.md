@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.12.0 (2026-09-20)
+
+### Documentation
+
+- **specs**: Record the recognisability floor and correct what it falsified
+  ([#74](https://github.com/levyvankempen/bonuschef/pull/74),
+  [`6ff9a57`](https://github.com/levyvankempen/bonuschef/commit/6ff9a5727679bb85ed5dc0aed6e3a74bb117e0a1))
+
+### Features
+
+- **catalogue**: Adopt the two Allerhande recipes and withdraw zuurkoolstamppot
+  ([#76](https://github.com/levyvankempen/bonuschef/pull/76),
+  [`e7febb4`](https://github.com/levyvankempen/bonuschef/commit/e7febb496f34bef9eda4933506696e9ebb480910))
+
+
 ## v1.11.8 (2026-09-20)
 
 ### Bug Fixes
