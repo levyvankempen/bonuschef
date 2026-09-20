@@ -5,6 +5,7 @@ experience rather than edge cases, so they get at least as much attention here
 as the happy path.
 """
 
+from pathlib import Path
 import pandas as pd
 import pytest
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
@@ -120,8 +121,14 @@ def _items() -> pd.DataFrame:
 def wired(monkeypatch):
     """Patch every database call the page makes; nothing touches a warehouse."""
     monkeypatch.setattr(page, "get_engine", lambda: object())
-    monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: _opportunity())
-    monkeypatch.setattr(page, "read_recipe_opportunity_items", lambda e, r: _items())
+    # The build stamp is the readers' cache key, so they take it as an
+    # argument. *_ rather than a named parameter: the fixture should not have
+    # to be edited again if another key joins it.
+    monkeypatch.setattr(page, "read_marts_built_at", lambda e: "2026-01-01T00:00:00")
+    monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: _opportunity())
+    monkeypatch.setattr(
+        page, "read_recipe_opportunity_items", lambda e, r, *_: _items()
+    )
     monkeypatch.setattr(page, "read_rejected_recipes", lambda e: pd.DataFrame())
     monkeypatch.setattr(page, "read_bonus_feed_loaded_at", lambda e: FRESH_NOW)
     monkeypatch.setattr(page, "read_pipeline_health", lambda e: _healthy())
@@ -175,7 +182,7 @@ class TestTheAnswer:
         df.loc[1, "opportunity_rank"] = 2.0
         df.loc[1, "saving_total"] = 0.90
         df.loc[1, "exclusion_reason"] = None
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "Ook de moeite waard" in _texts(at)
 
@@ -187,7 +194,7 @@ class TestLowerBounds:
         df.loc[0, "items_priced"] = 6
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "minstens €3.40 goedkoper" in _texts(at)
 
@@ -204,7 +211,7 @@ class TestLowerBounds:
         df.loc[0, "items_priced"] = 6
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "±€15.30" in body, "an estimate, and visibly one"
@@ -248,7 +255,7 @@ class TestDegradedStates:
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
         df.loc[0, "items_priced"] = 6
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         monkeypatch.setattr(page.freshness, "now", lambda: NEXT_DAY)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
@@ -279,7 +286,7 @@ class TestDegradedStates:
         df = _opportunity()
         df["opportunity_rank"] = None
         df["saving_total"] = 0.0
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "geen van je recepten goedkoper" in body
@@ -289,14 +296,16 @@ class TestDegradedStates:
     def test_no_recipes_at_all_offers_the_action_that_would_help(
         self, wired, monkeypatch
     ):
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: pd.DataFrame())
+        monkeypatch.setattr(
+            page, "read_recipe_opportunity", lambda e, *_: pd.DataFrame()
+        )
         at = run_app(page.render_tonight).run()
         assert "Toevoegen" in _texts(at)
 
     def test_an_unbuilt_mart_is_distinct_from_a_broken_database(
         self, wired, monkeypatch
     ):
-        def _raise(_):
+        def _raise(_, *_unused):
             raise ProgrammingError("select", {}, Exception("no such relation"))
 
         monkeypatch.setattr(page, "read_recipe_opportunity", _raise)
@@ -307,7 +316,7 @@ class TestDegradedStates:
     def test_an_unreachable_warehouse_says_so_in_the_portal_s_own_terms(
         self, wired, monkeypatch
     ):
-        def _raise(_):
+        def _raise(_, *_unused):
             raise SQLAlchemyError("connection refused")
 
         monkeypatch.setattr(page, "read_recipe_opportunity", _raise)
@@ -330,7 +339,7 @@ class TestHonestyAboutCoverage:
         is the action offered here rather than "add more recipes"."""
         df = _opportunity()
         df.loc[1, "items_unresolved"] = 3
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "gekoppeld ingrediënt" in _texts(at)
         assert [b for b in at.button if "koppelen" in b.label], (
@@ -345,7 +354,7 @@ class TestHonestyAboutCoverage:
         """MIN skips NULLs, so all-unknown stock would otherwise read as plenty."""
         df = _opportunity()
         df.loc[0, "clearance_items_stock_unknown"] = 1
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "Nog 2" not in _texts(at)
 
@@ -363,7 +372,7 @@ class TestCuration:
     def test_a_hand_entered_recipe_offers_no_reject(self, wired, monkeypatch):
         df = _opportunity()
         df.loc[0, "source_kind"] = "manual"
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert not [b for b in at.button if "Niet voor mij" in b.label]
 
@@ -418,7 +427,7 @@ class TestPricesAndIngredients:
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
         df.loc[0, "items_priced"] = 6
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "±" in _texts(at), "an incomplete one must always carry it"
 
@@ -432,7 +441,7 @@ class TestPricesAndIngredients:
         ):
             df.loc[0, col] = None
         df.loc[0, "items_priced"] = 0
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert "geen enkel ingrediënt" in _texts(at)
 
@@ -457,7 +466,7 @@ class TestPricesAndIngredients:
         df.loc[1, "opportunity_rank"] = 2.0
         df.loc[1, "saving_total"] = 0.90
         df.loc[1, "exclusion_reason"] = None
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "€10.60" in body, "the runner-up's own price"
@@ -495,13 +504,15 @@ class TestTheIngredientList:
         items = _items()
         items.loc[1, "is_unresolved"] = True
         items.loc[1, "price_today"] = None
-        monkeypatch.setattr(page, "read_recipe_opportunity_items", lambda e, r: items)
+        monkeypatch.setattr(
+            page, "read_recipe_opportunity_items", lambda e, r, *_: items
+        )
         at = run_app(page.render_tonight).run()
         assert "nog geen product gekoppeld" in _texts(at)
 
     def test_a_recipe_without_ingredients_says_so(self, wired, monkeypatch):
         monkeypatch.setattr(
-            page, "read_recipe_opportunity_items", lambda e, r: pd.DataFrame()
+            page, "read_recipe_opportunity_items", lambda e, r, *_: pd.DataFrame()
         )
         at = run_app(page.render_tonight).run()
         assert "geen ingrediënten bekend" in _texts(at)
@@ -549,7 +560,7 @@ class TestTheQueriesCarryWhatThePageReads:
         df.loc[0, "cost_today"] = None
         df.loc[0, "cost_ordinary"] = None
         df.loc[0, "items_priced"] = 6
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e: df)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "geen enkel ingrediënt" not in body
@@ -698,3 +709,52 @@ class TestPipelineHealth:
         at = run_app(page.render_tonight).run()
         assert not at.error
         assert "Zuurkoolstamppot" in _texts(at)
+
+
+class TestTheCacheFollowsTheData:
+    """The portal cached its reads for fifteen minutes on a wall clock, which
+    has nothing to do with when the data underneath changed.
+
+    A rebuild triggered from Dagster - which is how the nightly runs - left the
+    page showing the previous answer with no way to know. It showed corn for
+    an ingredient whose link had already been corrected, and the only remedies
+    were to wait or restart the container.
+    """
+
+    def test_the_readers_take_the_build_stamp(self):
+        """It has to be an argument. Streamlit keys a cached function on its
+        arguments, so computing the stamp inside would change nothing."""
+        import inspect
+
+        from bonuschef.portal import db
+
+        for name in ("read_recipe_opportunity", "read_recipe_opportunity_items"):
+            params = inspect.signature(getattr(db, name)).parameters
+            assert "built_at" in params, f"{name} cannot be invalidated by a rebuild"
+
+    def test_the_page_passes_it(self):
+        source = Path(page.__file__).read_text() if hasattr(page, "__file__") else ""
+        assert "read_marts_built_at(engine)" in source, (
+            "the page reads the marts without asking when they were built"
+        )
+
+    def test_the_freshness_query_is_not_itself_cached_for_long(self):
+        """Fifteen minutes here would reintroduce exactly the problem this
+        exists to solve."""
+        from bonuschef.portal import db
+
+        assert db._FRESHNESS_TTL_S <= 60, (
+            f"the staleness check is itself stale for {db._FRESHNESS_TTL_S}s"
+        )
+        assert db._FRESHNESS_TTL_S < db._CACHE_TTL_S
+
+    def test_a_warehouse_without_the_column_degrades_rather_than_breaks(self):
+        """A portal pointed at a warehouse built before this existed must fall
+        back to the old behaviour, not fail to render."""
+        from bonuschef.portal import db
+
+        class _Engine:
+            def begin(self):
+                raise RuntimeError("column built_at does not exist")
+
+        assert db.read_marts_built_at(_Engine()) == "unknown"
