@@ -174,3 +174,41 @@ def test_every_gate_can_run_the_whole_list():
         assert any(
             "postgres" in (job.get("services") or {}) for job in jobs.values()
         ), f"{path.name} runs the check list but provides no database for it"
+
+
+def test_the_release_pushes_with_a_token_that_can_get_past_the_gate():
+    """main requires the `nox` check, and semantic-release pushes its
+    version-bump commit straight to main - a commit that by construction has
+    no check. GITHUB_TOKEN acts as the Actions app, which is not an admin, so
+    the push is rejected:
+
+        remote: - Required status check "nox" is expected.
+        ! [remote rejected] main -> main (protected branch hook declined)
+
+    Two releases failed this way before anyone noticed, because a failed
+    release is silent unless you go looking: main was correct, the code was
+    merged, and only the absent tag said anything was wrong.
+    """
+    steps = _release_steps()
+
+    checkout = steps[0]
+    assert "actions/checkout" in checkout["uses"]
+    assert "BONUSCHEF_PAT" in str(checkout["with"].get("token", "")), (
+        "checkout configures the remote with the default token, so the later "
+        "push uses it no matter what semantic-release is handed"
+    )
+
+    for step in steps:
+        token = str((step.get("with") or {}).get("github_token", ""))
+        if token:
+            assert "BONUSCHEF_PAT" in token, (
+                f"step {step.get('name')!r} still pushes as the Actions app"
+            )
+
+
+def test_an_absent_secret_does_not_break_the_workflow():
+    """The fallback keeps the workflow valid when the secret is missing - it
+    fails at the push, which is where it fails today, rather than at
+    checkout with something harder to read."""
+    text = RELEASE.read_text()
+    assert "secrets.BONUSCHEF_PAT || secrets.GITHUB_TOKEN" in text
