@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.15.0 (2026-09-20)
+
+### Features
+
+- **stores**: Choose a shop by its name, not by its number
+  ([#80](https://github.com/levyvankempen/bonuschef/pull/80),
+  [`4555ac3`](https://github.com/levyvankempen/bonuschef/commit/4555ac33e7aa0a979d1d40c3afe3568a802e0001))
+
+
 ## v1.14.0 (2026-09-20)
 
 ### Features
