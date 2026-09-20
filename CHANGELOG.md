@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-09-20)
+
+### Bug Fixes
+
+- The release can push past the gate it is subject to
+  ([#55](https://github.com/levyvankempen/bonuschef/pull/55),
+  [`91a0b24`](https://github.com/levyvankempen/bonuschef/commit/91a0b24db00dbdbfb876c38b3c2dd1c89f4e3103))
+
+### Features
+
+- A one-off backfill, for when the matching improves
+  ([#54](https://github.com/levyvankempen/bonuschef/pull/54),
+  [`94312be`](https://github.com/levyvankempen/bonuschef/commit/94312be69b41e7055d8c4a65618c3ad40e0e8dcf))
+
+- Make a green check mean something ([#53](https://github.com/levyvankempen/bonuschef/pull/53),
+  [`97ff1a1`](https://github.com/levyvankempen/bonuschef/commit/97ff1a122c5410ef1b32f50df4c7bb2dffa1740b))
+
+
 ## v1.6.0 (2026-09-19)
 
 ### Features
