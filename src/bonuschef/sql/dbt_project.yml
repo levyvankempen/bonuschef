@@ -27,7 +27,6 @@ on-run-start:
       product_link TEXT PRIMARY KEY,
       image_url TEXT NOT NULL
     )
-  - "{{ seed_default_recipes() }}"
 
 vars:
   # How old an observed price may be and still support a savings claim. The
