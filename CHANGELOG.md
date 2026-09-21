@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.15.2 (2026-09-21)
+
+### Bug Fixes
+
+- **bonus**: A promotion with no dates is open, not excluded
+  ([#82](https://github.com/levyvankempen/bonuschef/pull/82),
+  [`1dc958a`](https://github.com/levyvankempen/bonuschef/commit/1dc958afcbf5d553680d3b634320a5dc54ca650a))
+
+
 ## v1.15.1 (2026-09-21)
 
 ### Bug Fixes
