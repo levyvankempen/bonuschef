@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.15.1 (2026-09-21)
+
+### Bug Fixes
+
+- **dags**: An op and its job cannot share a name, and CI must load the repository
+  ([#81](https://github.com/levyvankempen/bonuschef/pull/81),
+  [`25dc4f9`](https://github.com/levyvankempen/bonuschef/commit/25dc4f9889ff990917a8bc790e5dd6f803d06420))
+
+
 ## v1.15.0 (2026-09-20)
 
 ### Features
