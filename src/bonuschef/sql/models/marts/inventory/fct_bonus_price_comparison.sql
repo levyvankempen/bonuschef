@@ -18,14 +18,24 @@ live_bonus AS (
     FROM bonus_products
     WHERE
         is_bonus = true
-        AND bonus_start_date <= CURRENT_DATE
+        -- NULL dates mean open, not excluded. AH ships promotions carrying no
+        -- dates at all, and `bonus_start_date <= CURRENT_DATE` is NULL rather
+        -- than false for those, so they were dropped by three-valued logic
+        -- without appearing anywhere as rejected. Two standing Robijn volume
+        -- discounts were missing from the comparison for exactly this reason,
+        -- and the only visible symptom was a data test counting rows it could
+        -- not account for.
+        --
+        -- This is the same mistake the sentinel note below describes, made
+        -- again in the other direction: an absent bound is not a failed one.
+        AND (bonus_start_date IS null OR bonus_start_date <= CURRENT_DATE)
         -- An open-ended offer satisfies this naturally. There is deliberately
         -- no upper bound: an earlier version rejected 2999-12-31 as a stale
         -- sentinel, which silently excluded every standing volume discount.
         -- What guards against a stale feed is source freshness, not a date -
         -- if the feed stopped loading, every row in it is suspect whatever its
         -- end date says.
-        AND bonus_end_date >= CURRENT_DATE
+        AND (bonus_end_date IS null OR bonus_end_date >= CURRENT_DATE)
 
 ),
 
