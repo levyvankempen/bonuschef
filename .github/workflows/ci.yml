@@ -71,6 +71,19 @@ jobs:
           PG_PASSWORD: postgres
           PG_DB: postgres
 
+      # Builds the Dagster repository the way the daemon does. Importing the
+      # definitions module is not the same check: an op and a job that share
+      # a name import fine and fail when the repository is assembled, so this
+      # ran green while the daemon it gated could not start at all.
+      - name: nox -s definitions
+        run: uvx nox -s definitions
+        env:
+          PG_HOST: localhost
+          PG_PORT: "5432"
+          PG_USER: postgres
+          PG_PASSWORD: postgres
+          PG_DB: postgres
+
       # Not path-gated on src/bonuschef/sql. A Python change that renames a
       # column a page reads still needs the database to catch it, and a
       # conditionally-run check is one that is not run - which is how the
