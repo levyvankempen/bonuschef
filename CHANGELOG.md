@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.15.3 (2026-09-21)
+
+### Bug Fixes
+
+- **recipes**: A deleted recipe stays deleted
+  ([#83](https://github.com/levyvankempen/bonuschef/pull/83),
+  [`8e05f69`](https://github.com/levyvankempen/bonuschef/commit/8e05f69e5b2ca2b2caccf15eee1cc24f04cd5e54))
+
+
 ## v1.15.2 (2026-09-21)
 
 ### Bug Fixes
