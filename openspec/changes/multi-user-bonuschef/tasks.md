@@ -27,17 +27,16 @@ here marked done because task 1.4 has not happened yet.
       building for the stopgap rather than for a system meant to reach people
       who are not on the tailnet; not a URL token, which puts a live session
       into browser history and into the Referer of every ah.nl link
-- [ ] 2.2 Accounts table; sessions in Postgres, revocable, idle lifetime
-      enforced against the row on each rerun
-- [ ] 2.3 If passwords: scrypt via `cryptography` at `n=2**15, r=8, p=1`,
-      parameters stored with the hash. Not `hashlib.scrypt` - OpenSSL's 32 MB
-      default cap rejects those parameters
-- [ ] 2.4 If passwords: a test asserting the *production* cost constant, with
-      the cost monkeypatched down for the rest of the suite. A round-trip test
-      does not protect the requirement; the constant assertion does
-- [ ] 2.5 If passwords: identical passwords do not produce identical stored
-      values; failures are uniform between unknown user and wrong password;
-      repeated failures are slowed
+- [x] 2.2 Accounts table (#77); sessions in Postgres, revocable, idle
+      lifetime enforced against the row on each lookup (#86)
+- [x] 2.3 scrypt via `cryptography` at `n=2**15, r=8, p=1` (#85). Not
+      `hashlib.scrypt`, whose OpenSSL cap rejects those parameters - pinned
+      by a test asserting hashlib DOES raise
+- [x] 2.4 The production cost asserted from the dataclass defaults, with the
+      suite monkeypatched down to n=2**10 (#85)
+- [x] 2.5 Salting, and a uniform refusal that also costs the same work for an
+      unknown username as for a wrong password (#85, #86). Rate limiting is
+      still open - see 2.13
 - [ ] 2.6 The gate sits in `app.py` above `st.navigation` and ends in
       `st.stop()`, so a page cannot be added unguarded by omission
 - [ ] 2.7 The account is passed into page functions as an argument, never a
@@ -52,7 +51,13 @@ here marked done because task 1.4 has not happened yet.
 - [ ] 2.10 A test that two accounts in one process do not share a cached frame
 - [ ] 2.11 An operator flag. Starting a Dagster run and writing shared
       catalogue state are operator-only
-- [ ] 2.12 Sign out; forced password change on first sign-in if passwords
+- [x] 2.12 Sign out (#86); new accounts are created must-change (#87)
+- [ ] 2.13 Slow repeated failures. The uniform message and matched timing are
+      in place; nothing yet limits how fast they can be tried
+- [x] 2.14 An operator path to create accounts and set passwords (#87). Had to
+      exist BEFORE the gate: password_hash defaults to empty, an empty hash
+      verifies against nothing, and a gate over an account that cannot sign in
+      locks out the person who would fix it
 
 ## 3. A store belongs to a person
 
