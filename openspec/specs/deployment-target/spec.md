@@ -89,7 +89,9 @@ The deployment SHALL distinguish state that can be rebuilt from the repository a
 
 ### Requirement: The person who uses it can reach it, and nobody else can
 
-The stack's interfaces SHALL be reachable by their intended user from their own devices, and SHALL NOT be exposed to the wider network or the internet. Neither interface authenticates its callers and one can start and terminate pipeline runs.
+The stack's interfaces SHALL be reachable by their intended users from their own devices, and SHALL NOT be exposed to the wider network or the internet.
+
+The portal authenticates its callers; the Dagster interface does not, and it can start and terminate pipeline runs. So the network restriction is not made redundant by the sign-in wall - it is what stands in front of the interface that still has none, and it remains the only thing protecting it.
 
 #### Scenario: Reaching the portal from a phone
 

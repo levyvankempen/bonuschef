@@ -31,6 +31,11 @@ The window tracks the hours the shop is open rather than the hours markdowns wer
 - **WHEN** the clock reaches the top of any hour from 08:00 through 21:00 Dutch local time
 - **THEN** one clearance scrape run is requested for that hour
 
+#### Scenario: Several people, several shops
+
+- **WHEN** the accounts using the system have chosen more than one shop between them
+- **THEN** it is still one run for that hour, scraping each shop in turn within it, because the queue holds one slot and a run per shop would serialise behind itself while the hour it belongs to passes
+
 #### Scenario: The last hour before closing
 
 - **WHEN** the clock reaches 21:00 Dutch local time

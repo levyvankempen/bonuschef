@@ -32,8 +32,8 @@ schema: spec-driven
 #         - Summarize the archive outcome before finishing
 
 context: |
-  A personal Dutch grocery-price pipeline: dlt -> Postgres -> dbt -> Dagster
-  -> Streamlit. Python, uv, nox. One maintainer. Deployed to a 2 GB Proxmox
+  A Dutch grocery-price pipeline: dlt -> Postgres -> dbt -> Dagster
+  -> Streamlit. Python, uv, nox. One maintainer, several users. Deployed to a 2 GB Proxmox
   container that auto-deploys the newest git tag.
 
   The check list is `nox.options.sessions`, and every gate runs exactly that.
