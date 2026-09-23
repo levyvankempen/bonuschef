@@ -88,16 +88,27 @@ def test_freshness_is_not_a_maximum_over_every_store():
     )
 
 
-def test_only_store_scoped_readers_were_given_a_store():
-    """A store threaded into a reader that does not need one is noise, and a
-    parameter named store_id that nothing filters on invites the belief that
-    the reader is scoped."""
+def test_a_function_given_a_store_either_filters_on_it_or_writes_it():
+    """A parameter named store_id that does neither invites the belief that
+    the function is scoped when it is not.
+
+    Writers are the other legitimate case and were not covered when this was
+    first written: set_account_store takes a store in order to record it, and
+    the original rule called that a defect. The rule is not "only readers may
+    take a store" - it is that taking one must mean something.
+    """
     tree = ast.parse(DB.read_text())
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or node.name in STORE_SCOPED:
             continue
-        takes_store = any(a.arg == "store_id" for a in node.args.args)
-        assert not takes_store, f"{node.name} takes a store it does not use"
+        if not any(a.arg == "store_id" for a in node.args.args):
+            continue
+        body = ast.get_source_segment(DB.read_text(), node) or ""
+        filters = "store_id = :store_id" in body
+        writes = "store_id = :s" in body or "WHERE store_id = :s" in body
+        assert filters or writes, (
+            f"{node.name} takes a store and neither filters nor writes with it"
+        )
 
 
 def test_the_active_store_is_resolved_in_one_place():
