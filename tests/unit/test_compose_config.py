@@ -115,7 +115,14 @@ def test_web_services_report_health(services, service: str, path: str):
     # embedded Python, where a typo would leave the container permanently
     # unhealthy.
     assert test[0] == "CMD", f"{service} should use the exec form"
-    assert test[1] == "python", f"{service} probe should call the interpreter directly"
+    # An interpreter, not a shell. Which interpreter is a separate question -
+    # see the venv test below - and this assertion used to demand the bare
+    # name, which pinned the streamlit probe's ModuleNotFoundError in place as
+    # though it were a requirement. That is how the portal came to report
+    # "unhealthy" for a week with a green test suite agreeing that it should.
+    assert test[1].endswith("python"), (
+        f"{service} probe should call the interpreter directly"
+    )
     probe = " ".join(test)
     assert path in probe, f"{service} does not poll {path}"
     # localhost can resolve ::1 first and pay a failed connect; both servers
@@ -412,3 +419,40 @@ def test_copying_the_scripts_does_not_bust_the_dependency_layers():
     assert dockerfile.index("RUN uv sync --frozen --no-dev") < dockerfile.index(
         "COPY scripts/ scripts/"
     )
+
+
+def test_the_portal_probe_uses_the_venv_interpreter():
+    """The image installs the project into /app/.venv, and the bare name
+    `python` resolves to the system interpreter, which cannot import
+    bonuschef.
+
+    The probe was written to check three things - the server answers, the
+    app's modules import, the warehouse is reachable - and checked none of
+    them, because it died on the import before reaching any of them. The
+    portal reported "unhealthy" continuously and nothing noticed, which is
+    what a probe that always fails buys you.
+    """
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    probe = compose["services"]["streamlit"]["healthcheck"]["test"]
+    interpreter = next(a for a in probe if a.endswith("python"))
+    assert interpreter == "/app/.venv/bin/python", probe
+
+
+def test_a_probe_that_imports_the_project_uses_the_venv():
+    """The precise rule, so it holds for probes not yet written.
+
+    A probe importing only the standard library is fine with the system
+    interpreter - the dagster-webserver one does exactly that and works. The
+    trap is importing bonuschef with a Python that has never heard of it.
+    """
+    compose = yaml.safe_load(COMPOSE_FILE.read_text())
+    for name, service in compose["services"].items():
+        probe = (service.get("healthcheck") or {}).get("test") or []
+        if not isinstance(probe, list):
+            continue
+        script = " ".join(probe)
+        if "bonuschef" not in script:
+            continue
+        assert "/app/.venv/bin/python" in probe, (
+            f"{name} imports the project with an interpreter that cannot see it"
+        )

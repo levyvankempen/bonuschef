@@ -195,7 +195,20 @@ services:
     healthcheck:
       test:
         - CMD
-        - python
+        # The venv interpreter, not `python`. The image installs the project
+        # into /app/.venv, and the bare name resolves to the system Python,
+        # which cannot import bonuschef - so this probe has failed with
+        # ModuleNotFoundError since the day it was written, and the portal has
+        # reported "unhealthy" continuously without anybody noticing.
+        #
+        # A probe that always fails carries exactly as much information as one
+        # that always passes. This one was carefully argued for in the comment
+        # below and never once ran.
+        #
+        # The dagster-webserver probe below keeps the bare name deliberately:
+        # it imports nothing but the standard library, so the system Python is
+        # the right interpreter for it.
+        - /app/.venv/bin/python
         - -c
         # Three things, because the first alone has been observed to lie:
         # docs/deployment.md records /_stcore/health returning 200 with a
