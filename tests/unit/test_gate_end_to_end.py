@@ -28,9 +28,17 @@ PASSWORD = "a-password-for-the-test"
 
 @pytest.fixture
 def signed_up(warehouse):
-    """An account that can sign in, removed afterwards."""
+    """An account that can sign in, removed afterwards.
+
+    Failed attempts are cleared too. They are counted per username and
+    persisted on purpose, so without this a test about the refusal MESSAGE
+    inherits the failures of the tests before it and gets the throttle's
+    message instead - which is a real defect in the test rather than in the
+    throttle.
+    """
     ensure_account_tables(warehouse)
     with warehouse.begin() as conn:
+        conn.execute(text("DELETE FROM public.sign_in_attempts"))
         conn.execute(
             text("DELETE FROM public.accounts WHERE username = :u"), {"u": USER}
         )

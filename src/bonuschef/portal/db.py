@@ -1120,6 +1120,67 @@ def unsave_recipe(engine, account_id: int, recipe_id: int) -> None:
     read_saved_recipes.clear()
 
 
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_recipe_lines_override(
+    _engine, account_id: int, recipe_id: int, built_at: str = ""
+) -> pd.DataFrame:
+    """This person's edits to one saved recipe's lines."""
+    with _engine.begin() as conn:
+        return pd.read_sql_query(
+            text("""
+                SELECT item_key, factor, hidden
+                FROM public.account_recipe_lines
+                WHERE account_id = :account_id AND recipe_id = :recipe_id
+            """),
+            conn,
+            params={"account_id": int(account_id), "recipe_id": int(recipe_id)},
+        )
+
+
+def save_recipe_line_overrides(
+    engine, account_id: int, recipe_id: int, edits: dict[str, tuple[float, bool]]
+) -> None:
+    """Replace this person's edits for one recipe.
+
+    Replace rather than merge: the form shows every line, so what it submits
+    is the whole answer, and a merge would leave a line somebody just reset
+    still overridden.
+
+    A line back at factor 1.0 and not hidden is not stored at all. Keeping it
+    would make "edited" true for a recipe nobody has changed, and the page
+    says so on the card.
+    """
+    keep = {
+        key: (factor, hidden)
+        for key, (factor, hidden) in edits.items()
+        if hidden or abs(float(factor) - 1.0) > 1e-9
+    }
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM public.account_recipe_lines "
+                "WHERE account_id = :aid AND recipe_id = :rid"
+            ),
+            {"aid": int(account_id), "rid": int(recipe_id)},
+        )
+        for item_key, (factor, hidden) in keep.items():
+            conn.execute(
+                text("""
+                    INSERT INTO public.account_recipe_lines
+                        (account_id, recipe_id, item_key, factor, hidden)
+                    VALUES (:aid, :rid, :key, :factor, :hidden)
+                """),
+                {
+                    "aid": int(account_id),
+                    "rid": int(recipe_id),
+                    "key": item_key,
+                    "factor": float(factor),
+                    "hidden": bool(hidden),
+                },
+            )
+    read_recipe_lines_override.clear()
+
+
 def read_hidden_recipe_ids(_engine, account_id: int) -> set[int]:
     """Recipes this person has already adopted or rejected.
 

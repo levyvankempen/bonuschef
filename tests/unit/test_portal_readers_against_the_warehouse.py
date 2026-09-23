@@ -75,6 +75,10 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
         ("read_saved_recipes", (1,)),
         # The lines behind a card, fetched only for the one that is open.
         ("read_recipe_opportunity_items", (1, FIXTURE_STORE_ID)),
+        # This person's edits to a saved recipe's lines. Registered like any
+        # other reader: factor and hidden come from it, and a page reading a
+        # column no query returns gets None rather than an error.
+        ("read_recipe_lines_override", (1, 1)),
     ),
     "clearance_page.py": (("read_store_clearance", (FIXTURE_STORE_ID,)),),
     # Reads the account and the store directory, neither of which is a mart

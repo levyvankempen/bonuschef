@@ -90,16 +90,16 @@ almost entirely deleted. See design.md for the measurement.
 - [x] 6.1 Saved-recipe join per account (#97). last_made_at and notes exist as columns; nothing writes them yet - see 7.8
 - [x] 6.2 Verdicts are keyed on (account, recipe) (#97)
 - [x] 6.3 The pool exclusion moved to the portal, which knows who is asking (#97)
-- [ ] 6.4 Overrides on **saved recipes only**, as an overlay keyed on
-      (account, recipe, item), never as an account dimension on the pool
-- [ ] 6.5 A third `source_kind` for an edited line that resolves to nothing.
-      Without it the shape test and "the edit is kept and shown as unresolved"
-      cannot both hold
-- [ ] 6.6 `fct_recipe_cost_latest` and `fct_recipe_cost_breakdown` gain
-      `account_id`; `fct_recipe_cost_history` deliberately does not, and the
-      spec says why
-- [ ] 6.7 Test that one account's edit is invisible to another
-
+- [x] 6.4 An overlay keyed on (account, recipe, line), for saved recipes
+      only. Never an account dimension on the pool
+- [x] 6.5 Not needed: the overlay hides a line rather than creating one with
+      no product, so no third source_kind arises. Adding an ingredient
+      that resolves to nothing is a separate feature nobody has asked for
+- [x] 6.6 Deliberately NOT done. The cost marts stay catalogue-grained and the
+      overlay is applied at read time on lines the mart already priced -
+      only the multiplier changes. Recomputing pricing in Python is what
+      made two marts disagree about one offer before
+- [x] 6.7 One account's edit is invisible to another, against real Postgres
 ## 7. The recipes page
 
 - [x] 7.1 Cards with image, title, cost, coverage, what made it cheap, and
@@ -119,15 +119,13 @@ almost entirely deleted. See design.md for the measurement.
 - [x] 7.9 Default sort is longest-not-made
 - [x] 7.10 The lines are fetched only for the card that is open, because an
       expander renders its contents whether or not it is expanded
-- [ ] 7.11 Edit in a dialog, opened from session state rather than from inside
-      a button branch - a full rerun re-evaluates the branch as false and the
-      dialog vanishes with the draft. Dialogs cannot nest, so a correction
-      hands off rather than drilling down
-- [ ] 7.12 Report the edit outcome on the page, not in the dialog; a rerun
-      closes the dialog and the message is never seen
+- [x] 7.11 Edited in a dialog, opened from session state rather than from
+      inside a button branch
+- [x] 7.12 The outcome is reported on the page: st.rerun() closes a dialog
 - [x] 7.13 The tonight page says a recipe is already saved before the click.
       is_kept had existed since keeping did and was called by nothing
-- [ ] 7.14 AppTest coverage of the dialog, not assertions on source text
+- [x] 7.14 AppTest-independent tests of the overlay, plus source checks for
+      the two dialog rules AppTest cannot observe
 - [x] 7.15 New copy passes the language test
 ## 8. Cross-capability specs
 

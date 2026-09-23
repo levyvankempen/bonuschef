@@ -144,6 +144,35 @@ _STATEMENTS: tuple[str, ...] = (
         ON public.sign_in_attempts (lower(username), failed_at)
     """,
     # ------------------------------------------------------------------
+    # Per-account edits to a shared recipe
+    # ------------------------------------------------------------------
+    #
+    # An overlay, keyed on (account, recipe, line). Deliberately NOT an
+    # account dimension on the recipe itself: the catalogue is ~2,000 recipes
+    # and is the spine of the Vanavond ranking, so multiplying it per account
+    # would cost far more than reading a few rows here.
+    #
+    # Only for recipes a person has saved. Editing a suggestion you have not
+    # kept is a change to somebody else's reading of the catalogue.
+    """
+    CREATE TABLE IF NOT EXISTS public.account_recipe_lines (
+        account_id  BIGINT      NOT NULL
+            REFERENCES public.accounts (account_id) ON DELETE CASCADE,
+        recipe_id   BIGINT      NOT NULL,
+        item_key    TEXT        NOT NULL,
+        -- How much of the recipe's own quantity this person uses. 1.0 is no
+        -- change; 0.5 is half. A factor rather than an absolute amount
+        -- because the catalogue's quantity can be corrected upstream, and an
+        -- absolute override would silently stop tracking it.
+        factor      NUMERIC     NOT NULL DEFAULT 1.0,
+        -- A line this person leaves out. Kept as a row rather than deleted,
+        -- so "I do not use this" survives the catalogue re-adding it.
+        hidden      BOOLEAN     NOT NULL DEFAULT FALSE,
+        edited_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (account_id, recipe_id, item_key)
+    )
+    """,
+    # ------------------------------------------------------------------
     # The store directory
     # ------------------------------------------------------------------
     #
