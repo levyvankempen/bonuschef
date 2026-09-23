@@ -57,6 +57,7 @@ def test_two_stores_get_different_clearance(two_shops):
     here = _call(read_store_clearance, two_shops, HERE)
     there = _call(read_store_clearance, two_shops, THERE)
     if here.empty and there.empty:
+        # ty: ignore[too-many-positional-arguments]
         pytest.skip("neither store has clearance in this warehouse")
     assert not here.equals(there), (
         "two shops returned identical clearance, which means the store never "
