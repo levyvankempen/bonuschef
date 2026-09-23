@@ -70,6 +70,7 @@ here marked done because task 1.4 has not happened yet.
 - [x] 3.5 Scope `read_last_scrape_time`, which took MAX over every store (#79)
 - [x] 3.6 A store directory from `storesSearch`: 1,199 stores with names (#80)
 - [ ] 3.7 Show the store's name wherever the portal says "jouw winkel"
+      (the directory it needs shipped in #80)
 - [ ] 3.8 Warehouse-marked test: two accounts, two stores, different clearance
       for the same recipe
 
