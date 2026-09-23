@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.24.1 (2026-09-23)
+
+### Bug Fixes
+
+- **dags**: The hourly job builds the model int_store now reads
+  ([#96](https://github.com/levyvankempen/bonuschef/pull/96),
+  [`ba1826e`](https://github.com/levyvankempen/bonuschef/commit/ba1826e2d739ad66059a3ee3565efcdb5616ff1e))
+
+
 ## v1.24.0 (2026-09-23)
 
 ### Features
