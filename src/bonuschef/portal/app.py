@@ -109,7 +109,12 @@ pg = st.navigation(
             url_path="laatste-kans",
             icon=":material/schedule:",
         ),
-        st.Page(render_recipes, title="Recepten", icon=":material/menu_book:"),
+        st.Page(
+            lambda: render_recipes(_signed_in()),
+            title="Recepten",
+            url_path="recepten",
+            icon=":material/menu_book:",
+        ),
         st.Page(render_add_recipe, title="Toevoegen", icon=":material/add:"),
         *(
             # Only with the wall up: without accounts there is no profile to

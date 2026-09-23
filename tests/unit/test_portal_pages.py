@@ -11,92 +11,148 @@ from tests.conftest import run_app
 
 
 class TestRecipesPage:
-    def _wire(self, monkeypatch, summary):
+    """The dashboard.
+
+    The page it replaced rendered the same rows three times - a list, a
+    duplicate bonus block over the same recipes, and a detail pane with a
+    selectbox that made you re-find a recipe you were already looking at - so
+    these tests are new rather than adapted.
+    """
+
+    SAVED = pd.DataFrame(
+        {
+            "recipe_id": [1, 2],
+            "saved_at": pd.to_datetime(["2026-01-01", "2026-01-01"], utc=True),
+            "last_made_at": pd.to_datetime([None, "2026-09-01"], utc=True),
+            "notes": ["", ""],
+        }
+    )
+    PRICED = pd.DataFrame(
+        {
+            "recipe_id": [1, 2],
+            # Named so the two orders DIFFER: "Zalm" sorts last
+            # alphabetically and first by longest-not-made. With names
+            # that happened to agree, swapping the default sort for
+            # alphabetical passed every test.
+            "recipe_name": ["Zalm uit de oven", "Quiche"],
+            "image_url": [None, None],
+            "cost_today": [4.50, None],
+            "cost_ordinary": [6.00, None],
+            "partial_cost_today": [None, 7.25],
+            "items_priced": [None, 5],
+            "items_total": [None, 8],
+            "items_discounted": [2, 0],
+            "items_discounted_clearance": [1, 0],
+            "items_unresolved": [0, 1],
+            "clearance_scraped_at": pd.to_datetime(
+                ["2026-01-01", "2026-01-01"], utc=True
+            ),
+            "saving_total": [1.5, 0.0],
+            "saving_bonus_only": [1.0, 0.0],
+            "cost_today_bonus_only": [5.0, None],
+            "partial_cost_today_bonus_only": [None, 7.5],
+            "cost_today_per_serving": [1.1, None],
+            "cost_today_per_serving_bonus_only": [1.2, None],
+            "opportunity_rank": [1, 2],
+        }
+    )
+
+    def _wire(self, monkeypatch, *, saved=None, priced=None, fresh=True):
         monkeypatch.setattr(recipes_page, "get_engine", lambda: object())
-        # The readers take the marts' build stamp as a cache key, so a rebuild
-        # invalidates them exactly. *_ so the fixture need not be edited again
-        # if another key joins it.
         monkeypatch.setattr(
             recipes_page, "read_marts_built_at", lambda e: "2026-01-01T00:00:00"
         )
-        monkeypatch.setattr(recipes_page, "read_recipe_summary", lambda e, *_: summary)
+        monkeypatch.setattr(recipes_page, "store_for", lambda a: 1876)
         monkeypatch.setattr(
             recipes_page,
-            "read_recipe_bonus_summary",
-            lambda e, *_: pd.DataFrame(
-                {
-                    "recipe_id": [1],
-                    "recipe_name": ["Pasta"],
-                    "bonus_count": [1],
-                    "total_ingredients": [2],
-                    "total_real_savings": [0.5],
-                    "total_advertised_savings": [1.0],
-                }
-            ),
+            "read_saved_recipes",
+            lambda e, a, built_at="": self.SAVED if saved is None else saved,
         )
         monkeypatch.setattr(
             recipes_page,
-            "read_recipe_breakdown_bonus",
-            lambda e, rid, *_: pd.DataFrame(
-                {
-                    "recipe_id": [1, 1],
-                    "recipe_name": ["Pasta", "Pasta"],
-                    "product_name": ["Pasta", "Saus"],
-                    "product_link": ["1/pasta", "2/saus"],
-                    "quantity": [1, 1],
-                    "price": [1.0, 2.0],
-                    "item_cost": [1.0, 2.0],
-                    "cost_pct": [33.3, 66.7],
-                    "is_on_bonus": [False, True],
-                    "bonus_mechanism": [None, "25% korting"],
-                    "price_before_bonus": [None, 2.5],
-                    "bonus_price": [None, 1.5],
-                    "advertised_savings": [0.0, 1.0],
-                    "real_savings": [0.0, 0.5],
-                    "product_url": ["https://ah.nl/1", "https://ah.nl/2"],
-                    "image_url": [None, None],
-                }
-            ),
+            "read_recipe_opportunity",
+            lambda e, s, built_at="": self.PRICED if priced is None else priced,
+        )
+        # Clearance current unless a test says otherwise, so the withdrawal is
+        # exercised deliberately rather than by accident of the clock.
+        monkeypatch.setattr(
+            recipes_page.offers,
+            "withdraw_stale_clearance",
+            lambda df, now=None: (df, "" if fresh else "De winkelscan is oud."),
         )
 
-    def test_empty_summary_shows_hint(self, monkeypatch):
-        self._wire(monkeypatch, pd.DataFrame())
+    def test_a_saved_recipe_is_a_card(self, monkeypatch):
+        self._wire(monkeypatch)
         at = run_app(recipes_page.render_recipes).run()
-        assert "Nog geen recepten" in at.info[0].value
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Zalm uit de oven" in rendered
+        assert "Quiche" in rendered
 
-    def test_full_page_renders(self, monkeypatch):
-        summary = pd.DataFrame(
-            {
-                "recipe_id": [1],
-                "recipe_name": ["Pasta"],
-                "servings": [4],
-                "total_cost": [3.0],
-                "cost_per_serving": [0.75],
-            }
+    def test_an_exact_cost_is_shown_exactly(self, monkeypatch):
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert any("\u20ac4.50" in m.value for m in at.markdown)
+
+    def test_an_incomplete_cost_says_so(self, monkeypatch):
+        """A total over five of eight ingredients is not the price of the
+        dish, and printing it bare invites somebody to trust it."""
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        captions = " ".join(c.value for c in at.caption)
+        assert "\u00b1\u20ac7.25" in rendered
+        assert "5 van 8" in captions
+
+    def test_a_recipe_never_made_says_so_rather_than_showing_a_date(self, monkeypatch):
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert any("Nog niet gemaakt" in c.value for c in at.caption)
+
+    def test_what_made_it_cheap_is_on_the_card(self, monkeypatch):
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "bonus" in rendered and "laatste kans" in rendered
+
+    def test_an_empty_collection_says_where_recipes_come_from(self, monkeypatch):
+        """A dead end is the failure here: the old page said "Nog geen
+        recepten" and stopped."""
+        # Built from an empty dict rather than columns=[...]: the stub types
+        # reject a plain list there, and an empty frame with the right columns
+        # is what the reader actually returns.
+        self._wire(
+            monkeypatch,
+            saved=pd.DataFrame(
+                {"recipe_id": [], "saved_at": [], "last_made_at": [], "notes": []}
+            ),
         )
-        self._wire(monkeypatch, summary)
-        at = run_app(recipes_page.render_recipes, default_timeout=10).run()
-        assert not at.exception
-        # "Recipe Cost History" is gone: it plotted weekly totals for two
-        # recipes, which changed no decision.
-        assert [s.value for s in at.subheader] == [
-            "Mijn recepten",
-            "Deze week in de bonus",
-            "Recept",
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Vanavond" in rendered and "Toevoegen" in rendered
+
+    def test_stale_clearance_is_said_rather_than_silently_counted(self, monkeypatch):
+        self._wire(monkeypatch, fresh=False)
+        at = run_app(recipes_page.render_recipes).run()
+        assert any("winkelscan" in w.value for w in at.warning)
+
+    def test_the_offer_filter_counts_before_it_is_applied(self, monkeypatch):
+        """The count in the label is what stops "nothing on offer" reading as
+        a broken page: you can see it would be empty without making it so."""
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert any("(1)" in t.label for t in at.toggle), [t.label for t in at.toggle]
+
+    def test_the_default_sort_is_longest_not_made(self, monkeypatch):
+        """A collection is usually asked "what have I not had for a while".
+        Alphabetical is the order it had and answers nothing."""
+        self._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        names = [
+            m.value
+            for m in at.markdown
+            if "Zalm uit de oven" in m.value or "Quiche" in m.value
         ]
-        assert at.selectbox[0].value == "Pasta"
-        assert "bespaart" in at.success[0].value
-        # The bonus marker is a badge now, which renders into the markdown
-        # stream as :green-badge[...].
-        assert any("green-badge" in m.value for m in at.markdown)
-
-    def test_db_error_is_shown(self, monkeypatch):
-        def boom():
-            raise RuntimeError("no db")
-
-        monkeypatch.setattr(recipes_page, "get_engine", boom)
-        at = run_app(recipes_page.render_recipes).run()
-        assert "Geen verbinding met de database" in at.error[0].value
+        assert names and "Zalm uit de oven" in names[0], names
 
 
 class TestAnalysisPage:
