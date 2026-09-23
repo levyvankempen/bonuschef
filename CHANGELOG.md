@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.23.0 (2026-09-23)
+
+### Features
+
+- **accounts**: Stop signing people out, and slow repeated guesses
+  ([#94](https://github.com/levyvankempen/bonuschef/pull/94),
+  [`7c01a2b`](https://github.com/levyvankempen/bonuschef/commit/7c01a2b6f9db906b617a2146499eda27168cc02f))
+
+
 ## v1.22.0 (2026-09-23)
 
 ### Features
