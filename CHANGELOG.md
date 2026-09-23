@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.18.0 (2026-09-23)
+
+### Features
+
+- **accounts**: Sign in, stay signed in, sign out
+  ([#86](https://github.com/levyvankempen/bonuschef/pull/86),
+  [`e537267`](https://github.com/levyvankempen/bonuschef/commit/e5372674c912c8405b54f28da91254b86ce9dc8d))
+
+
 ## v1.17.0 (2026-09-23)
 
 ### Features
