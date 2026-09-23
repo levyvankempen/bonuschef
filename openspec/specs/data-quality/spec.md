@@ -10,6 +10,12 @@ Defines the guarantees the warehouse makes about its own output — that each ta
 
 Each published table SHALL declare the combination of columns that uniquely identifies a row, and that combination SHALL be tested. A table SHALL NOT declare a grain narrower than the one it actually holds.
 
+A grain that anticipates a dimension the system does not yet have is not
+speculation when the dimension is already in the data. `store_id` was
+declared on the clearance grains long before a second shop existed, and that
+is why adding one moved no grain at all: the models were already correct and
+only the store spine and the portal's readers had to change.
+
 #### Scenario: A build introduces duplicate rows
 
 - **WHEN** a change causes a table to emit more than one row per declared key
@@ -35,6 +41,11 @@ Those declarations SHALL be evaluated on a schedule. A threshold that nothing ev
 
 - **WHEN** freshness is evaluated
 - **THEN** each source is judged against its own cadence, so an hourly scrape and a weekly snapshot are not held to one threshold
+
+#### Scenario: One feed, several shops
+
+- **WHEN** a source is loaded once per shop within a single run
+- **THEN** a shop falling behind is reported even while the source as a whole is current, because a threshold evaluated over the whole table stays green for as long as any one shop keeps loading
 
 #### Scenario: A threshold that is never evaluated
 

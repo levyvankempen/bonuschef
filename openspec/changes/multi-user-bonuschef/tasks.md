@@ -133,11 +133,12 @@ almost entirely deleted. See design.md for the measurement.
 
 - [x] 8.1 deployment-target and container-runtime say what is true now (#100)
 - [x] 8.2 scheduling says one run per hour still holds with several shops (#100)
-- [ ] 8.3 `data-quality`: the grain requirement is activated; per-account
-      staleness needs more than one threshold
-- [ ] 8.4 `recipe-catalogue`: resolutions stay shared, ingredient lines become
-      per-account. Three existing requirements say a correction applies to
-      every recipe using that ingredient and must survive
+- [x] 8.3 data-quality says why the grain requirement mattered before there
+      was a second shop, and that per-shop staleness needs more than one
+      threshold over the whole table
+- [x] 8.4 recipe-catalogue says a resolution applies to every account, because
+      which product satisfies an ingredient is a fact rather than a
+      preference (the ADDED requirement for this landed earlier)
 - [x] 8.5 config.yaml no longer calls the project personal (#100)
 ## 9. Before friends are invited
 
