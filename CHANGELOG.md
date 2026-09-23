@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.28.0 (2026-09-23)
+
+### Documentation
+
+- An honest task list, and a note for the people being invited
+  ([#102](https://github.com/levyvankempen/bonuschef/pull/102),
+  [`c0f4aba`](https://github.com/levyvankempen/bonuschef/commit/c0f4abad166fea21ae604584877b2c23065c744b))
+
+### Features
+
+- **clearance**: Say when a shop falls behind, and guard the one measurement
+  ([#103](https://github.com/levyvankempen/bonuschef/pull/103),
+  [`7fc8e99`](https://github.com/levyvankempen/bonuschef/commit/7fc8e99132330780899a59c3ba494a5dfaac64e3))
+
+
 ## v1.27.0 (2026-09-23)
 
 ### Documentation
