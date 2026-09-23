@@ -66,8 +66,16 @@ if gate.sign_in_required():
     # Deliberately not a default. AH_STORE_ID still exists and would make a
     # serviceable one, and filling it in silently is precisely how one
     # person's prices become everybody's.
-    if _account.store_id is None:
-        render_profile(_account)
+    # Two reasons the gate stops at the profile rather than letting somebody
+    # in: no shop chosen, and a password the operator knows.
+    #
+    # The second is not cosmetic. An account created by an operator is holding
+    # a credential that a second person has seen, which makes it a delivery
+    # mechanism rather than a password. Recording that and not acting on it,
+    # which is what this did until now, is the worst of both: the flag says
+    # the system knows, and nothing happens.
+    if _account.store_id is None or _account.must_change_password:
+        render_profile(_account, forced=True)
         st.caption(f":gray[BonusChef {describe()}]", help=f"commit {get_commit()[:12]}")
         gate.flush_cookie(st.session_state)
         st.stop()

@@ -34,9 +34,24 @@ from bonuschef.portal.passwords import (
 _SAVED = "_profile_saved"
 
 
-def render_profile(account: Account) -> None:
+def render_profile(account: Account, *, forced: bool = False) -> None:
+    """The profile page, and the two things it is also used to demand.
+
+    `forced` is set when the gate has stopped here rather than the person
+    having navigated: a password the operator knows, or no shop chosen. The
+    page is the same either way, because a separate "you must change this"
+    screen would be the same form with a different heading and one more place
+    for the two to drift apart.
+    """
     st.title("Profiel")
     engine = get_engine()
+
+    if account.must_change_password:
+        st.warning(
+            "Je gebruikt nog het wachtwoord dat de beheerder heeft ingesteld. "
+            "Kies er zelf een voordat je verder gaat.",
+            icon=":material/lock:",
+        )
 
     if message := st.session_state.pop(_SAVED, ""):
         st.success(message)
