@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.29.0 (2026-09-23)
+
+### Documentation
+
+- The matcher review found nothing withheld
+  ([#105](https://github.com/levyvankempen/bonuschef/pull/105),
+  [`60aacd0`](https://github.com/levyvankempen/bonuschef/commit/60aacd0b2235349d319e62f2be6b54d22c54ccde))
+
+- **specs**: The two deltas the multi-user change still owed
+  ([#104](https://github.com/levyvankempen/bonuschef/pull/104),
+  [`08f9c3a`](https://github.com/levyvankempen/bonuschef/commit/08f9c3aedb0e0cac72399a662299e1baa4ef65bd))
+
+### Features
+
+- **portal**: Recepten becomes a dashboard
+  ([#106](https://github.com/levyvankempen/bonuschef/pull/106),
+  [`6bd49a9`](https://github.com/levyvankempen/bonuschef/commit/6bd49a9b8aa0ba12ee6b3c89e1d3e4ea72b0c383))
+
+
 ## v1.28.0 (2026-09-23)
 
 ### Documentation
