@@ -28,6 +28,12 @@ from bonuschef.portal.db import (
 pytestmark = pytest.mark.warehouse
 
 
+# The account these tests act as. Any id works; what matters is that the same
+# one is used to write and to read, because that is the whole point of the
+# column.
+ACCOUNT = 1
+
+
 @pytest.fixture
 def engine():
     url = (
@@ -98,14 +104,14 @@ def test_a_kept_recipe_survives_the_pool_being_replaced(engine):
     """The whole point. The pool is loaded with write_disposition=replace, so
     a recipe that falls out of the retailer's listing disappears - unless it
     has been kept."""
-    assert keep_recipe(engine, RID) is True
+    assert keep_recipe(engine, ACCOUNT, RID) is True
 
     # Monday: the pool is replaced and this recipe is not in the new one.
     with engine.begin() as conn:
         conn.execute(text('DELETE FROM public."ah__pool_recipes"'))
         conn.execute(text('DELETE FROM public."ah__pool_recipe_ingredients"'))
 
-    assert is_kept(engine, RID) is True
+    assert is_kept(engine, ACCOUNT, RID) is True
     with engine.begin() as conn:
         lines = conn.execute(
             text(
@@ -119,7 +125,7 @@ def test_a_kept_recipe_survives_the_pool_being_replaced(engine):
 def test_keeping_copies_the_ingredients_not_only_the_header(engine):
     """A recipe with no ingredients costs nothing and ranks nowhere - it would
     be kept in name only."""
-    keep_recipe(engine, RID)
+    keep_recipe(engine, ACCOUNT, RID)
     with engine.begin() as conn:
         rows = (
             conn.execute(
@@ -137,8 +143,8 @@ def test_keeping_copies_the_ingredients_not_only_the_header(engine):
 
 def test_keeping_twice_is_not_an_error(engine):
     """A second click must not raise, and must not duplicate the lines."""
-    assert keep_recipe(engine, RID) is True
-    assert keep_recipe(engine, RID) is False
+    assert keep_recipe(engine, ACCOUNT, RID) is True
+    assert keep_recipe(engine, ACCOUNT, RID) is False
     with engine.begin() as conn:
         lines = conn.execute(
             text(
@@ -152,8 +158,8 @@ def test_keeping_twice_is_not_an_error(engine):
 def test_keeping_clears_an_earlier_rejection(engine):
     """Otherwise the recipe is adopted and immediately hidden by a verdict
     nobody remembers leaving."""
-    reject_recipe(engine, RID)
-    keep_recipe(engine, RID)
+    reject_recipe(engine, ACCOUNT, RID)
+    keep_recipe(engine, ACCOUNT, RID)
     with engine.begin() as conn:
         verdict = conn.execute(
             text("SELECT verdict FROM public.ah_recipe_verdicts WHERE recipe_id = :r"),
@@ -163,4 +169,4 @@ def test_keeping_clears_an_earlier_rejection(engine):
 
 
 def test_keeping_a_recipe_the_pool_does_not_have_is_refused(engine):
-    assert keep_recipe(engine, 999999999) is False
+    assert keep_recipe(engine, ACCOUNT, 999999999) is False

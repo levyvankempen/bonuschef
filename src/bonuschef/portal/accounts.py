@@ -49,6 +49,21 @@ class Account:
     must_change_password: bool
 
 
+# Who the pages act for when there is no wall.
+#
+# Account 0 rather than None, so every reader and writer takes the same shape
+# whether or not sign-in is required. It is also the id the verdict backfill
+# uses for rows that predate accounts, which keeps a single-user deployment's
+# existing decisions attached to the person still making them.
+SINGLE_USER = Account(
+    account_id=0,
+    username="",
+    store_id=None,
+    is_operator=True,
+    must_change_password=False,
+)
+
+
 @dataclass(frozen=True)
 class SignInResult:
     """Either a session or a reason, never both."""

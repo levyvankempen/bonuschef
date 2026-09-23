@@ -60,6 +60,17 @@ def test_every_statement_is_idempotent(applied):
     time takes the portal down on the first restart after a deploy - which,
     with auto-deploy, is within ten minutes of merging."""
     for statement in applied:
+        head = statement.lstrip().split()[0].upper()
+        if head == "UPDATE":
+            # An UPDATE is idempotent when its own SET falsifies its WHERE, so
+            # a second run matches nothing. Checked rather than waved through:
+            # `SET x = 0 WHERE x IS NULL` qualifies, `SET x = x + 1` does not.
+            set_col = statement.split("SET", 1)[1].split("=")[0].strip()
+            where = statement.split("WHERE", 1)[1]
+            assert set_col in where, (
+                f"re-running this would change rows again: {statement}"
+            )
+            continue
         assert "IF NOT EXISTS" in statement or "IF EXISTS" in statement, statement
 
 

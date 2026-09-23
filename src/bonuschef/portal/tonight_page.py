@@ -32,6 +32,7 @@ from bonuschef.portal.review import (
     render_rebuild_status,
     render_resolution_result,
 )
+from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
     active_store_id,
     count_flagged_concepts,
@@ -175,7 +176,7 @@ def _render_price(row) -> None:
         )
 
 
-def _render_lead(engine, row, clearance_counts: bool = True) -> None:
+def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
     """The best option, in full, with the ingredients responsible named."""
     with st.container(border=True):
         with st.container(horizontal=True, vertical_alignment="center"):
@@ -200,7 +201,7 @@ def _render_lead(engine, row, clearance_counts: bool = True) -> None:
         with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
             _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
 
-        _render_verdict_controls(engine, row)
+        _render_verdict_controls(engine, account, row)
 
 
 def _render_rating(row) -> None:
@@ -316,7 +317,7 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     )
 
 
-def _render_brief(engine, row, clearance_counts: bool = True) -> None:
+def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
     """A runner-up: enough to choose by, not enough to compete with the lead.
 
     Same two prices and the same foldable ingredient list, because "how much is
@@ -341,10 +342,10 @@ def _render_brief(engine, row, clearance_counts: bool = True) -> None:
         with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
             _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
 
-        _render_verdict_controls(engine, row)
+        _render_verdict_controls(engine, account, row)
 
 
-def _render_verdict_controls(engine, row) -> None:
+def _render_verdict_controls(engine, account, row) -> None:
     """Keep it, or never see it again."""
     if row.get("source_kind") != "pool":
         return
@@ -362,7 +363,7 @@ def _render_verdict_controls(engine, row) -> None:
             # Say what happened. A kept recipe looks identical on this page
             # until the next pool refresh would have removed it, so without
             # this the click reads as having done nothing.
-            if keep_recipe(engine, recipe_id):
+            if keep_recipe(engine, account.account_id, recipe_id):
                 st.toast(
                     "Bewaard bij je eigen recepten", icon=":material/bookmark_added:"
                 )
@@ -372,15 +373,15 @@ def _render_verdict_controls(engine, row) -> None:
         if st.button(
             "Niet voor mij", key=f"reject_{recipe_id}", icon=":material/block:"
         ):
-            reject_recipe(engine, recipe_id)
+            reject_recipe(engine, account.account_id, recipe_id)
             st.rerun()
         if row.get("url"):
             st.link_button("Bekijk bij AH", row["url"])
 
 
-def _render_rejected(engine) -> None:
+def _render_rejected(engine, account) -> None:
     """What was dismissed, and the way back. A dismissal is not a trap."""
-    rejected = read_rejected_recipes(engine)
+    rejected = read_rejected_recipes(engine, account.account_id)
     if rejected.empty:
         return
     with st.expander(f"Niet voor mij ({len(rejected)})"):
@@ -393,7 +394,9 @@ def _render_rejected(engine) -> None:
                         key=f"reinstate_{int(row['recipe_id'])}",
                         icon=":material/undo:",
                     ):
-                        reinstate_recipe(engine, int(row["recipe_id"]))
+                        reinstate_recipe(
+                            engine, account.account_id, int(row["recipe_id"])
+                        )
                         st.rerun()
 
 
@@ -506,7 +509,7 @@ def _render_pipeline_health(engine) -> None:
         )
 
 
-def render_tonight() -> None:
+def render_tonight(account: Account | None = None) -> None:
     st.title("Vanavond")
 
     # Before anything else: what a just-finished correction did, and how the
@@ -516,6 +519,10 @@ def render_tonight() -> None:
     render_rebuild_status()
 
     try:
+        # SINGLE_USER when there is no wall: every reader below takes an
+        # account, and giving them a real one keeps the two modes on one path
+        # rather than two.
+        account = account or SINGLE_USER
         engine = get_engine()
     except Exception as e:
         st.error(f"Geen verbinding met de database: {e}")
@@ -594,17 +601,17 @@ def render_tonight() -> None:
         )
         _render_cheapest_anyway(df)
         _render_coverage(engine, df)
-        _render_rejected(engine)
+        _render_rejected(engine, account)
         return
 
-    _render_lead(engine, ranked.iloc[0], clearance_current)
+    _render_lead(engine, account, ranked.iloc[0], clearance_current)
     if len(ranked) > 1:
         st.subheader("Ook de moeite waard")
         for _, row in ranked.iloc[1:6].iterrows():
-            _render_brief(engine, row, clearance_current)
+            _render_brief(engine, account, row, clearance_current)
 
     _render_coverage(engine, df)
-    _render_rejected(engine)
+    _render_rejected(engine, account)
 
 
 def _render_cheapest_anyway(df: pd.DataFrame) -> None:

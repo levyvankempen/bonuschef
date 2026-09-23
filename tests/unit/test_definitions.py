@@ -334,8 +334,17 @@ def test_eviction_cannot_reach_a_persons_own_recipes():
     available = (
         models / "intermediate" / "recipes" / "int_pool_recipes_available.sql"
     ).read_text()
-    assert "stg_portal__ah_recipes" in available, "adopted recipes stay exempt"
-    assert "stg_portal__ah_recipe_verdicts" in available, "rejections outlive a refetch"
+    # The pool model no longer joins either: those exclusions were global, so
+    # one person's choice decided for everybody, and they moved to the portal.
+    # The property this test is actually about survives that move, and is
+    # stronger than the join was - dbt reads the portal's tables and never
+    # writes them, so truncating the pool cannot reach a saved recipe or a
+    # rejection whatever the pool model happens to select.
+    portal_owned = (models.parent / "models" / "staging" / "portal").iterdir()
+    names = {p.name for p in portal_owned}
+    assert "stg_portal__ah_recipes.sql" in names, "read by dbt, written by the portal"
+    assert "stg_portal__ah_recipe_verdicts.sql" in names
+    assert "TRUNCATE" not in available and "DELETE" not in available, available
 
 
 # --- the clearance window follows opening hours ----------------------------

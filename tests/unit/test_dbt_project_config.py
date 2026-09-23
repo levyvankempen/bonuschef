@@ -241,13 +241,26 @@ def test_the_pool_stays_out_of_the_users_own_recipes():
 
 def test_a_rejected_recipe_cannot_reappear_after_a_refetch():
     """The pool is refetched whole every week. A rejection keyed on anything
-    that the refetch rewrites would silently expire, and a recipe someone said
-    no to would come back."""
-    pool = (MODELS / "intermediate/recipes/int_pool_recipes_available.sql").read_text()
-    assert "stg_portal__ah_recipe_verdicts" in pool
-    # Adopted recipes are exempt from eviction for the same reason: the person
-    # chose them, and that outranks AH's ordering.
-    assert "stg_portal__ah_recipes" in pool
+    the refetch rewrites would silently expire, and a recipe someone said no
+    to would come back.
+
+    The exclusion used to live in this model and no longer does: it was
+    global, so one person adopting a recipe removed it from everybody's
+    suggestions and one "Niet voor mij" hid it from all of them. It moved to
+    the portal, which knows who is asking.
+
+    The guarantee did not move with it by accident, so it is asserted where it
+    now lives: the verdict is keyed on AH's recipe id, which the refetch does
+    not rewrite, and the portal filters on it.
+    """
+    from pathlib import Path as _Path
+
+    portal = _Path("src/bonuschef/portal/db.py").read_text()
+    hide = portal[portal.index("def read_hidden_recipe_ids") :]
+    hide = hide[: hide.index("\ndef ")]
+    assert "ah_recipe_verdicts" in hide, "rejections must still hide a recipe"
+    assert "account_recipes" in hide, "and so must a recipe already saved"
+    assert "account_id = :aid" in hide, "for this person, not for everybody"
 
 
 def test_every_published_saving_is_gated_on_price_age():

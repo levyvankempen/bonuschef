@@ -129,7 +129,9 @@ def wired(monkeypatch):
     monkeypatch.setattr(
         page, "read_recipe_opportunity_items", lambda e, r, *_: _items()
     )
-    monkeypatch.setattr(page, "read_rejected_recipes", lambda e: pd.DataFrame())
+    monkeypatch.setattr(
+        page, "read_rejected_recipes", lambda e, a, built_at="": pd.DataFrame()
+    )
     monkeypatch.setattr(page, "read_bonus_feed_loaded_at", lambda e: FRESH_NOW)
     monkeypatch.setattr(page, "read_pipeline_health", lambda e: _healthy())
     monkeypatch.setattr(page.freshness, "now", lambda: FRESH_NOW)
@@ -362,7 +364,7 @@ class TestHonestyAboutCoverage:
 class TestCuration:
     def test_a_pool_recipe_can_be_rejected(self, wired, monkeypatch):
         calls = []
-        monkeypatch.setattr(page, "reject_recipe", lambda e, r: calls.append(r))
+        monkeypatch.setattr(page, "reject_recipe", lambda e, a, r: calls.append(r))
         at = run_app(page.render_tonight).run()
         buttons = [b for b in at.button if "Niet voor mij" in b.label]
         assert buttons, "a pool recipe must be dismissable"
@@ -388,8 +390,10 @@ class TestCuration:
             }
         )
         calls = []
-        monkeypatch.setattr(page, "read_rejected_recipes", lambda e: rejected)
-        monkeypatch.setattr(page, "reinstate_recipe", lambda e, r: calls.append(r))
+        monkeypatch.setattr(
+            page, "read_rejected_recipes", lambda e, a, built_at="": rejected
+        )
+        monkeypatch.setattr(page, "reinstate_recipe", lambda e, a, r: calls.append(r))
         at = run_app(page.render_tonight).run()
         buttons = [b for b in at.button if "Terugzetten" in b.label]
         assert buttons, "a dismissal that cannot be undone is a trap"

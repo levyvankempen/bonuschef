@@ -3,6 +3,7 @@
 import streamlit as st
 
 from bonuschef.portal import gate
+from bonuschef.portal.accounts import SINGLE_USER
 from bonuschef.portal.clearance_page import render_clearance
 from bonuschef.portal.tonight_page import render_tonight
 from bonuschef.portal.add_recipe_page import render_add_recipe
@@ -71,14 +72,29 @@ if gate.sign_in_required():
         gate.flush_cookie(st.session_state)
         st.stop()
 
+
 # Top navigation, not the sidebar. With initial_sidebar_state="collapsed" the
 # four destinations had no affordance at all. Titles are Dutch throughout,
 # matching the domain the data describes.
+def _signed_in():
+    """The account the pages act for.
+
+    SINGLE_USER when the wall is down, so a page takes the same shape either
+    way rather than branching on whether accounts exist.
+    """
+    return _account if gate.sign_in_required() else SINGLE_USER
+
+
 pg = st.navigation(
     [
         # First, and therefore the default destination: this is the question the
         # rest of the application exists to support.
-        st.Page(render_tonight, title="Vanavond", icon=":material/local_dining:"),
+        st.Page(
+            lambda: render_tonight(_signed_in()),
+            title="Vanavond",
+            url_path="vanavond",
+            icon=":material/local_dining:",
+        ),
         st.Page(render_clearance, title="Laatste kans", icon=":material/schedule:"),
         st.Page(render_recipes, title="Recepten", icon=":material/menu_book:"),
         st.Page(render_add_recipe, title="Toevoegen", icon=":material/add:"),

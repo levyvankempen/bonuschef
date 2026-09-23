@@ -23,8 +23,15 @@ SELECT
     -- claim five stars from three hundred is.
     p.rating_count
 FROM {{ ref('stg_ah__pool_recipes') }} AS p
-LEFT JOIN {{ ref('stg_portal__ah_recipes') }} AS a
-    ON p.ah_recipe_id = a.ah_recipe_id
-LEFT JOIN {{ ref('stg_portal__ah_recipe_verdicts') }} AS v
-    ON p.ah_recipe_id = v.ah_recipe_id
-WHERE a.ah_recipe_id IS NULL AND v.ah_recipe_id IS NULL
+-- Deliberately NOT excluding what anybody has adopted or rejected any more.
+--
+-- Those exclusions were global, so one person adopting a recipe removed it
+-- from everybody's suggestions, and one person's "Niet voor mij" hid it from
+-- all of them permanently. With one user that was the intended behaviour;
+-- with two it is one person deciding for the other.
+--
+-- The exclusion moved to the portal, which knows who is asking. It stays out
+-- of here on purpose rather than gaining an account dimension: this model is
+-- ~2,000 rows and is the spine of the Vanavond ranking, so multiplying it by
+-- the number of accounts would cost far more than filtering a few hundred
+-- rows at read time.
