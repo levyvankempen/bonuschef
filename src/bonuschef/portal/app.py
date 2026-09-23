@@ -7,6 +7,7 @@ from bonuschef.portal.clearance_page import render_clearance
 from bonuschef.portal.tonight_page import render_tonight
 from bonuschef.portal.add_recipe_page import render_add_recipe
 from bonuschef.portal.db import get_engine
+from bonuschef.portal.profile_page import render_profile
 from bonuschef.portal.recipes_page import render_recipes
 from bonuschef.version import describe, get_commit
 
@@ -48,6 +49,26 @@ if gate.sign_in_required():
         st.caption(f":gray[BonusChef {describe()}]", help=f"commit {get_commit()[:12]}")
         st.stop()
 
+    # Asserted on the attribute and assigned afterwards, so the narrowing
+    # reaches the closure below. Assigning first and asserting on the local
+    # leaves the variable declared as the union, and the lambda captures the
+    # declaration rather than the narrowed value.
+    assert _gate.account is not None  # may_pass with the wall up means an account
+    _account = _gate.account
+
+    # A person with no shop chosen is asked before anything else, and the ask
+    # blocks. Clearance is scoped to a store, so the alternative is a page of
+    # figures belonging to somebody else's shop with nothing to reveal it -
+    # which is the failure the whole store-scoping exercise exists to close.
+    #
+    # Deliberately not a default. AH_STORE_ID still exists and would make a
+    # serviceable one, and filling it in silently is precisely how one
+    # person's prices become everybody's.
+    if _account.store_id is None:
+        render_profile(_account)
+        st.caption(f":gray[BonusChef {describe()}]", help=f"commit {get_commit()[:12]}")
+        st.stop()
+
 # Top navigation, not the sidebar. With initial_sidebar_state="collapsed" the
 # four destinations had no affordance at all. Titles are Dutch throughout,
 # matching the domain the data describes.
@@ -59,6 +80,21 @@ pg = st.navigation(
         st.Page(render_clearance, title="Laatste kans", icon=":material/schedule:"),
         st.Page(render_recipes, title="Recepten", icon=":material/menu_book:"),
         st.Page(render_add_recipe, title="Toevoegen", icon=":material/add:"),
+        *(
+            # Only with the wall up: without accounts there is no profile to
+            # edit, and a tab that offers to change a password nobody has is
+            # worse than no tab.
+            [
+                st.Page(
+                    lambda: render_profile(_account),
+                    title="Profiel",
+                    url_path="profiel",
+                    icon=":material/person:",
+                )
+            ]
+            if gate.sign_in_required()
+            else []
+        ),
     ],
     position="top",
 )

@@ -53,6 +53,58 @@ def _env_store_id() -> int:
     return value if value > 0 else 1876
 
 
+def set_account_store(engine, account_id: int, store_id: int) -> bool:
+    """Point an account at a shop. Returns False if the shop is unknown.
+
+    Checked against the directory rather than accepted as typed. An id nobody
+    recognises reads another town's clearance with nothing on the page to
+    reveal it, which is the failure the directory exists to prevent.
+    """
+    with engine.begin() as conn:
+        known = conn.execute(
+            text("SELECT 1 FROM public.ah_stores WHERE store_id = :s"),
+            {"s": store_id},
+        ).scalar()
+        if not known:
+            return False
+        conn.execute(
+            text("UPDATE public.accounts SET store_id = :s WHERE account_id = :a"),
+            {"s": store_id, "a": account_id},
+        )
+    return True
+
+
+def set_account_password(engine, account_id: int, password_hash: str) -> None:
+    """Replace a password and clear the must-change flag.
+
+    The two go together: an account that has just chosen its own password is
+    no longer holding one the operator knows.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                UPDATE public.accounts
+                SET password_hash = :h, must_change_password = FALSE
+                WHERE account_id = :a
+            """),
+            {"h": password_hash, "a": account_id},
+        )
+
+
+def read_account_password_hash(engine, account_id: int) -> str:
+    """The stored hash, for confirming the current password before replacing
+    it. A change-password form that does not ask for the old one turns any
+    unattended browser into an account takeover."""
+    with engine.begin() as conn:
+        return str(
+            conn.execute(
+                text("SELECT password_hash FROM public.accounts WHERE account_id = :a"),
+                {"a": account_id},
+            ).scalar()
+            or ""
+        )
+
+
 def replace_store_directory(engine, stores) -> int:
     """Store the directory, replacing whatever was there.
 

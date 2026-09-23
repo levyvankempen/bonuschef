@@ -72,6 +72,11 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
         ("read_recipe_bonus_summary", ()),
     ),
     "clearance_page.py": (("read_store_clearance", (FIXTURE_STORE_ID,)),),
+    # Reads the account and the store directory, neither of which is a mart
+    # frame with columns a page indexes into - so there is nothing for the
+    # column check to compare. Listed rather than omitted because the test
+    # that every page is classified is what makes this list trustworthy.
+    "profile_page.py": (),
     "analysis_page.py": (
         ("read_bonus_price_comparison", ()),
         ("read_price_changes", ()),
