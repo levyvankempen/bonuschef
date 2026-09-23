@@ -37,23 +37,14 @@ here marked done because task 1.4 has not happened yet.
 - [x] 2.5 Salting, and a uniform refusal that also costs the same work for an
       unknown username as for a wrong password (#85, #86). Rate limiting is
       still open - see 2.13
-- [ ] 2.6 The gate sits in `app.py` above `st.navigation` and ends in
-      `st.stop()`, so a page cannot be added unguarded by omission
-- [ ] 2.7 The account is passed into page functions as an argument, never a
-      module global - the test harness already forwards arguments
-- [ ] 2.8 Account-scoped reads live in one module and take the account as a
-      first, non-underscored argument. A source-contract test asserts no
-      account-scoped query omits the filter, in the style already used
-- [ ] 2.9 Every `@st.cache_data` reader of account- or store-scoped data takes
-      the account or store as a *hashed* argument. The underscore convention
-      excludes a parameter from the cache key, so `_account_id` would serve
-      one friend's data to another deterministically
-- [ ] 2.10 A test that two accounts in one process do not share a cached frame
-- [ ] 2.11 An operator flag. Starting a Dagster run and writing shared
-      catalogue state are operator-only
+- [x] 2.6 The gate sits above st.navigation and ends in st.stop() (#90)
+- [x] 2.7 Pages take the account as an argument; SINGLE_USER stands in with the wall down (#97)
+- [x] 2.8 Account-scoped reads live in db.py and take the account as a first, hashable argument (#97, #98)
+- [x] 2.9 Verified by an AST sweep: no cached reader touches an account or store without taking it (#99)
+- [x] 2.10 Two accounts in one process get different answers, against real Postgres (#99)
+- [x] 2.11 Only an operator may start a run (#98)
 - [x] 2.12 Sign out (#86); new accounts are created must-change (#87)
-- [ ] 2.13 Slow repeated failures. The uniform message and matched timing are
-      in place; nothing yet limits how fast they can be tried
+- [x] 2.13 Five failures in fifteen minutes, counted in Postgres (#94)
 - [x] 2.14 An operator path to create accounts and set passwords (#87). Had to
       exist BEFORE the gate: password_hash defaults to empty, an empty hash
       verifies against nothing, and a gate over an account that cannot sign in
@@ -61,24 +52,14 @@ here marked done because task 1.4 has not happened yet.
 
 ## 3. A store belongs to a person
 
-- [ ] 3.1 Store on the account; `AH_STORE_ID` becomes the default for an
-      account that has not chosen, not the source of truth
-- [ ] 3.2 Re-source `int_store` from accounts rather than from scraped
-      markdowns. Until this is done an account whose store has never been
-      scraped gets zero rows from `int_product_offer_today`,
-      `int_recipe_item_opportunity` and `fct_recipe_opportunity` - including
-      national promotions - so "bonus is still shown" is unachievable
-- [ ] 3.3 `clearance_scraped_at` becomes nullable, and its `not_null` test is
-      dropped; an unscraped store reads as "no clearance yet", not as a test
-      failure
+- [x] 3.1 Store on the account; AH_STORE_ID is the fallback for the wall-down case (#98)
+- [x] 3.2 int_store is built from the stores accounts use (#95)
+- [x] 3.3 clearance_scraped_at is nullable; the not_null tests are gone (#95)
 - [x] 3.4 Filter every store-scoped portal reader (#79)
 - [x] 3.5 Scope `read_last_scrape_time`, which took MAX over every store (#79)
 - [x] 3.6 A store directory from `storesSearch`: 1,199 stores with names (#80)
-- [ ] 3.7 Show the store's name wherever the portal says "jouw winkel"
-      (the directory it needs shipped in #80)
-- [ ] 3.8 Warehouse-marked test: two accounts, two stores, different clearance
-      for the same recipe
-
+- [x] 3.7 The clearance page names the shop (#98)
+- [x] 3.8 Two accounts, two stores, different clearance (#99)
 ## 4. Albert Heijn credentials
 
 Measured 2026-09-20: `bargainItems` is store-scoped and auth-gated, not
@@ -87,9 +68,7 @@ credentials are therefore not needed for correctness, and this section is
 almost entirely deleted. See design.md for the measurement.
 
 - [x] 4.1 Settle member-gated vs member-varying by experiment. **Gated.**
-- [ ] 4.2 The single credential fetches each distinct store. Keep it the
-      operator's, in the existing token file; no per-account credential, no
-      encryption scheme, no connect flow, no revocation UI
+- [x] 4.2 One credential fetches every store (#95)
 - [ ] 4.3 Guard the assumption: if a store ever returns another store's
       contents, or a credential is rejected for a store that is not its own,
       that is the measurement going stale and must be visible rather than
@@ -103,27 +82,21 @@ copy an authorization code out of desktop DevTools.
 
 ## 5. Clearance per store
 
-- [ ] 5.1 Loop over stores inside the existing asset. Not partitions:
-      `max_concurrent_runs: 1` is deliberate, the downstream rebuild is
-      all-stores, and 35 of the job's 39 seconds is process startup
-- [ ] 5.2 Per-store failure is asset metadata; the asset fails only when every
-      credential is rejected
+- [x] 5.1 A loop inside the asset, not partitions (#95)
+- [x] 5.2 Per-store failure is a warning; only every store failing is a failure (#95)
 - [ ] 5.3 Per-store clearance staleness, surfaced on that account's page and
       in pipeline health. A single freshness threshold over the whole table
       stays green forever if the operator's store keeps scraping
-- [ ] 5.4 Bonus ingestion stays national and a single fetch
+- [x] 5.4 Bonus stays national and a single fetch - unchanged, and now covered by a test that an unscraped store still sees it (#95)
 - [ ] 5.5 A store with no clearance shows that as an answer, not a failure.
       Store 5557 returned zero items in the measurement while its neighbours
       returned hundreds; an empty list is a real state
 
 ## 6. Recipes
 
-- [ ] 6.1 Saved-recipe join per account; last-made date; notes
-- [ ] 6.2 Verdicts gain an account. Today one person's "niet voor mij" hides a
-      recipe from everyone
-- [ ] 6.3 The pool exclusion becomes account-scoped. Today one person adopting
-      removes the recipe from everyone else's pool, which contradicts this
-      change's own "a recipe another account adopted can still be saved"
+- [x] 6.1 Saved-recipe join per account (#97). last_made_at and notes exist as columns; nothing writes them yet - see 7.8
+- [x] 6.2 Verdicts are keyed on (account, recipe) (#97)
+- [x] 6.3 The pool exclusion moved to the portal, which knows who is asking (#97)
 - [ ] 6.4 Overrides on **saved recipes only**, as an overlay keyed on
       (account, recipe, item), never as an account dimension on the pool
 - [ ] 6.5 A third `source_kind` for an edited line that resolves to nothing.
@@ -168,23 +141,19 @@ copy an authorization code out of desktop DevTools.
 
 ## 8. Cross-capability specs
 
-- [ ] 8.1 `deployment-target` and `container-runtime` both state that neither
-      interface authenticates its callers, and the loopback rule is derived
-      from that. Rewrite the rationale, keep the rule
-- [ ] 8.2 `scheduling`: one clearance run per hour still holds under the
-      in-asset loop; say so rather than leaving it contradicted
+- [x] 8.1 deployment-target and container-runtime say what is true now (#100)
+- [x] 8.2 scheduling says one run per hour still holds with several shops (#100)
 - [ ] 8.3 `data-quality`: the grain requirement is activated; per-account
       staleness needs more than one threshold
 - [ ] 8.4 `recipe-catalogue`: resolutions stay shared, ingredient lines become
       per-account. Three existing requirements say a correction applies to
       every recipe using that ingredient and must survive
-- [ ] 8.5 `openspec/config.yaml` still says "personal" and "one maintainer"
-
+- [x] 8.5 config.yaml no longer calls the project personal (#100)
 ## 9. Before friends are invited
 
-- [ ] 9.1 Confirm the portal is reachable only over the tailnet
-- [ ] 9.2 Tell the people being invited what is stored about their AH account
-      and how to end it
-- [ ] 9.3 Confirm a restart does not sign everyone out
-- [ ] 9.4 The restore drill is unchanged: the credential stays the single
-      token file that the last drill already verified survives a restore
+- [x] 9.1 Verified on the server: 8501, 3000 and 5455 all bind to 127.0.0.1 only
+- [x] 9.2 docs/for-people-invited.md. Shorter than this task expected:
+      nothing about their Albert Heijn account is stored, because per-user
+      credentials were measured to be unnecessary and deleted
+- [x] 9.3 Verified by restarting the portal: three live sessions survived
+- [x] 9.4 Verified unchanged: no per-account credential, no key outside the database, and ah_tokens.json still mode 600 on the volume
