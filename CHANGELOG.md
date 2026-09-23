@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.27.0 (2026-09-23)
+
+### Documentation
+
+- **specs**: Say what is true now that the portal authenticates
+  ([#100](https://github.com/levyvankempen/bonuschef/pull/100),
+  [`8e2e83b`](https://github.com/levyvankempen/bonuschef/commit/8e2e83bdf715e526ae6af77c69b7cde5676ed291))
+
+### Features
+
+- **accounts**: A password the operator knows must be changed
+  ([#101](https://github.com/levyvankempen/bonuschef/pull/101),
+  [`1f842e4`](https://github.com/levyvankempen/bonuschef/commit/1f842e4a5535b6a47e4dd4eac9cfdfc93c9618b8))
+
+### Testing
+
+- **portal**: Two accounts in one process do not share an answer
+  ([#99](https://github.com/levyvankempen/bonuschef/pull/99),
+  [`95ad2da`](https://github.com/levyvankempen/bonuschef/commit/95ad2da50a9f4f12befb5d733733f8ec54556b25))
+
+
 ## v1.26.0 (2026-09-23)
 
 ### Features
