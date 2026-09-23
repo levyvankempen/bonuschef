@@ -27,8 +27,19 @@ class RetentionConfig(Config):
     keep_days: int = DEFAULT_KEEP_DAYS
 
 
+# Named differently from the job that contains it, and that is not a style
+# choice. Dagster requires op and graph names to be unique across the whole
+# repository, and a job's graph takes the job's name - so an op called
+# `prune_run_history` inside a job called `prune_run_history` collides with
+# itself. The repository then fails to load AT ALL: not this job, everything.
+#
+# It does not fail on import, only when the repository is built, which is why
+# it reached production. The daemon kept serving the definitions it had
+# already loaded and carried on running schedules for a day; the next restart
+# picked up the new code, failed to load it, and every schedule stopped at
+# once.
 @op
-def prune_run_history(context: OpExecutionContext, config: RetentionConfig) -> dict:
+def prune_old_runs(context: OpExecutionContext, config: RetentionConfig) -> dict:
     """Delete runs, and therefore event logs, older than the window."""
     from datetime import datetime, timedelta, timezone
 
@@ -74,4 +85,4 @@ def prune_run_history(context: OpExecutionContext, config: RetentionConfig) -> d
     op_retry_policy=RetryPolicy(max_retries=1, delay=60),
 )
 def prune_run_history_job() -> None:
-    prune_run_history()
+    prune_old_runs()

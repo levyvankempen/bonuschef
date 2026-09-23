@@ -16,6 +16,7 @@ nox.options.sessions = [
     "lint_sql",
     "types",
     "tests",
+    "definitions",
     "warehouse",
 ]
 locations_python = "src", "tests", "noxfile.py"
@@ -179,6 +180,45 @@ def format_sql(session: Session) -> None:
     session.run("uv", "sync", "--active", "--dev")
     session.run(
         "uv", "run", "--active", "sqlfluff", "fix", "--dialect", "postgres", *args
+    )
+
+
+@nox.session(python=["3.12"], venv_backend="uv")
+def definitions(session: Session) -> None:
+    """Build the Dagster repository, the way the daemon does.
+
+    Importing the definitions module is not the same thing and does not catch
+    this. A repository is assembled from the imported objects, and that
+    assembly is where uniqueness is enforced - so `import definitions` can
+    succeed while the daemon that loads the same module refuses to start.
+
+    That is not hypothetical. An op named `prune_run_history` inside a job
+    named `prune_run_history` collided with itself, every check here was
+    green, and it shipped. The daemon carried on for a day serving the
+    definitions it had already loaded; the next deploy restarted it, the
+    repository failed to build, and EVERY schedule stopped - the clearance
+    scrape, the nightly refresh, the freshness check. Nothing alerted,
+    because nothing had failed: nothing had run.
+
+    Needs a Postgres because the instance's storage is configured at load.
+    """
+    session.run("uv", "sync", "--active", "--dev")
+    session.run(
+        "uv",
+        "run",
+        "--active",
+        "dagster",
+        "definitions",
+        "validate",
+        "-m",
+        "bonuschef.dags.definitions",
+        env={
+            "PG_HOST": os.getenv("PG_HOST", "localhost"),
+            "PG_PORT": os.getenv("PG_PORT", "5432"),
+            "PG_USER": os.getenv("PG_USER", "postgres"),
+            "PG_PASSWORD": os.getenv("PG_PASSWORD", "postgres"),
+            "PG_DB": os.getenv("PG_DB", "postgres"),
+        },
     )
 
 

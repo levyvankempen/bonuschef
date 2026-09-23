@@ -118,7 +118,7 @@ def test_schedules_run_in_amsterdam_time(defs):
     assert by_name["daily_refresh_schedule"].cron_schedule == "30 17 * * *"
     # Clearance deepens through the day; the hourly sequence is what makes the
     # markdown curve, so it stays independent of when the daily refresh runs.
-    assert by_name["markdowns_refresh_schedule"].cron_schedule == "0 11-20 * * *"
+    assert by_name["markdowns_refresh_schedule"].cron_schedule == "0 8-21 * * *"
     # Deliberately off the :00 scrapes and the 17:30 rebuild, and clear of the
     # 02:00-03:00 window that does not exist on the spring-forward day.
     assert by_name["token_heartbeat_schedule"].cron_schedule == "30 3,15 * * *"
@@ -331,3 +331,61 @@ def test_eviction_cannot_reach_a_persons_own_recipes():
     ).read_text()
     assert "stg_portal__ah_recipes" in available, "adopted recipes stay exempt"
     assert "stg_portal__ah_recipe_verdicts" in available, "rejections outlive a refetch"
+
+
+# --- the clearance window follows opening hours ----------------------------
+
+# The shop's hours, which is what the scrape window is supposed to track.
+STORE_OPENS, STORE_CLOSES = 8, 21
+
+
+def _scrape_hours(defs) -> set[int]:
+    schedule = next(s for s in defs.schedules if s.name == "markdowns_refresh_schedule")
+    minute, hours, *_ = schedule.cron_schedule.split()
+    assert minute == "0", f"scrapes are on the hour, not at :{minute}"
+    start, end = (int(part) for part in hours.split("-"))
+    return set(range(start, end + 1))
+
+
+def test_the_scrape_covers_every_hour_the_shop_is_open(defs):
+    """Asserted against the opening hours rather than against a cron string,
+    so the reason survives the next time the window moves.
+
+    The window used to start at 11:00 on the belief that markdowns appear from
+    midday. The cost was a portal that reported clearance as "not from today"
+    every morning - a banner about a gap the schedule created, and one a
+    person cannot tell apart from a dead pipeline.
+    """
+    covered = _scrape_hours(defs)
+    missing = set(range(STORE_OPENS, STORE_CLOSES + 1)) - covered
+    assert not missing, f"the shop is open at {sorted(missing)} and nothing scrapes"
+
+
+def test_the_scrape_does_not_run_while_the_shop_is_shut(defs):
+    """Nobody marks down a shelf in a closed shop, and each run is a request
+    against somebody else's API."""
+    covered = _scrape_hours(defs)
+    assert not [h for h in covered if h < STORE_OPENS or h > STORE_CLOSES]
+
+
+def test_the_last_hour_before_closing_is_scraped(defs):
+    """The hour when a markdown is deepest and least likely to survive the
+    night. Stopping an hour early loses the end of the curve the intraday
+    series exists to record."""
+    assert STORE_CLOSES in _scrape_hours(defs)
+
+
+def test_nothing_else_falls_on_the_hour(defs):
+    """The scrape now occupies fourteen hourly slots against a queue that runs
+    one thing at a time. Another schedule on the hour would queue behind a
+    scrape every time they coincide."""
+    for schedule in defs.schedules:
+        if schedule.name == "markdowns_refresh_schedule":
+            continue
+        minute, hours, *_ = schedule.cron_schedule.split()
+        if minute != "0":
+            continue
+        clashes = _scrape_hours(defs) & {
+            int(h) for h in hours.replace("*", "-1").split(",") if h.isdigit()
+        }
+        assert not clashes, f"{schedule.name} lands on {sorted(clashes)}"

@@ -85,7 +85,27 @@ CREATE TABLE IF NOT EXISTS public.ah__pool_recipe_ingredients (
 DELETE FROM public.ah__bonus_products WHERE webshop_id >= 999000000;
 DELETE FROM public.ah__store_markdowns WHERE webshop_id >= 999000;
 DELETE FROM public.github__products WHERE l LIKE 'wi999%';
-DELETE FROM public.ah__bonus_products WHERE webshop_id = 999003;
+DELETE FROM public.ah__bonus_products WHERE webshop_id IN (999003, 999004);
+-- Created here as well as by the dbt hook, because the seeder runs BEFORE
+-- dbt and these are the portal's own tables rather than dbt's models. Mirrors
+-- the hook's definition exactly.
+CREATE TABLE IF NOT EXISTS public.recipes (
+    recipe_id   INTEGER NOT NULL,
+    recipe_name TEXT    NOT NULL,
+    servings    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
+    recipe_id    INTEGER   NOT NULL,
+    product_name TEXT      NOT NULL,
+    product_link TEXT      NOT NULL,
+    quantity     INTEGER   NOT NULL,
+    valid_from   TIMESTAMP,
+    valid_to     TIMESTAMP
+);
+
+DELETE FROM public.recipe_ingredients WHERE recipe_id = 999900;
+DELETE FROM public.recipes WHERE recipe_id = 999900;
 DELETE FROM public."ah__pool_recipe_ingredients" WHERE recipe_id >= 999900000;
 DELETE FROM public."ah__pool_recipes" WHERE recipe_id >= 999900000;
 DELETE FROM public.ah_ingredient_products WHERE concept_id >= 999000;
@@ -164,3 +184,37 @@ INSERT INTO public.ah__bonus_products
 VALUES
     (999003, 'AH Roomboter', '25% KORTING', '2020-01-01', '2100-01-01',
      3.00, 2.25, to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'), TRUE);
+
+-- A promotion carrying no dates at all.
+--
+-- AH ships these: two standing Robijn volume discounts had NULL start and end
+-- dates on 2026-09-21. `bonus_start_date <= CURRENT_DATE` is NULL rather than
+-- false for such a row, so three-valued logic dropped them from the
+-- comparison without recording them anywhere as rejected. An absent bound is
+-- not a failed one, and this row is here so that stays true.
+INSERT INTO public.github__products (n, l, p, s, snapshot_sha, snapshot_at)
+VALUES ('AH Wasmiddel 2-pack', 'wi999004/ah-wasmiddel-2-pack', 8.00, '2 x 1 l',
+        'seed', now());
+
+INSERT INTO public.ah__bonus_products
+    (webshop_id, title, bonus_mechanism, bonus_start_date, bonus_end_date,
+     price_before_bonus, bonus_price, loaded_at, is_bonus)
+VALUES
+    (999004, 'AH Wasmiddel 2-pack', '30% volume voordeel', NULL, NULL,
+     8.00, 5.60, to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'), TRUE);
+
+-- A hand-entered recipe, so the recipe pages have something to return.
+--
+-- This used to arrive by accident. An on-run-start dbt hook seeded a default
+-- recipe whenever public.recipes was empty, which in CI it always was - so
+-- the fixture depended on a production bootstrap it never mentioned. Removing
+-- that hook (it resurrected recipes a person had deliberately deleted) left
+-- read_recipe_summary returning nothing, and the assertion that its readers
+-- return rows is what noticed.
+INSERT INTO public.recipes (recipe_id, recipe_name, servings)
+VALUES (999900, 'Testrecept met boter', 2);
+
+INSERT INTO public.recipe_ingredients
+    (recipe_id, product_name, product_link, quantity, valid_from, valid_to)
+VALUES
+    (999900, 'AH Roomboter', 'wi999003/ah-roomboter', 1, NULL, NULL);

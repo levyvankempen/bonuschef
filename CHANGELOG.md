@@ -2,6 +2,51 @@
 
 <!-- version list -->
 
+## v1.16.0 (2026-09-23)
+
+### Features
+
+- **scheduling**: Scrape through opening hours, not just the afternoon
+  ([#84](https://github.com/levyvankempen/bonuschef/pull/84),
+  [`18f3a41`](https://github.com/levyvankempen/bonuschef/commit/18f3a41f90dc2967b06ee3e494159d184f3b75c4))
+
+
+## v1.15.3 (2026-09-21)
+
+### Bug Fixes
+
+- **recipes**: A deleted recipe stays deleted
+  ([#83](https://github.com/levyvankempen/bonuschef/pull/83),
+  [`8e05f69`](https://github.com/levyvankempen/bonuschef/commit/8e05f69e5b2ca2b2caccf15eee1cc24f04cd5e54))
+
+
+## v1.15.2 (2026-09-21)
+
+### Bug Fixes
+
+- **bonus**: A promotion with no dates is open, not excluded
+  ([#82](https://github.com/levyvankempen/bonuschef/pull/82),
+  [`1dc958a`](https://github.com/levyvankempen/bonuschef/commit/1dc958afcbf5d553680d3b634320a5dc54ca650a))
+
+
+## v1.15.1 (2026-09-21)
+
+### Bug Fixes
+
+- **dags**: An op and its job cannot share a name, and CI must load the repository
+  ([#81](https://github.com/levyvankempen/bonuschef/pull/81),
+  [`25dc4f9`](https://github.com/levyvankempen/bonuschef/commit/25dc4f9889ff990917a8bc790e5dd6f803d06420))
+
+
+## v1.15.0 (2026-09-20)
+
+### Features
+
+- **stores**: Choose a shop by its name, not by its number
+  ([#80](https://github.com/levyvankempen/bonuschef/pull/80),
+  [`4555ac3`](https://github.com/levyvankempen/bonuschef/commit/4555ac33e7aa0a979d1d40c3afe3568a802e0001))
+
+
 ## v1.14.0 (2026-09-20)
 
 ### Features
