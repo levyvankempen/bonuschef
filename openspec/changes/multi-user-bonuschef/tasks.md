@@ -106,27 +106,27 @@ almost entirely deleted. See design.md for the measurement.
       last-made. The brief card from Vanavond rather than a second idiom
 - [x] 7.2 The detail pane and the duplicate bonus block are gone - the page
       rendered the same rows three times
-- [ ] 7.3 Confirm the card path still satisfies "a wrong match is correctable
-      where it is visible", which the deleted detail pane satisfied
+- [x] 7.3 The card carries the ingredient lines and the correction, so
+      deleting the detail pane did not quietly regress a live requirement
 - [x] 7.4 The on-offer filter, with the count in the label before it is
       applied
 - [x] 7.5 The stale-clearance withdrawal lives in offers.py; both pages use it
-- [ ] 7.6 Three distinct degraded states, not one: no store chosen, no
-      credential connected, snapshot stale
+- [x] 7.6 Never scraped, stale, and current are three different sentences.
+      No-credential is not a state any more - there is one credential
 - [x] 7.7 Nothing saved links to where recipes come from; nothing on offer
       answers the next question instead of showing an empty grid
 - [x] 7.8 Mark as made, from the card
 - [x] 7.9 Default sort is longest-not-made
-- [ ] 7.10 Bound the reader and render ingredient lists lazily; the existing
-      spec forbids unbounded reads for a bounded view
+- [x] 7.10 The lines are fetched only for the card that is open, because an
+      expander renders its contents whether or not it is expanded
 - [ ] 7.11 Edit in a dialog, opened from session state rather than from inside
       a button branch - a full rerun re-evaluates the branch as false and the
       dialog vanishes with the draft. Dialogs cannot nest, so a correction
       hands off rather than drilling down
 - [ ] 7.12 Report the edit outcome on the page, not in the dialog; a rerun
       closes the dialog and the message is never seen
-- [ ] 7.13 Show the already-saved state on the tonight page before the click.
-      `is_kept` exists and is called nowhere
+- [x] 7.13 The tonight page says a recipe is already saved before the click.
+      is_kept had existed since keeping did and was called by nothing
 - [ ] 7.14 AppTest coverage of the dialog, not assertions on source text
 - [x] 7.15 New copy passes the language test
 ## 8. Cross-capability specs
