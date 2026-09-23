@@ -491,7 +491,9 @@ class TestARejectedCredentialIsNotAnEmptyResult:
         cfg = AHMarkdownConfig(store_id=1876, token_file=tmp_path / "t.json")
 
         with pytest.raises(AHAuthError):
-            list(ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z"))
+            list(
+                ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z", cfg.store_id)
+            )
 
     def test_the_feed_does_not_swallow_it_into_zero_rows(self, tmp_path, monkeypatch):
         """The distinction that matters: raising, versus returning nothing."""
@@ -507,7 +509,9 @@ class TestARejectedCredentialIsNotAnEmptyResult:
 
         rows = None
         try:
-            rows = list(ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z"))
+            rows = list(
+                ah_markdowns._iter_markdowns(cfg, "2026-01-01T00:00:00Z", cfg.store_id)
+            )
         except AHAuthError:
             pass
         assert rows is None, (

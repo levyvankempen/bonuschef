@@ -18,8 +18,15 @@ from datetime import datetime, timezone
 import dlt
 from dagster import AssetExecutionContext, RetryPolicy, asset
 
-from bonuschef.config import AHMarkdownConfig
+from sqlalchemy import create_engine, text
+
+from bonuschef.config import AHMarkdownConfig, DatabaseConfig
 from bonuschef.utils.ah_auth import AHTokenManager, TokenStore
+
+
+class AHMarkdownsUnavailable(RuntimeError):
+    """Every store failed. One failing is a warning; all of them is the feed."""
+
 
 _BARGAIN_ITEMS_QUERY = """query BargainItems($storeId: String!) {
   bargainItems(storeId: $storeId) {
@@ -75,17 +82,39 @@ def token_manager(cfg: AHMarkdownConfig) -> AHTokenManager:
     )
 
 
-def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
-    data = token_manager(cfg).graphql(
-        _BARGAIN_ITEMS_QUERY, {"storeId": str(cfg.store_id)}
-    )
+def stores_to_scrape(engine, fallback: int) -> list[int]:
+    """Every store an account reads, plus the configured one.
+
+    The configured store stays in the list so a deployment with no accounts -
+    or one where nobody has chosen a shop yet - keeps working exactly as it
+    did. It is a floor, not a default: an account that has chosen is never
+    overridden by it.
+
+    Read at run time rather than from configuration, because the answer
+    changes when somebody signs up and nothing should have to be redeployed
+    for their prices to appear.
+    """
+    chosen: set[int] = {fallback}
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT DISTINCT store_id FROM public.accounts "
+                "WHERE store_id IS NOT NULL"
+            )
+        ).fetchall()
+    chosen.update(int(row[0]) for row in rows)
+    return sorted(chosen)
+
+
+def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str, store_id: int):
+    data = token_manager(cfg).graphql(_BARGAIN_ITEMS_QUERY, {"storeId": str(store_id)})
 
     for item in data.get("bargainItems") or []:
         product = item.get("product") or {}
         markdown = item.get("markdown") or {}
         price = item.get("bargainPrice") or {}
         yield {
-            "store_id": cfg.store_id,
+            "store_id": store_id,
             "webshop_id": product.get("id"),
             "title": product.get("title"),
             "brand": product.get("brand"),
@@ -103,12 +132,42 @@ def _iter_markdowns(cfg: AHMarkdownConfig, scraped_at: str):
 
 
 @dlt.source(name="ah")
-def ah_markdowns_source(cfg: AHMarkdownConfig):
-    """DLT source loading current store markdowns as an append-only snapshot."""
+def ah_markdowns_source(cfg: AHMarkdownConfig, stores: list[int], context=None):
+    """Every store's markdowns, in one load.
+
+    A loop rather than a partitioned asset per store. The run queue holds one
+    slot deliberately - dbt's setup is not safe to run twice at once - and the
+    rebuild downstream of this is inherently all-stores, so partitions would
+    turn ten runs a day into forty serialised ones, each paying the process
+    startup that dominates this job. Measured previously: 35 of its 39 seconds
+    was spawning, which is why it uses the in-process executor.
+
+    One store failing does not stop the others. The asset fails only when
+    every store failed, because a friend whose shop is briefly unreachable
+    should not stop the rest of the household's prices from loading - and an
+    exception here would page whoever is on the other end of the failure
+    sensor, hourly, for one broken store.
+    """
     scraped_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    def _all():
+        failures: list[str] = []
+        for store_id in stores:
+            try:
+                yield from _iter_markdowns(cfg, scraped_at, store_id)
+            except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+                failures.append(f"{store_id}: {type(exc).__name__}")
+                if context is not None:
+                    context.log.warning(
+                        "store %s could not be scraped: %s", store_id, exc
+                    )
+        if failures and len(failures) == len(stores):
+            raise AHMarkdownsUnavailable(
+                "no store could be scraped: " + ", ".join(failures)
+            )
+
     return dlt.resource(
-        lambda: _iter_markdowns(cfg, scraped_at),
+        _all,
         name="store_markdowns",
         table_name="ah__store_markdowns",
         write_disposition="append",
@@ -129,8 +188,13 @@ def ah__store_markdowns_asset(context: AssetExecutionContext) -> None:
         dataset_name="public",
         progress="log",
     )
-    load_info = pipeline.run(ah_markdowns_source(cfg))
+    stores = stores_to_scrape(
+        create_engine(DatabaseConfig.from_env().url), cfg.store_id
+    )
+    context.log.info("Scraping %d store(s): %s", len(stores), stores)
+    load_info = pipeline.run(ah_markdowns_source(cfg, stores, context))
+    context.add_output_metadata({"stores": stores, "store_count": len(stores)})
     context.log.info(
-        f"Loaded AH store markdowns for store {cfg.store_id}: "
+        f"Loaded AH store markdowns for {len(stores)} store(s): "
         f"loads={len(load_info.loads_ids)}"
     )

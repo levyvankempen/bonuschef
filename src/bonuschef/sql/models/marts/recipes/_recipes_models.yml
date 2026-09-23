@@ -212,7 +212,12 @@ models:
           - accepted_values:
               values: ['no_ingredients', 'no_priced_ingredient', 'no_discount_today']
       - name: clearance_scraped_at
-        tests: [not_null]
+        description: >
+          NULL until the store has been scraped. Nullable on purpose: the
+          spine is built from the stores accounts use, so a shop can have an
+          account and no scrape yet. "Not scraped" is a different statement
+          from "scraped and found nothing", and a not_null test here would
+          fail a new account's store rather than report it.
 
   - name: fct_recipe_opportunity_items
     description: >
