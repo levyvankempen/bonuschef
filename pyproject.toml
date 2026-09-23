@@ -20,6 +20,7 @@ dependencies = [
     "dotenv>=0.9.9",
     "streamlit>=1.50.0",
     "supermarktconnector>=0.8.1",
+    "extra-streamlit-components>=0.1.71",
 ]
 
 description = "Add your description here"

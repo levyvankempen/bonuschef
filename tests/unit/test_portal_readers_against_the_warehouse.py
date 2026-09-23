@@ -28,11 +28,9 @@ with no rows in it, so this needs the schema and not the data.
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
 
 from bonuschef.portal import db
 
@@ -107,31 +105,9 @@ NOT_COLUMNS = frozenset(
 )
 
 
-@pytest.fixture(scope="module")
-def warehouse():
-    """A built warehouse, or a skip - except in CI, where it is a failure.
-
-    CI provides one. A skip there is a green check that proves nothing, which
-    is the thing this whole capability exists to stop.
-    """
-    url = (
-        f"postgresql+psycopg2://{os.getenv('PG_USER', 'postgres')}:"
-        f"{os.getenv('PG_PASSWORD', 'postgres')}@{os.getenv('PG_HOST', 'localhost')}:"
-        f"{os.getenv('PG_PORT', '5455')}/{os.getenv('PG_DB', 'postgres')}"
-    )
-    try:
-        engine = create_engine(url, pool_pre_ping=True)
-        with engine.begin() as conn:
-            conn.execute(
-                text("SELECT 1 FROM public_marts.fct_recipe_opportunity LIMIT 0")
-            )
-    except Exception as exc:
-        if os.getenv("CI"):
-            raise AssertionError(
-                f"CI builds the warehouse and these checks must run against it: {exc}"
-            ) from exc
-        pytest.skip("no built warehouse")  # ty: ignore[too-many-positional-arguments]
-    return engine
+# The `warehouse` fixture now lives in tests/conftest.py, because a second
+# suite needed it and two copies of a fixture that decides whether to skip
+# is two places to get that decision wrong.
 
 
 def _columns_read(path: Path) -> set[str]:
