@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.31.0 (2026-09-23)
+
+### Features
+
+- **recipes**: Edit a saved recipe, without repricing it
+  ([#108](https://github.com/levyvankempen/bonuschef/pull/108),
+  [`8b50899`](https://github.com/levyvankempen/bonuschef/commit/8b5089956700802c3db1a370d7584f06319c3fdb))
+
+
 ## v1.30.0 (2026-09-23)
 
 ### Features
