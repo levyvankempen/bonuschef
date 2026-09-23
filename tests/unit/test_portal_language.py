@@ -156,3 +156,35 @@ def test_the_note_for_invited_people_says_what_is_not_stored():
     assert "What is not stored" in note
     assert "bonuskaart" in note
     assert "Ending it" in note, "how to stop is part of what is stored"
+
+
+def test_no_page_links_to_a_url_path_string():
+    """st.page_link takes a StreamlitPage or a file path, never the url_path
+    a page was registered under.
+
+    The pages here are functions defined in app.py, so there is no path to
+    give it and no object available without threading one through every page.
+    Passing the url_path string looks right, type-checks, and raises
+    StreamlitPageNotFoundError at render time - which reached production on
+    the one screen a new account sees first.
+    """
+    import ast
+    from pathlib import Path
+
+    portal = Path(__file__).resolve().parents[2] / "src" / "bonuschef" / "portal"
+    for path in portal.glob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "page_link"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and not node.args[0].value.endswith(".py")
+            ):
+                raise AssertionError(
+                    f"{path.name} links to {node.args[0].value!r}, which is a "
+                    "url_path rather than a page"
+                )
