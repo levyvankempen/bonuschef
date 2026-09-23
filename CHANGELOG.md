@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.20.0 (2026-09-23)
+
+### Bug Fixes
+
+- **deploy**: The operator scripts belong in the image
+  ([#89](https://github.com/levyvankempen/bonuschef/pull/89),
+  [`e8669c8`](https://github.com/levyvankempen/bonuschef/commit/e8669c8978110581d1dd4c094b1a5a5d07700a03))
+
+### Documentation
+
+- **spec**: Record what section 2 has shipped
+  ([#88](https://github.com/levyvankempen/bonuschef/pull/88),
+  [`4dee368`](https://github.com/levyvankempen/bonuschef/commit/4dee368e7d5808bc0df6283f4fbf1e70f1e2b059))
+
+### Features
+
+- **accounts**: The sign-in wall, off by default
+  ([#90](https://github.com/levyvankempen/bonuschef/pull/90),
+  [`3ba0b75`](https://github.com/levyvankempen/bonuschef/commit/3ba0b750de022b9bce829cf4bc9a4cd77301dd5e))
+
+
 ## v1.19.0 (2026-09-23)
 
 ### Features
