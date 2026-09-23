@@ -24,6 +24,8 @@ from bonuschef.portal import offers
 from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
     get_engine,
+    read_recipe_lines_override,
+    save_recipe_line_overrides,
     read_recipe_opportunity_items,
     mark_recipe_made,
     read_marts_built_at,
@@ -53,6 +55,7 @@ def render_recipes(account: Account | None = None) -> None:
     st.title("Recepten")
 
     engine = get_engine()
+    _render_edit_result()
     built_at = read_marts_built_at(engine)
     saved = read_saved_recipes(engine, account.account_id, built_at)
 
@@ -85,6 +88,11 @@ def render_recipes(account: Account | None = None) -> None:
     if shown.empty:
         _render_nothing_matches(cards, only_on_offer, query)
         return
+
+    # Re-opened from session state on every run, so a rerun elsewhere on the
+    # page does not close it with the form half filled in.
+    if st.session_state.get(_EDIT_KEY):
+        _open_edit(engine, account, int(st.session_state[_EDIT_KEY]))
 
     for _, row in _sorted(shown, sort_key).iterrows():
         _render_card(engine, account, row)
@@ -161,6 +169,13 @@ def _render_card(engine, account: Account, row) -> None:
                 mark_recipe_made(engine, account.account_id, int(row["recipe_id"]))
                 st.rerun()
             if st.button(
+                "Bewerken",
+                key=f"edit_{row['recipe_id']}",
+                icon=":material/edit:",
+            ):
+                st.session_state[_EDIT_KEY] = int(row["recipe_id"])
+                st.rerun()
+            if st.button(
                 "Verwijderen",
                 key=f"drop_{row['recipe_id']}",
                 icon=":material/delete:",
@@ -170,6 +185,104 @@ def _render_card(engine, account: Account, row) -> None:
 
 
 _OPEN_KEY = "recipes_open_card"
+_EDIT_KEY = "recipes_edit_id"
+_EDIT_RESULT = "recipes_edit_result"
+
+
+def _apply_overrides(items: pd.DataFrame, override: pd.DataFrame) -> pd.DataFrame:
+    """The person's edits, laid over the catalogue's lines.
+
+    Only the multiplier changes here. Which product, which offer, whether a
+    clearance unit was already claimed - all of that stays in dbt, where it is
+    tested. Recomputing any of it in Python is what made two marts disagree
+    about one offer before, and this deliberately does not.
+    """
+    if override.empty:
+        return items.assign(factor=1.0, hidden=False)
+    merged = items.merge(override, on="item_key", how="left")
+    merged["factor"] = merged["factor"].astype(float).fillna(1.0)
+    merged["hidden"] = merged["hidden"].fillna(False).astype(bool)
+    for column in ("price_today", "item_saving"):
+        if column in merged:
+            merged[column] = merged[column] * merged["factor"]
+    return merged[~merged["hidden"]]
+
+
+def _render_edit_result() -> None:
+    """On the page, not in the dialog.
+
+    st.rerun() closes a dialog, so a message rendered inside one is never
+    seen - which review.py already records having learned.
+    """
+    if message := st.session_state.pop(_EDIT_RESULT, ""):
+        st.success(message)
+
+
+def _open_edit(engine, account: Account, recipe_id: int) -> None:
+    """Opened from session state rather than from inside a button branch.
+
+    A full-script rerun re-evaluates `if st.button(...)` as False, and the
+    dialog vanishes with whatever was typed in it. Streamlit reruns the whole
+    script on every interaction, and this page polls nothing but will.
+    """
+
+    @st.dialog("Recept aanpassen")
+    def _dialog() -> None:
+        items = read_recipe_opportunity_items(
+            engine, recipe_id, store_for(account), read_marts_built_at(engine)
+        )
+        if items.empty:
+            st.caption("Voor dit recept zijn geen ingrediënten bekend.")
+            return
+        override = read_recipe_lines_override(engine, account.account_id, recipe_id)
+        current = _apply_overrides(items, override)
+        existing = (
+            {
+                str(r["item_key"]): (float(r["factor"]), bool(r["hidden"]))
+                for _, r in override.iterrows()
+            }
+            if not override.empty
+            else {}
+        )
+
+        edits: dict[str, tuple[float, bool]] = {}
+        with st.form(f"edit_{recipe_id}"):
+            st.caption(
+                "Hoeveel je er zelf van gebruikt. 1 is zoals het recept het zegt."
+            )
+            for _, item in items.iterrows():
+                key = str(item["item_key"])
+                was_factor, was_hidden = existing.get(key, (1.0, False))
+                with st.container(horizontal=True, vertical_alignment="center"):
+                    st.markdown(str(item.get("item_label") or "?"))
+                    factor = st.number_input(
+                        "Aantal",
+                        key=f"f_{recipe_id}_{key}",
+                        min_value=0.0,
+                        max_value=10.0,
+                        step=0.5,
+                        value=was_factor,
+                        label_visibility="collapsed",
+                    )
+                    hidden = st.checkbox(
+                        "Laat weg",
+                        key=f"h_{recipe_id}_{key}",
+                        value=was_hidden,
+                    )
+                edits[key] = (float(factor), bool(hidden))
+            saved = st.form_submit_button("Opslaan", type="primary")
+
+        if saved:
+            save_recipe_line_overrides(engine, account.account_id, recipe_id, edits)
+            st.session_state[_EDIT_RESULT] = "Je aanpassingen zijn bewaard."
+            st.session_state[_EDIT_KEY] = None
+            st.rerun()
+
+        if not current.empty and "price_today" in current:
+            total = current["price_today"].sum()
+            st.caption(f"Nu ongeveer {offers.euro(total)} met jouw aanpassingen.")
+
+    _dialog()
 
 
 def _render_ingredients(engine, account: Account, row) -> None:
@@ -208,6 +321,9 @@ def _render_ingredients(engine, account: Account, row) -> None:
         st.caption("Voor dit recept zijn geen ingrediënten bekend.")
         return
 
+    items = _apply_overrides(
+        items, read_recipe_lines_override(engine, account.account_id, recipe_id)
+    )
     for _, item in items.iterrows():
         with st.container(horizontal=True, vertical_alignment="center"):
             st.markdown(str(item.get("item_label") or "?"))
