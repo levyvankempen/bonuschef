@@ -127,6 +127,11 @@ class TestRecipesPage:
             ),
         )
         at = run_app(recipes_page.render_recipes).run()
+        # The assertion this test was missing. It checked the copy and not
+        # that the page rendered, so a StreamlitPageNotFoundError raised two
+        # lines further down passed - on the one screen a new account sees
+        # first.
+        assert not at.exception, [e.value for e in at.exception]
         rendered = " ".join(m.value for m in at.markdown)
         assert "Vanavond" in rendered and "Toevoegen" in rendered
 

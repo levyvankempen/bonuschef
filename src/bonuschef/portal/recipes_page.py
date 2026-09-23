@@ -409,13 +409,18 @@ def _render_nothing_saved() -> None:
     """A dead end is the failure here. The page says where recipes come from
     and links to both, rather than reporting an absence."""
     st.info("Je hebt nog geen recepten bewaard.")
+    # Named in prose rather than linked. st.page_link takes a StreamlitPage
+    # or a file path, never the url_path string - and the pages here are
+    # functions defined in app.py, so a link would need those objects passed
+    # down through every page for the sake of two shortcuts that sit in the
+    # navigation bar directly above this text.
+    #
+    # It raised StreamlitPageNotFoundError in production, on the one screen a
+    # new account sees first.
     st.markdown(
         "Op **Vanavond** staat wat vandaag het voordeligst is — bewaar daar "
-        "wat je wilt maken. Of zoek er zelf een op **Toevoegen**."
+        "wat je wilt maken. Of zoek er zelf een op **Toevoegen**, hierboven."
     )
-    with st.container(horizontal=True):
-        st.page_link("vanavond", label="Vanavond", icon=":material/local_dining:")
-        st.page_link("toevoegen", label="Toevoegen", icon=":material/add:")
 
 
 def _render_nothing_matches(
