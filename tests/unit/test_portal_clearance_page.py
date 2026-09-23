@@ -112,6 +112,11 @@ def stubs(monkeypatch):
     monkeypatch.setattr(page, "get_engine", lambda: object())
     monkeypatch.setattr(page, "read_store_clearance", state["read"])
     monkeypatch.setattr(page, "read_last_scrape_time", state["last_scrape"])
+    # The page names the shop now. Stubbed rather than left to reach a fake
+    # engine, and given a real-looking name so a test asserting on the caption
+    # sees what a person would.
+    monkeypatch.setattr(page, "store_name", lambda e, s: "AH Eindhoven Torenallee")
+    monkeypatch.setattr(page, "store_for", lambda account: 1876)
     monkeypatch.setattr(page, "_now", lambda: state["now"])
     monkeypatch.setattr(page, "trigger_job", trigger)
 
@@ -434,3 +439,63 @@ class TestStaleRendering:
         at = _run()
         assert not at.exception
         assert not at.dataframe
+
+
+def _texts(at) -> list[str]:
+    """Everything the page rendered, as a list of strings.
+
+    Captions included: the shop name and the operator-only note are both
+    captions, and a test that only reads markdown would miss them.
+    """
+    blocks = (at.markdown, at.caption, at.info, at.warning, at.error, at.success)
+    return [e.value for block in blocks for e in block]
+
+
+class TestWhoMayStartARun:
+    """The run queue holds one slot on purpose, and the hourly clearance
+    scrape is the thing it protects.
+
+    A scrape missed at 17:00 cannot be backfilled - the shelf has been cleared
+    by 18:00 - so four people pressing "Nu ophalen" during the evening window
+    is a self-inflicted outage on the one job that cannot wait.
+    """
+
+    def _render(self, stubs, monkeypatch, *, operator: bool):
+        from bonuschef.portal.accounts import Account
+
+        account = Account(
+            account_id=2,
+            username="anne",
+            store_id=1876,
+            is_operator=operator,
+            must_change_password=False,
+        )
+        return run_app(page.render_clearance, account).run()
+
+    def test_an_operator_is_offered_the_button(self, stubs, monkeypatch):
+        at = self._render(stubs, monkeypatch, operator=True)
+        assert any("Nu ophalen" in b.label for b in at.button), [
+            b.label for b in at.button
+        ]
+
+    def test_a_guest_is_not(self, stubs, monkeypatch):
+        at = self._render(stubs, monkeypatch, operator=False)
+        assert not any("Nu ophalen" in b.label for b in at.button)
+
+    def test_a_guest_is_told_why_rather_than_left_wondering(self, stubs, monkeypatch):
+        """A control that silently disappears reads as a bug."""
+        at = self._render(stubs, monkeypatch, operator=False)
+        assert any("beheerder" in t for t in _texts(at)), _texts(at)
+
+    def test_a_guest_starts_no_run(self, stubs, monkeypatch):
+        """The button being absent is the visible half; what matters is that
+        nothing reaches the queue."""
+        self._render(stubs, monkeypatch, operator=False)
+        assert stubs["triggered"] == []
+
+
+def test_the_page_names_the_shop(stubs, monkeypatch):
+    """ "jouw Albert Heijn" was an unverifiable claim: somebody who picked the
+    wrong shop out of 1,199 had nothing on the page to tell them."""
+    at = run_app(page.render_clearance).run()
+    assert any("AH Eindhoven Torenallee" in t for t in _texts(at)), _texts(at)

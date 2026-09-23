@@ -13,9 +13,11 @@ from bonuschef.portal.dagster_client import (
     trigger_job,
 )
 from bonuschef.portal import freshness
+from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
+    store_for,
+    store_name,
     get_engine,
-    active_store_id,
     read_last_scrape_time,
     read_store_clearance,
 )
@@ -36,10 +38,10 @@ _SNAPSHOT_BEFORE_KEY = "clearance_snapshot_before"
 _FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
 
 
-def _load(engine) -> pd.DataFrame | None:
+def _load(engine, store_id: int) -> pd.DataFrame | None:
     """Read clearance data, returning None if the mart isn't built yet."""
     try:
-        return read_store_clearance(engine, active_store_id())
+        return read_store_clearance(engine, store_id)
     except ProgrammingError:  # relation does not exist → job never ran
         return None
 
@@ -180,7 +182,7 @@ def _render_refresh_banner(latest: pd.Timestamp | None) -> None:
         )
 
 
-def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
+def _render_refresh_control(account, caption: str, latest: pd.Timestamp | None) -> None:
     """Snapshot age caption plus a button to re-scrape on demand."""
     col_caption, col_button = st.columns([4, 1])
     with col_caption:
@@ -192,6 +194,17 @@ def _render_refresh_control(caption: str, latest: pd.Timestamp | None) -> None:
         if st.session_state.get(_RUN_KEY):
             _render_refresh_progress()
     with col_button:
+        # Operators only. The run queue holds one slot on purpose, and the
+        # hourly clearance scrape is the thing it protects - a scrape missed
+        # at 17:00 cannot be backfilled, because the shelf has been cleared by
+        # 18:00. Four people pressing this during the evening window is a
+        # self-inflicted outage on the one job that cannot wait.
+        if not account.is_operator:
+            st.caption(
+                ":gray[Alleen de beheerder kan nu ophalen.]",
+                help="De scan draait elk uur vanzelf.",
+            )
+            return
         clicked = st.button(
             "Nu ophalen",
             help=("Haal de koopjes van dit moment op. Duurt ongeveer een minuut."),
@@ -295,19 +308,25 @@ def _render_items(df: pd.DataFrame, today) -> None:
                     st.caption(was)
 
 
-def render_clearance() -> None:
+def render_clearance(account: Account | None = None) -> None:
     """Render the Laatste kans (store clearance) page."""
+    account = account or SINGLE_USER
     st.title("Laatste kans koopjes")
-    st.caption(
-        "Afgeprijsde artikelen in jouw Albert Heijn. Kortingen lopen door de dag "
-        "op en de voorraad is snel weg."
-    )
 
     try:
         engine = get_engine()
-        df = _load(engine)
+        store_id = store_for(account)
+        # Named, not implied. "jouw Albert Heijn" was an unverifiable claim:
+        # somebody who picked the wrong shop out of 1,199 had nothing on the
+        # page that would tell them.
+        shop = store_name(engine, store_id)
+        st.caption(
+            f"Afgeprijsde artikelen in {shop or 'jouw Albert Heijn'}. Kortingen "
+            "lopen door de dag op en de voorraad is snel weg."
+        )
+        df = _load(engine, store_id)
         last_scrape = (
-            read_last_scrape_time(engine, active_store_id()) if df is not None else None
+            read_last_scrape_time(engine, store_id) if df is not None else None
         )
     except Exception as exc:
         st.error(f"Geen verbinding met de database: {exc}")
@@ -315,18 +334,19 @@ def render_clearance() -> None:
 
     if df is None:
         st.info("Nog geen koopjes opgehaald. Druk op **Nu ophalen**.")
-        _render_refresh_control("Er is nog nooit een scan gedaan.", None)
+        _render_refresh_control(account, "Er is nog nooit een scan gedaan.", None)
         return
 
     now = _now()
     latest = _resolve_snapshot(last_scrape, df)
 
     if latest is None or not _is_current(latest, now):
-        _render_refresh_control(f"Gescand om {_format_local(latest)}.", latest)
+        _render_refresh_control(account, f"Gescand om {_format_local(latest)}.", latest)
         _render_stale(len(df), latest, now)
         return
 
     _render_refresh_control(
+        account,
         f"Gescand om {_format_local(latest)} · {_describe_age(latest, now)}.",
         latest,
     )

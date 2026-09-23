@@ -27,6 +27,33 @@ _STORE_DIRECTORY_TTL_S = 3600
 _DIAGNOSTIC_ROW_LIMIT = 500
 
 
+def store_for(account) -> int:
+    """Which shop to read for this person.
+
+    The account's choice, or the configured default when they have none - a
+    single-user deployment with no accounts still works, and the gate asks a
+    signed-in person for a shop before letting them past, so the fallback is
+    for the wall-down case rather than a way to guess on somebody's behalf.
+    """
+    chosen = getattr(account, "store_id", None)
+    return int(chosen) if chosen else active_store_id()
+
+
+def store_name(_engine, store_id: int) -> str:
+    """ "AH Eindhoven Torenallee", or "" if the directory does not know it.
+
+    The portal said "jouw Albert Heijn" without ever naming one, which is an
+    unverifiable claim: a person who picked the wrong shop from a list of
+    1,199 had nothing on the page to tell them.
+    """
+    with _engine.begin() as conn:
+        name = conn.execute(
+            text("SELECT name FROM public.ah_stores WHERE store_id = :s"),
+            {"s": int(store_id)},
+        ).scalar()
+    return f"AH {name}" if name else ""
+
+
 def active_store_id() -> int:
     """Which Albert Heijn store the portal is reading for.
 
