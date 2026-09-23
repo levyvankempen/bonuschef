@@ -194,3 +194,58 @@ def test_a_stranger_can_make_an_account_and_lands_on_the_shop_question(
             conn.execute(
                 text("DELETE FROM public.accounts WHERE username = :u"), {"u": name}
             )
+
+
+# --- a password the operator knows is not a password ------------------------
+
+
+@pytest.mark.warehouse
+def test_an_operator_set_password_must_be_changed_before_anything_else(
+    monkeypatch, warehouse
+):
+    """An account created by an operator holds a credential a second person
+    has seen, which makes it a delivery mechanism rather than a password.
+
+    Recording that and not acting on it - which is what the flag did until now
+    - is the worst of both: the system says it knows, and nothing happens.
+    """
+    ensure_account_tables(warehouse)
+    name = "forced_change_user"
+    with warehouse.begin() as conn:
+        conn.execute(
+            text("DELETE FROM public.accounts WHERE username = :u"), {"u": name}
+        )
+        conn.execute(
+            text("""
+                INSERT INTO public.ah_stores (store_id, name) VALUES (:i, :n)
+                ON CONFLICT (store_id) DO UPDATE SET name = EXCLUDED.name
+            """),
+            {"i": STORE, "n": "Eindhoven Torenallee"},
+        )
+        conn.execute(
+            text("""
+                INSERT INTO public.accounts
+                    (username, password_hash, store_id, is_operator,
+                     must_change_password)
+                VALUES (:u, :h, :s, FALSE, TRUE)
+            """),
+            {"u": name, "h": hash_password(PASSWORD), "s": STORE},
+        )
+    monkeypatch.setenv("BONUSCHEF_REQUIRE_SIGN_IN", "1")
+    try:
+        app = AppTest.from_file(APP, default_timeout=60)
+        app.run()
+        app.text_input[0].set_value(name)
+        app.text_input[1].set_value(PASSWORD)
+        app.button[0].click().run()
+
+        assert [t.value for t in app.title] == ["Profiel"], (
+            "a shop is chosen and they still should not be let through"
+        )
+        warned = [w.value for w in app.warning]
+        assert any("beheerder" in w for w in warned), warned
+    finally:
+        with warehouse.begin() as conn:
+            conn.execute(
+                text("DELETE FROM public.accounts WHERE username = :u"), {"u": name}
+            )
