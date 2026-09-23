@@ -95,7 +95,12 @@ pg = st.navigation(
             url_path="vanavond",
             icon=":material/local_dining:",
         ),
-        st.Page(render_clearance, title="Laatste kans", icon=":material/schedule:"),
+        st.Page(
+            lambda: render_clearance(_signed_in()),
+            title="Laatste kans",
+            url_path="laatste-kans",
+            icon=":material/schedule:",
+        ),
         st.Page(render_recipes, title="Recepten", icon=":material/menu_book:"),
         st.Page(render_add_recipe, title="Toevoegen", icon=":material/add:"),
         *(
