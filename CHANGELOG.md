@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.24.0 (2026-09-23)
+
+### Features
+
+- **stores**: Every account's shop is scraped, and reaches the warehouse
+  ([#95](https://github.com/levyvankempen/bonuschef/pull/95),
+  [`a2d4a61`](https://github.com/levyvankempen/bonuschef/commit/a2d4a61c0f3de21060ab99e6625b61012793684c))
+
+
 ## v1.23.0 (2026-09-23)
 
 ### Features
