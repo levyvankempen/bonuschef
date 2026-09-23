@@ -10,6 +10,8 @@ an application somebody depends on. Everything else is a claim about code; this
 is the claim about the product.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import text
 from streamlit.testing.v1 import AppTest
@@ -91,3 +93,82 @@ def test_the_right_password_gets_through(monkeypatch, signed_up):
     app.text_input[1].set_value(PASSWORD)
     app.button[0].click().run()
     assert [t.value for t in app.title] == ["Vanavond"], "should be inside"
+
+
+# --- throttling, against a real database ------------------------------------
+
+
+def _attempts(engine, username: str) -> int:
+    with engine.begin() as conn:
+        return int(
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM public.sign_in_attempts "
+                    "WHERE lower(username) = lower(:u)"
+                ),
+                {"u": username},
+            ).scalar()
+            or 0
+        )
+
+
+@pytest.fixture
+def no_attempts(warehouse):
+    ensure_account_tables(warehouse)
+    with warehouse.begin() as conn:
+        conn.execute(
+            text("DELETE FROM public.sign_in_attempts WHERE username = :u"),
+            {"u": USER},
+        )
+    yield warehouse
+    with warehouse.begin() as conn:
+        conn.execute(
+            text("DELETE FROM public.sign_in_attempts WHERE username = :u"),
+            {"u": USER},
+        )
+
+
+def test_wrong_passwords_eventually_stop_being_answered(signed_up, no_attempts):
+    """Against the real SQL, because the interesting part is the count, and a
+    fake engine answers whatever it is told to."""
+    from bonuschef.portal.accounts import MAX_FAILURES, sign_in
+
+    for _ in range(MAX_FAILURES):
+        assert not sign_in(no_attempts, USER, "wrong").ok
+    assert _attempts(no_attempts, USER) == MAX_FAILURES
+
+    blocked = sign_in(no_attempts, USER, PASSWORD)
+    assert not blocked.ok, "even the right password waits"
+    assert "kwartier" in blocked.error
+
+
+def test_a_lockout_expires(signed_up, no_attempts):
+    """Mutation-driven: the unit test asserted that a cut-off was PASSED to
+    the query, which an `OR TRUE` in the WHERE clause satisfied while making
+    the lockout permanent. Only real SQL over real rows catches that, and a
+    lockout that never expires is an account somebody has destroyed rather
+    than protected.
+    """
+    from bonuschef.portal.accounts import LOCKOUT, MAX_FAILURES, sign_in
+
+    stale = datetime.now(timezone.utc) - LOCKOUT - timedelta(minutes=1)
+    with no_attempts.begin() as conn:
+        for _ in range(MAX_FAILURES + 3):
+            conn.execute(
+                text(
+                    "INSERT INTO public.sign_in_attempts (username, failed_at) "
+                    "VALUES (:u, :t)"
+                ),
+                {"u": USER, "t": stale},
+            )
+
+    assert sign_in(no_attempts, USER, PASSWORD).ok, "old failures must not count"
+
+
+def test_signing_in_clears_the_record(signed_up, no_attempts):
+    from bonuschef.portal.accounts import sign_in
+
+    assert not sign_in(no_attempts, USER, "wrong").ok
+    assert _attempts(no_attempts, USER) == 1
+    assert sign_in(no_attempts, USER, PASSWORD).ok
+    assert _attempts(no_attempts, USER) == 0

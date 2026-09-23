@@ -40,6 +40,9 @@ COOKIE = "bonuschef_session"
 # Where the token lives within one browser connection.
 _TOKEN_KEY = "_bonuschef_token"
 
+# A cookie write waiting for the end of the run.
+_PENDING = "_bonuschef_pending_cookie"
+
 _FLAG = "BONUSCHEF_REQUIRE_SIGN_IN"
 
 
@@ -85,11 +88,14 @@ def token_from_state(state) -> str:
 
 
 def remember(state, token: str) -> None:
+    """Hold the token for this connection, and ask for it to outlive it."""
     state[_TOKEN_KEY] = token
+    queue_cookie(state, token)
 
 
 def forget(state) -> None:
     state.pop(_TOKEN_KEY, None)
+    queue_cookie(state, "")
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +121,6 @@ def render_sign_in(engine) -> None:
         result = sign_in(engine, username, password)
         if result.ok:
             remember(st.session_state, result.token)
-            _write_cookie(result.token)
             st.rerun()
         else:
             st.error(result.error)
@@ -162,7 +167,6 @@ def _render_register(engine) -> None:
         opened = sign_in(engine, username, password)
         if opened.ok:
             remember(st.session_state, opened.token)
-            _write_cookie(opened.token)
             st.rerun()
         else:
             st.success("Je account is gemaakt. Meld je aan met je nieuwe naam.")
@@ -175,19 +179,18 @@ def render_sign_out(engine) -> None:
     if st.button("Afmelden", icon=":material/logout:"):
         sign_out(engine, token_from_state(st.session_state))
         forget(st.session_state)
-        _clear_cookie()
         st.rerun()
 
 
 def _cookie_manager():
     """One manager per connection.
 
-    Constructed lazily and cached in session state: building two of these in
-    one script run collides on the component key, and the failure is a page
-    that renders twice and answers neither.
+    Cached in session state because building two in one script run collides on
+    the component key, and the failure is a page that renders twice and
+    answers neither.
     """
-    import streamlit as st
     import extra_streamlit_components as stx
+    import streamlit as st
 
     manager = st.session_state.get("_cookie_manager")
     if manager is None:
@@ -197,31 +200,57 @@ def _cookie_manager():
 
 
 def token_from_cookie() -> str:
-    """The durable token, if the browser has sent one.
+    """The durable token, read natively rather than through the component.
 
-    Returns "" both when there is no cookie and when the component has not
-    reported yet - they are indistinguishable, and treating the second as "no
-    session" is what produces the sign-in form that flashes and then goes
-    away. The session-state path above is what usually spares anybody that.
+    st.context.cookies is populated from the websocket upgrade request, so it
+    is already there on the first script run of a fresh page load - which is
+    exactly the moment a returning visitor needs it.
+
+    The component's own get() is asynchronous: it returns None until the
+    frontend answers, and the first run of a page load is precisely when it
+    has not. Reading through it meant every reload showed the sign-in form
+    before the cookie arrived, which is why signing in felt like it never
+    stuck. The component is still what WRITES the cookie; Streamlit cannot.
     """
+    import streamlit as st
+
     try:
-        return str(_cookie_manager().get(COOKIE) or "")
-    except Exception:
-        # A component that fails to load must not take the application with
-        # it: without a cookie the visitor signs in again, which is a nuisance
-        # rather than an outage.
+        return str(st.context.cookies.get(COOKIE) or "")
+    except Exception:  # pragma: no cover - only outside a Streamlit runtime
         return ""
 
 
-def _write_cookie(token: str) -> None:
-    try:
-        _cookie_manager().set(COOKIE, token, key="bonuschef_cookie_set")
-    except Exception:
-        pass
+def queue_cookie(state, token: str) -> None:
+    """Ask for the cookie to be written at the end of this run.
+
+    Not written here. `set()` renders a component, and the sign-in path calls
+    st.rerun() immediately afterwards - which tears the frame down before the
+    browser is asked to store anything. Deferring it to after the page has
+    rendered is what makes the write actually happen.
+    """
+    state[_PENDING] = token
 
 
-def _clear_cookie() -> None:
+def flush_cookie(state) -> None:
+    """Perform any queued cookie write. Called once, at the end of a run.
+
+    Failure is reported rather than swallowed. An earlier version caught
+    everything and returned quietly, which turned a broken component into
+    "you have to sign in every time" with nothing anywhere saying why.
+    """
+    import streamlit as st
+
+    if _PENDING not in state:
+        return
+    token = state.pop(_PENDING)
     try:
-        _cookie_manager().delete(COOKIE, key="bonuschef_cookie_del")
-    except Exception:
-        pass
+        if token:
+            _cookie_manager().set(COOKIE, token, key="bonuschef_cookie_set")
+        else:
+            _cookie_manager().delete(COOKIE, key="bonuschef_cookie_del")
+    except Exception as exc:  # the app must survive a component that will not
+        st.caption(
+            ":gray[Je blijft deze sessie aangemeld, maar niet na het "
+            "sluiten van het tabblad.]",
+            help=f"cookie: {type(exc).__name__}",
+        )

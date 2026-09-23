@@ -121,6 +121,29 @@ _STATEMENTS: tuple[str, ...] = (
     )
     """,
     # ------------------------------------------------------------------
+    # Failed sign-in attempts
+    # ------------------------------------------------------------------
+    #
+    # In the database rather than in memory, for two reasons. The portal
+    # restarts on every release, and an attacker who can provoke a restart
+    # would otherwise clear the count; and a counter held in st.session_state
+    # is per browser connection, which is to say per attacker rather than per
+    # account.
+    #
+    # Keyed on the username as typed, not on the account: an account that does
+    # not exist must be throttled exactly like one that does, or the throttle
+    # becomes the thing that tells you which is which.
+    """
+    CREATE TABLE IF NOT EXISTS public.sign_in_attempts (
+        username   TEXT        NOT NULL,
+        failed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS sign_in_attempts_username_idx
+        ON public.sign_in_attempts (lower(username), failed_at)
+    """,
+    # ------------------------------------------------------------------
     # The store directory
     # ------------------------------------------------------------------
     #
