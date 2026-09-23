@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.17.0 (2026-09-23)
+
+### Features
+
+- **accounts**: Store a password so the database does not reveal it
+  ([#85](https://github.com/levyvankempen/bonuschef/pull/85),
+  [`42583f0`](https://github.com/levyvankempen/bonuschef/commit/42583f05b807759a065a26f3726f0e991b4246e0))
+
+
 ## v1.16.0 (2026-09-23)
 
 ### Features
