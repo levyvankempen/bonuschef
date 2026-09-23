@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.22.0 (2026-09-23)
+
+### Features
+
+- **accounts**: Make an account from the page, not from a shell
+  ([#93](https://github.com/levyvankempen/bonuschef/pull/93),
+  [`32d561f`](https://github.com/levyvankempen/bonuschef/commit/32d561fabc9cf0a915b560fdcf347be2993651ba))
+
+
 ## v1.21.0 (2026-09-23)
 
 ### Bug Fixes
