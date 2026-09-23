@@ -68,9 +68,11 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
         ("read_pipeline_health", ()),
     ),
     "recipes_page.py": (
-        ("read_recipe_summary", ()),
-        ("read_recipe_breakdown_bonus", (1,)),
-        ("read_recipe_bonus_summary", ()),
+        # The dashboard reads the opportunity mart, not the cost mart. The
+        # cost chain prices recipes from the weekly GitHub snapshot and knows
+        # nothing about offers; the page is about what a recipe costs TODAY.
+        ("read_recipe_opportunity", (FIXTURE_STORE_ID,)),
+        ("read_saved_recipes", (1,)),
     ),
     "clearance_page.py": (("read_store_clearance", (FIXTURE_STORE_ID,)),),
     # Reads the account and the store directory, neither of which is a mart
