@@ -141,3 +141,56 @@ def test_an_unknown_shop_is_refused(account):
     account_id = int(_stored(account, "account_id"))
     assert set_account_store(account, account_id, 999999) is False
     assert _stored(account, "store_id") is None, "and nothing was written"
+
+
+# --- registering from the page ---------------------------------------------
+
+
+@pytest.mark.warehouse
+def test_a_stranger_can_make_an_account_and_lands_on_the_shop_question(
+    monkeypatch, warehouse
+):
+    """The whole point of the change: no ssh, and the first thing a new person
+    is asked is the one setting the app cannot guess."""
+    ensure_account_tables(warehouse)
+    name = "registered_e2e_user"
+    with warehouse.begin() as conn:
+        conn.execute(
+            text("DELETE FROM public.accounts WHERE username = :u"), {"u": name}
+        )
+        conn.execute(
+            text("""
+                INSERT INTO public.ah_stores (store_id, name) VALUES (:i, :n)
+                ON CONFLICT (store_id) DO UPDATE SET name = EXCLUDED.name
+            """),
+            {"i": STORE, "n": "Eindhoven Torenallee"},
+        )
+    monkeypatch.setenv("BONUSCHEF_REQUIRE_SIGN_IN", "1")
+    monkeypatch.setenv("BONUSCHEF_INVITE_CODE", "kom-maar-binnen")
+    try:
+        app = AppTest.from_file(APP, default_timeout=60)
+        app.run()
+        # 0/1 are the sign-in fields; the rest belong to the register form.
+        app.text_input[2].set_value(name)
+        app.text_input[3].set_value("a-good-password")
+        app.text_input[4].set_value("a-good-password")
+        app.text_input[5].set_value("kom-maar-binnen")
+        app.button[1].click().run()
+
+        assert [t.value for t in app.title] == ["Profiel"], "asked for a shop"
+        with warehouse.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT store_id, is_operator FROM public.accounts "
+                    "WHERE username = :u"
+                ),
+                {"u": name},
+            ).fetchone()
+        assert row is not None, "the account should exist"
+        assert row.store_id is None, "no shop guessed on their behalf"
+        assert row.is_operator is False, "and not an operator"
+    finally:
+        with warehouse.begin() as conn:
+            conn.execute(
+                text("DELETE FROM public.accounts WHERE username = :u"), {"u": name}
+            )

@@ -32,6 +32,7 @@ import os
 from dataclasses import dataclass
 
 from bonuschef.portal.accounts import Account, account_for_token, sign_in, sign_out
+from bonuschef.portal.registration import register, registration_open
 
 # Name of the cookie holding the session token.
 COOKIE = "bonuschef_session"
@@ -119,7 +120,52 @@ def render_sign_in(engine) -> None:
         else:
             st.error(result.error)
 
-    st.caption("Aanmelden kan alleen op uitnodiging. Vraag het de beheerder.")
+    if registration_open():
+        _render_register(engine)
+    else:
+        st.caption("Aanmelden kan alleen op uitnodiging. Vraag het de beheerder.")
+
+
+def _render_register(engine) -> None:
+    """Offered under the sign-in form rather than on a page of its own.
+
+    A separate page would need a route reachable without a session, which is
+    the one thing the gate exists to prevent. Folding it in keeps the wall
+    with a single opening in it.
+    """
+    import streamlit as st
+
+    with st.expander("Nog geen account?"):
+        with st.form("register"):
+            username = st.text_input("Gebruikersnaam", key="reg_username")
+            password = st.text_input("Wachtwoord", type="password", key="reg_password")
+            again = st.text_input("Nogmaals", type="password", key="reg_again")
+            code = st.text_input(
+                "Uitnodigingscode",
+                type="password",
+                key="reg_code",
+                help="Die krijg je van de beheerder.",
+            )
+            submitted = st.form_submit_button("Account maken")
+
+        if not submitted:
+            return
+
+        result = register(engine, username, password, again, code)
+        if not result.ok:
+            st.error(result.error)
+            return
+
+        # Signed in straight away. Making somebody type the password they
+        # chose two seconds ago is a step that exists only because it was
+        # easier to write.
+        opened = sign_in(engine, username, password)
+        if opened.ok:
+            remember(st.session_state, opened.token)
+            _write_cookie(opened.token)
+            st.rerun()
+        else:
+            st.success("Je account is gemaakt. Meld je aan met je nieuwe naam.")
 
 
 def render_sign_out(engine) -> None:
