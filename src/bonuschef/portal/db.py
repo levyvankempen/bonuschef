@@ -1065,6 +1065,61 @@ def reinstate_recipe(_engine, account_id: int, recipe_id: int) -> None:
     read_recipe_opportunity.clear()
 
 
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_saved_recipes(_engine, account_id: int, built_at: str = "") -> pd.DataFrame:
+    """What this person has saved, and when they last made each one.
+
+    account_id is a plain argument rather than underscore-prefixed, because
+    st.cache_data is shared by every visitor to the process and an unkeyed
+    account serves the first arrival's collection to everybody.
+    """
+    with _engine.begin() as conn:
+        return pd.read_sql_query(
+            text("""
+                SELECT recipe_id, saved_at, last_made_at, notes
+                FROM public.account_recipes
+                WHERE account_id = :account_id
+            """),
+            conn,
+            params={"account_id": int(account_id)},
+        )
+
+
+def mark_recipe_made(engine, account_id: int, recipe_id: int, when=None) -> None:
+    """Record that this person cooked this, today unless told otherwise.
+
+    The date is the point: a collection is usually asked "what have I not had
+    for a while", and without this it can only be sorted by name.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                UPDATE public.account_recipes
+                SET last_made_at = COALESCE(:when, now())
+                WHERE account_id = :aid AND recipe_id = :rid
+            """),
+            {"when": when, "aid": int(account_id), "rid": int(recipe_id)},
+        )
+    read_saved_recipes.clear()
+
+
+def unsave_recipe(engine, account_id: int, recipe_id: int) -> None:
+    """Drop it from this person's collection.
+
+    The recipe stays in the catalogue: somebody else may have it, and it is
+    what the pool would otherwise re-suggest.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM public.account_recipes "
+                "WHERE account_id = :aid AND recipe_id = :rid"
+            ),
+            {"aid": int(account_id), "rid": int(recipe_id)},
+        )
+    read_saved_recipes.clear()
+
+
 def read_hidden_recipe_ids(_engine, account_id: int) -> set[int]:
     """Recipes this person has already adopted or rejected.
 

@@ -1,208 +1,256 @@
-"""Recipes page — recipe overview, cost history, and ingredient breakdown."""
+"""Recepten — the recipes this person saved, as a dashboard.
+
+Replaces a page that rendered the same rows three times: a list, a duplicate
+"deze week in de bonus" block over the same recipes, and a detail pane with a
+selectbox that made you re-find a recipe you were already looking at.
+
+It answers "show me this recipe". The question people actually bring is "what
+shall I cook", and the two differ in what has to be on screen at once: the
+cost today, what made it cheap, and when you last had it.
+
+Cards in one column rather than a grid. The app is centred at ~730px because
+it is used on a phone in a shop, so two cards side by side is 340px each -
+a worse card on a laptop in exchange for nothing on the phone, where it
+stacks anyway. Every other page here already uses bordered horizontal
+containers, and a grid on one page only makes that page the odd one out.
+"""
+
+from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from bonuschef.portal.review import (
-    open_single,
-    render_rebuild_status,
-    render_resolution_result,
-)
+from bonuschef.portal import offers
+from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
     get_engine,
+    mark_recipe_made,
     read_marts_built_at,
-    read_recipe_bonus_summary,
-    read_recipe_breakdown_bonus,
-    read_recipe_summary,
+    read_recipe_opportunity,
+    read_saved_recipes,
+    store_for,
+    unsave_recipe,
 )
+from bonuschef.portal.freshness import describe_age, now as freshness_now
+
+_SORTS = {
+    # First, and the default: a collection is usually asked "what have I not
+    # had for a while". Alphabetical is the order it had and answers nothing.
+    "Langst niet gemaakt": "longest",
+    "Voordeligst vandaag": "cheapest",
+    "Naam": "name",
+}
+
+_FILTER_KEY = "recipes_only_on_offer"
+_SORT_KEY = "recipes_sort"
+_QUERY_KEY = "recipes_query"
 
 
-def _render_recipe_summary(summary_df):
-    """One card per recipe.
-
-    A recipe whose ingredients are not all priced shows what is known with a
-    trailing "+", never a total. Silently publishing the sum of a partial
-    basket is how a recipe missing its rookworst wins a "cheapest tonight"
-    comparison against a complete one.
-    """
-    st.subheader("Mijn recepten")
-    for _, row in summary_df.iterrows():
-        with st.container(border=True, horizontal=True, vertical_alignment="center"):
-            with st.container():
-                st.markdown(f"**{row['recipe_name']}**")
-                st.caption(f"{int(row['servings'])} personen")
-                unresolved = int(row.get("items_unresolved") or 0)
-                unpriced = int(row.get("items_total") or 0) - int(
-                    row.get("items_priced") or 0
-                )
-                if unpriced:
-                    st.badge(
-                        f"{unpriced} van {int(row['items_total'])} zonder prijs",
-                        color="orange",
-                        icon=":material/help:",
-                    )
-                    if unresolved:
-                        st.caption(
-                            f"{unresolved} ingrediënt(en) zijn nog niet aan een "
-                            "product gekoppeld."
-                        )
-            with st.container(horizontal_alignment="right"):
-                if pd.notna(row["total_cost"]):
-                    st.markdown(f"**€{row['total_cost']:.2f}**")
-                    st.caption(f"€{row['cost_per_serving']:.2f} p.p.")
-                elif pd.notna(row.get("partial_cost_observed")):
-                    # The "+" is the whole honesty mechanism, in one character.
-                    st.markdown(f"**€{row['partial_cost_observed']:.2f}+**")
-                    st.caption("nog niet compleet")
-                else:
-                    st.caption("nog geen prijs")
-
-
-def _render_bonus_highlights(engine):
-    """Show which recipes have ingredients currently on bonus."""
-    bonus_df = read_recipe_bonus_summary(engine, read_marts_built_at(engine))
-    if bonus_df.empty or bonus_df["bonus_count"].sum() == 0:
-        return
-
-    st.subheader("Deze week in de bonus")
-    has_bonus = bonus_df[bonus_df["bonus_count"] > 0].copy()
-    if has_bonus.empty:
-        return
-
-    for _, row in has_bonus.iterrows():
-        real = row["total_real_savings"]
-        advertised = row["total_advertised_savings"]
-
-        parts = [
-            f"**{row['recipe_name']}**: "
-            f"{row['bonus_count']}/{row['total_ingredients']} "
-            "ingrediënten in de bonus"
-        ]
-        if real > 0:
-            parts.append(f" — je bespaart **€{real:.2f}**")
-        if advertised > 0 and advertised != real:
-            parts.append(f" (AH adverteert €{advertised:.2f})")
-
-        st.markdown("".join(parts))
-
-
-def _render_recipe_detail(engine, summary_df):
-    """Drill-down into a specific recipe's ingredients."""
-    st.subheader("Recept")
-
-    recipe_options = dict(zip(summary_df["recipe_name"], summary_df["recipe_id"]))
-    selected_name = st.selectbox("Kies een recept", options=list(recipe_options.keys()))
-
-    if not selected_name:
-        return
-
-    recipe_id = recipe_options[selected_name]
-    breakdown_df = read_recipe_breakdown_bonus(
-        engine, recipe_id, read_marts_built_at(engine)
-    )
-
-    if breakdown_df.empty:
-        st.warning("Voor dit recept zijn geen ingrediënten bekend.")
-        return
-
-    real_total = breakdown_df["real_savings"].sum()
-    adv_total = breakdown_df["advertised_savings"].sum()
-    if real_total > 0:
-        msg = f"Ingrediënten in de bonus — je bespaart €{real_total:.2f}"
-        if adv_total > 0 and adv_total != real_total:
-            msg += f" (AH adverteert €{adv_total:.2f})"
-        st.success(msg)
-
-    st.markdown("**Ingrediënten**")
-    for _, row in breakdown_df.iterrows():
-        # One card per ingredient, in one of three states: resolved to a
-        # product, unresolved, or decided to have no purchasable equivalent.
-        # The third is a decision and must not read like an oversight.
-        unresolved = bool(row.get("is_unresolved"))
-        no_product = row.get("review_state") == "none_exists"
-        label = row.get("item_label") or row.get("product_name")
-        with st.container(border=True, horizontal=True, vertical_alignment="center"):
-            if row.get("image_url") and not unresolved:
-                st.image(row["image_url"], width=56)
-            with st.container():
-                if unresolved:
-                    st.markdown(f"**{label}**")
-                    if no_product:
-                        st.badge(
-                            "geen product",
-                            color="gray",
-                            icon=":material/block:",
-                        )
-                        st.caption("Hiervoor is bewust geen product gekozen.")
-                    else:
-                        st.badge(
-                            "nog niet gekoppeld",
-                            color="orange",
-                            icon=":material/help:",
-                        )
-                elif row.get("product_url"):
-                    st.markdown(f"**[{row['product_name']}]({row['product_url']})**")
-                    st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
-                else:
-                    st.markdown(f"**{row['product_name']}**")
-                    st.caption(f"{row['quantity']}× · €{row['price']:.2f} per stuk")
-            with st.container(horizontal_alignment="right"):
-                if not unresolved and pd.notna(row.get("item_cost")):
-                    st.markdown(f"**€{row['item_cost']:.2f}**")
-                if row.get("is_on_bonus"):
-                    st.badge(
-                        row.get("bonus_mechanism") or "Bonus",
-                        color="green",
-                        icon=":material/savings:",
-                    )
-                    # The honest-price insight, in one line rather than three
-                    # prices separated by pipes. This is the project's thesis
-                    # and it belongs where the saving is.
-                    ah_price = row.get("price_before_bonus")
-                    tracked = row.get("price")
-                    if (
-                        ah_price is not None
-                        and tracked is not None
-                        and ah_price > tracked
-                    ):
-                        st.caption(
-                            f"AH rekent €{ah_price:.2f} als 'van'-prijs; "
-                            f"wij zagen €{tracked:.2f}."
-                        )
-                # Correctable where the gap is visible: noticing and fixing are
-                # one act, and because resolution lives on the ingredient, this
-                # corrects every recipe using it.
-                if pd.notna(row.get("concept_id")):
-                    if st.button(
-                        "wijzig",
-                        key=f"fix_{row['recipe_id']}_{row['item_key']}",
-                        type="tertiary",
-                    ):
-                        open_single(get_engine(), int(row["concept_id"]), str(label))
-
-
-def render_recipes():
+def render_recipes(account: Account | None = None) -> None:
+    account = account or SINGLE_USER
     st.title("Recepten")
 
-    # The same dialog runs from here, so the same feedback belongs here.
-    render_resolution_result()
-    render_rebuild_status()
+    engine = get_engine()
+    built_at = read_marts_built_at(engine)
+    saved = read_saved_recipes(engine, account.account_id, built_at)
 
-    try:
-        engine = get_engine()
-    except Exception as e:
-        st.error(f"Geen verbinding met de database: {e}")
+    if saved.empty:
+        _render_nothing_saved()
         return
 
-    # Same cache key as Vanavond: a rebuild invalidates these exactly,
-    # rather than leaving the Recepten page serving costs from before it
-    # for up to fifteen minutes.
-    summary_df = read_recipe_summary(engine, read_marts_built_at(engine))
+    priced = read_recipe_opportunity(engine, store_for(account), built_at)
+    priced, stale_notice = offers.withdraw_stale_clearance(priced)
+    if stale_notice:
+        st.warning(stale_notice)
 
-    if summary_df.empty:
-        st.info("Nog geen recepten. Voeg er eerst een toe.")
+    cards = saved.merge(priced, on="recipe_id", how="left")
+    on_offer = cards[_is_on_offer(cards)]
+
+    query, sort_key, only_on_offer = _render_controls(len(on_offer))
+    shown = on_offer if only_on_offer else cards
+    if query:
+        shown = shown[shown["recipe_name"].fillna("").str.contains(query, case=False)]
+
+    if shown.empty:
+        _render_nothing_matches(cards, only_on_offer, query)
         return
 
-    _render_recipe_summary(summary_df)
-    _render_bonus_highlights(engine)
-    _render_recipe_detail(engine, summary_df)
+    for _, row in _sorted(shown, sort_key).iterrows():
+        _render_card(engine, account, row)
+
+
+# ---------------------------------------------------------------------------
+# Controls
+# ---------------------------------------------------------------------------
+
+
+def _render_controls(on_offer_count: int) -> tuple[str, str, bool]:
+    """Narrowing, sorting, and the offer filter.
+
+    The count sits in the toggle's label before it is applied, which is what
+    stops "nothing on offer" from reading as a broken page: you can see it
+    would be empty without making it empty.
+
+    Default off. Turning it on by default hides most of a collection on most
+    days, and Vanavond already answers "what is cheap today".
+    """
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        query = st.text_input("Zoek", key=_QUERY_KEY, placeholder="Naam van een recept")
+        # A radio-backed selectbox, not segmented_control: AppTest reads the
+        # latter's single-select value as a sequence and iterates the label's
+        # characters, which is documented in add_recipe_page.
+        label = st.selectbox("Sorteer", options=list(_SORTS), key=_SORT_KEY)
+    only = st.toggle(
+        f"Alleen wat nu in de aanbieding is ({on_offer_count})", key=_FILTER_KEY
+    )
+    return query.strip(), _SORTS[label], bool(only)
+
+
+def _sorted(cards: pd.DataFrame, key: str) -> pd.DataFrame:
+    if key == "cheapest":
+        return cards.sort_values("cost_today", na_position="last")
+    if key == "name":
+        return cards.sort_values("recipe_name")
+    # Never made first: those are the ones the question is really about.
+    made = pd.to_datetime(cards["last_made_at"], utc=True, errors="coerce")
+    return cards.assign(_made=made).sort_values("_made", na_position="first")
+
+
+def _is_on_offer(cards: pd.DataFrame) -> pd.Series:
+    discounted = cards.get("items_discounted")
+    if discounted is None:
+        return pd.Series(False, index=cards.index)
+    return discounted.fillna(0) > 0
+
+
+# ---------------------------------------------------------------------------
+# One card
+# ---------------------------------------------------------------------------
+
+
+def _render_card(engine, account: Account, row) -> None:
+    with st.container(border=True):
+        with st.container(horizontal=True, vertical_alignment="center"):
+            if isinstance(row.get("image_url"), str) and row["image_url"]:
+                st.image(row["image_url"], width=72)
+            with st.container():
+                st.markdown(f"**{row.get('recipe_name') or 'Naamloos recept'}**")
+                _render_price(row)
+                _render_badges(row)
+                st.caption(_describe_last_made(row.get("last_made_at")))
+
+        with st.container(horizontal=True):
+            if st.button(
+                "Gemaakt vandaag",
+                key=f"made_{row['recipe_id']}",
+                icon=":material/check:",
+            ):
+                mark_recipe_made(engine, account.account_id, int(row["recipe_id"]))
+                st.rerun()
+            if st.button(
+                "Verwijderen",
+                key=f"drop_{row['recipe_id']}",
+                icon=":material/delete:",
+            ):
+                unsave_recipe(engine, account.account_id, int(row["recipe_id"]))
+                st.rerun()
+
+
+def _render_price(row) -> None:
+    """Exact when every ingredient is priced, an estimate when not.
+
+    The "±" and the coverage together are the honest form: a total over five
+    of eight ingredients is not the price of the dish, and printing it bare
+    invites somebody to trust it.
+    """
+    cost = row.get("cost_today")
+    if pd.notna(cost):
+        ordinary = row.get("cost_ordinary")
+        was = (
+            f" · ~~{offers.euro(ordinary)}~~"
+            if pd.notna(ordinary) and ordinary > cost
+            else ""
+        )
+        st.markdown(f"{offers.euro(cost)}{was}")
+        return
+
+    partial = row.get("partial_cost_today")
+    priced, total = row.get("items_priced"), row.get("items_total")
+    if pd.notna(partial) and pd.notna(priced) and pd.notna(total):
+        st.markdown(f"±{offers.euro(partial)}")
+        st.caption(f"Schatting over {int(priced)} van {int(total)} ingrediënten")
+        return
+    st.caption("Van geen enkel ingrediënt is de prijs bekend.")
+
+
+def _render_badges(row) -> None:
+    clearance = row.get("items_discounted_clearance") or 0
+    discounted = row.get("items_discounted") or 0
+    bonus = max(int(discounted) - int(clearance), 0)
+    with st.container(horizontal=True):
+        if bonus:
+            st.badge(f"{bonus}× bonus", color="green", icon=":material/savings:")
+        if int(clearance):
+            st.badge(
+                f"{int(clearance)}× laatste kans",
+                color="orange",
+                icon=":material/schedule:",
+            )
+        unresolved = row.get("items_unresolved") or 0
+        if int(unresolved):
+            st.badge(
+                f"{int(unresolved)} nog niet gekoppeld",
+                color="grey",
+                icon=":material/help:",
+            )
+
+
+def _describe_last_made(value) -> str:
+    """ "Nog niet gemaakt" is a different statement from a zero date."""
+    stamp = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(stamp):
+        return "Nog niet gemaakt"
+    return f"Vorige keer {describe_age(stamp, freshness_now())}"
+
+
+# ---------------------------------------------------------------------------
+# Nothing to show
+# ---------------------------------------------------------------------------
+
+
+def _render_nothing_saved() -> None:
+    """A dead end is the failure here. The page says where recipes come from
+    and links to both, rather than reporting an absence."""
+    st.info("Je hebt nog geen recepten bewaard.")
+    st.markdown(
+        "Op **Vanavond** staat wat vandaag het voordeligst is — bewaar daar "
+        "wat je wilt maken. Of zoek er zelf een op **Toevoegen**."
+    )
+    with st.container(horizontal=True):
+        st.page_link("vanavond", label="Vanavond", icon=":material/local_dining:")
+        st.page_link("toevoegen", label="Toevoegen", icon=":material/add:")
+
+
+def _render_nothing_matches(
+    cards: pd.DataFrame, only_on_offer: bool, query: str
+) -> None:
+    """Still answer the question that was asked.
+
+    An empty grid under a filter reads as a failure. Saying what is not there
+    and then answering the next question is what the clearance page does when
+    the day's scan finds nothing.
+    """
+    if query:
+        st.info(f"Geen bewaard recept met '{query}' in de naam.")
+        return
+    if only_on_offer:
+        st.info(
+            "Van je bewaarde recepten staat er vandaag niets in de aanbieding. "
+            "Dat is een antwoord, geen storing."
+        )
+        longest = _sorted(cards, "longest").head(1)
+        if not longest.empty:
+            name = longest.iloc[0].get("recipe_name")
+            st.markdown(f"**Wel het langst niet gemaakt:** {name}")
+        return
+    st.info("Geen recepten om te tonen.")

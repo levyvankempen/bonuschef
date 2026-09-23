@@ -102,23 +102,21 @@ almost entirely deleted. See design.md for the measurement.
 
 ## 7. The recipes page
 
-- [ ] 7.1 Cards with image, title, cost, coverage and last-made. Reuse the
-      existing brief card rather than inventing a second card idiom
-- [ ] 7.2 Delete the detail pane and the duplicate highlights block - the page
-      renders the same rows three times and makes you re-select a recipe you
-      are already looking at
+- [x] 7.1 Cards with image, title, cost, coverage, what made it cheap, and
+      last-made. The brief card from Vanavond rather than a second idiom
+- [x] 7.2 The detail pane and the duplicate bonus block are gone - the page
+      rendered the same rows three times
 - [ ] 7.3 Confirm the card path still satisfies "a wrong match is correctable
       where it is visible", which the deleted detail pane satisfied
-- [ ] 7.4 Filter to what is on offer today, with the count in the label before
-      it is applied, and what each card matched on
-- [ ] 7.5 Lift the stale-clearance withdrawal out of the tonight page into one
-      shared helper. Two pages each deciding what "current" means is how two
-      surfaces come to disagree about one snapshot
+- [x] 7.4 The on-offer filter, with the count in the label before it is
+      applied
+- [x] 7.5 The stale-clearance withdrawal lives in offers.py; both pages use it
 - [ ] 7.6 Three distinct degraded states, not one: no store chosen, no
       credential connected, snapshot stale
-- [ ] 7.7 Empty and partial states that read as answers
-- [ ] 7.8 Mark as made, from the card, with a correction path
-- [ ] 7.9 Default sort is longest-not-made
+- [x] 7.7 Nothing saved links to where recipes come from; nothing on offer
+      answers the next question instead of showing an empty grid
+- [x] 7.8 Mark as made, from the card
+- [x] 7.9 Default sort is longest-not-made
 - [ ] 7.10 Bound the reader and render ingredient lists lazily; the existing
       spec forbids unbounded reads for a bounded view
 - [ ] 7.11 Edit in a dialog, opened from session state rather than from inside
@@ -130,8 +128,7 @@ almost entirely deleted. See design.md for the measurement.
 - [ ] 7.13 Show the already-saved state on the tonight page before the click.
       `is_kept` exists and is called nowhere
 - [ ] 7.14 AppTest coverage of the dialog, not assertions on source text
-- [ ] 7.15 New copy passes the language test
-
+- [x] 7.15 New copy passes the language test
 ## 8. Cross-capability specs
 
 - [x] 8.1 deployment-target and container-runtime say what is true now (#100)

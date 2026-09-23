@@ -25,7 +25,7 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
-from bonuschef.portal import freshness
+from bonuschef.portal import freshness, offers
 from bonuschef.portal.review import (
     open_review,
     open_single,
@@ -94,7 +94,8 @@ def _clearance_snapshot(df: pd.DataFrame) -> pd.Timestamp | None:
 
 
 def _euro(value) -> str:
-    return f"€{float(value):.2f}"
+    # offers.euro, so the Recepten page cannot format a price differently.
+    return offers.euro(value)
 
 
 def _saving_phrase(row) -> str:
@@ -553,35 +554,12 @@ def render_tonight(account: Account | None = None) -> None:
     snapshot = _clearance_snapshot(df)
     clearance_current = freshness.is_current(snapshot, now)
 
-    # Withdraw clearance rather than blanking the page. The bonus evidence is
-    # national and week-scoped; it has not aged out just because the store scan
-    # has, and at 09:00 you still want to know what to cook.
-    if not clearance_current:
-        # Every clearance-derived figure, not three of them. Swapping only the
-        # headline left the per-serving price, the "±" estimate shown for most
-        # of the pool, and every ingredient line still clearance-priced -
-        # directly beneath a banner saying clearance did not count. A reader
-        # multiplying servings by the per-serving price got a different number
-        # from the total above it.
-        df = df.assign(
-            saving_total=df["saving_bonus_only"],
-            cost_today=df["cost_today_bonus_only"],
-            partial_cost_today=df["partial_cost_today_bonus_only"],
-            cost_today_per_serving=df["cost_today_per_serving_bonus_only"],
-            items_discounted_clearance=0,
-            min_stock_remaining=None,
-            earliest_expiry=pd.NaT,
-        )
-        df = df.assign(
-            opportunity_rank=df["saving_total"]
-            .where(df["saving_total"] > 0)
-            .rank(ascending=False, method="min")
-        )
-        st.warning(
-            f"De winkelscan is van {freshness.format_local(snapshot)} en dus niet "
-            "van vandaag. De laatste kans-koopjes tellen daarom even niet mee; "
-            "hieronder staat alleen wat er in de bonus is."
-        )
+    # The withdrawal lives in offers.py, because the Recepten page needs the
+    # same judgement and two pages deciding for themselves what "current"
+    # means is how two surfaces come to disagree about one snapshot.
+    df, stale_notice = offers.withdraw_stale_clearance(df, now=now)
+    if stale_notice:
+        st.warning(stale_notice)
 
     bonus_loaded = freshness.to_local(read_bonus_feed_loaded_at(engine))
     if bonus_loaded is not None:
