@@ -69,29 +69,19 @@ almost entirely deleted. See design.md for the measurement.
 
 - [x] 4.1 Settle member-gated vs member-varying by experiment. **Gated.**
 - [x] 4.2 One credential fetches every store (#95)
-- [ ] 4.3 Guard the assumption: if a store ever returns another store's
-      contents, or a credential is rejected for a store that is not its own,
-      that is the measurement going stale and must be visible rather than
-      silently wrong
-
-Deleted with this section, and worth naming because they were the most
-expensive and most dangerous parts of the change: holding friends' Albert
-Heijn sessions, encrypting them at rest, rotating the key, revoking a
-connection, fanning the heartbeat out per account, and asking a friend to
-copy an authorization code out of desktop DevTools.
-
+- [x] 4.3 Two shops returning identical shelves is reported. The measurement
+      that one credential serves every shop was made once; if it stops
+      holding, every friend silently reads somebody else's prices
 ## 5. Clearance per store
 
 - [x] 5.1 A loop inside the asset, not partitions (#95)
 - [x] 5.2 Per-store failure is a warning; only every store failing is a failure (#95)
-- [ ] 5.3 Per-store clearance staleness, surfaced on that account's page and
-      in pipeline health. A single freshness threshold over the whole table
-      stays green forever if the operator's store keeps scraping
+- [x] 5.3 A shop falling behind the others is said on its own page. One run
+      scrapes every shop and a failing shop is a warning, so a green run
+      stopped meaning this shop was scraped
 - [x] 5.4 Bonus stays national and a single fetch - unchanged, and now covered by a test that an unscraped store still sees it (#95)
-- [ ] 5.5 A store with no clearance shows that as an answer, not a failure.
-      Store 5557 returned zero items in the measurement while its neighbours
-      returned hundreds; an empty list is a real state
-
+- [x] 5.5 A never-scraped shop reads as "nog nooit gescand" rather than as a
+      failure, and an empty scrape as "geen koopjes"
 ## 6. Recipes
 
 - [x] 6.1 Saved-recipe join per account (#97). last_made_at and notes exist as columns; nothing writes them yet - see 7.8

@@ -117,6 +117,10 @@ def stubs(monkeypatch):
     # sees what a person would.
     monkeypatch.setattr(page, "store_name", lambda e, s: "AH Eindhoven Torenallee")
     monkeypatch.setattr(page, "store_for", lambda account: 1876)
+    # No lag by default: the interesting case is a shop falling behind the
+    # others, and a test that wants it says so.
+    state["lag_hours"] = None
+    monkeypatch.setattr(page, "read_store_scrape_lag", lambda e, s: state["lag_hours"])
     monkeypatch.setattr(page, "_now", lambda: state["now"])
     monkeypatch.setattr(page, "trigger_job", trigger)
 
@@ -499,3 +503,37 @@ def test_the_page_names_the_shop(stubs, monkeypatch):
     wrong shop out of 1,199 had nothing on the page to tell them."""
     at = run_app(page.render_clearance).run()
     assert any("AH Eindhoven Torenallee" in t for t in _texts(at)), _texts(at)
+
+
+class TestWhenThisShopFallsBehind:
+    """The fan-out broke an inference this page used to be able to make.
+
+    One run now scrapes every shop, and a shop that fails is a warning rather
+    than a run failure - so "markdowns_refresh succeeded" stopped meaning
+    "your shop was scraped". Without this, a friend's shop could go quietly
+    unscraped for days behind a row of green ticks.
+    """
+
+    def test_a_lagging_shop_is_reported(self, stubs):
+        stubs["lag_hours"] = 26.0
+        at = run_app(page.render_clearance).run()
+        assert any("gescand" in w.value for w in at.warning), [
+            w.value for w in at.warning
+        ]
+        assert any("26 uur" in w.value for w in at.warning)
+
+    def test_a_shop_in_step_with_the_others_is_not(self, stubs):
+        stubs["lag_hours"] = None
+        at = run_app(page.render_clearance).run()
+        assert not any(
+            "gescand" in w.value and "uur geleden" in w.value for w in at.warning
+        )
+
+    def test_a_small_lag_is_not_worth_saying(self, stubs):
+        """Shops are scraped in turn within one run, so a little skew is the
+        normal state and reporting it would teach people to ignore this."""
+        stubs["lag_hours"] = 0.4
+        at = run_app(page.render_clearance).run()
+        assert not any(
+            "uur geleden voor het laatst gescand" in w.value for w in at.warning
+        )

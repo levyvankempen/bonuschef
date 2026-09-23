@@ -1152,6 +1152,38 @@ CREDENTIAL_JOB = "token_heartbeat"
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
+def read_store_scrape_lag(_engine, store_id: int) -> float | None:
+    """Hours between this shop's last scrape and the most recent of any shop.
+
+    None when nothing has been scraped at all, or when this shop is the most
+    recent - both of which are "nothing to report".
+
+    This exists because the fan-out broke an inference the page used to be
+    able to make. One run now scrapes every shop, and a shop that fails is a
+    warning rather than a failure, so "markdowns_refresh succeeded" stopped
+    meaning "your shop was scraped". Without this, a friend's shop could go
+    quietly unscraped for days behind a row of green ticks.
+
+    Compared against the other shops rather than against the clock, because
+    the clock cannot tell "the scrape is not running" from "this shop is being
+    skipped", and those need different answers from whoever reads it.
+    """
+    with _engine.begin() as conn:
+        row = conn.execute(
+            text("""
+                SELECT
+                    EXTRACT(EPOCH FROM (MAX(scraped_at) - MAX(scraped_at)
+                        FILTER (WHERE store_id = :store_id))) / 3600.0 AS lag_hours
+                FROM public.stg_ah__markdowns
+            """),
+            {"store_id": int(store_id)},
+        ).fetchone()
+    if row is None or row.lag_hours is None:
+        return None
+    lag = float(row.lag_hours)
+    return lag if lag > 0 else None
+
+
 def read_pipeline_health(_engine) -> pd.DataFrame:
     """Which scheduled jobs have stopped succeeding, and for how long.
 

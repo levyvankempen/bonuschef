@@ -15,6 +15,7 @@ from bonuschef.portal.dagster_client import (
 from bonuschef.portal import freshness
 from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
+    read_store_scrape_lag,
     store_for,
     store_name,
     get_engine,
@@ -36,6 +37,31 @@ _FAILED_KEY = "clearance_refresh_failed"
 _POLL_SECONDS = 2
 _SNAPSHOT_BEFORE_KEY = "clearance_snapshot_before"
 _FIRST_SCRAPE_HOUR = freshness.FIRST_SCRAPE_HOUR
+
+
+# Beyond this, the shop is being skipped rather than merely scraped in a
+# different order within the hour.
+_LAG_HOURS_WORTH_SAYING = 3.0
+
+
+def _render_store_lag(engine, store_id: int) -> None:
+    """Say when this shop is falling behind the others.
+
+    The scrape fans out over every shop an account uses, and a shop that fails
+    is a warning rather than a run failure - so a green run no longer means
+    this shop was scraped. Nothing else on the page would say so.
+    """
+    try:
+        lag = read_store_scrape_lag(engine, store_id)
+    except ProgrammingError:
+        return
+    if lag is None or lag < _LAG_HOURS_WORTH_SAYING:
+        return
+    st.warning(
+        f"Deze winkel is {int(lag)} uur geleden voor het laatst gescand, "
+        "terwijl andere winkels sindsdien wel zijn bijgewerkt.",
+        icon=":material/sync_problem:",
+    )
 
 
 def _load(engine, store_id: int) -> pd.DataFrame | None:
@@ -324,6 +350,7 @@ def render_clearance(account: Account | None = None) -> None:
             f"Afgeprijsde artikelen in {shop or 'jouw Albert Heijn'}. Kortingen "
             "lopen door de dag op en de voorraad is snel weg."
         )
+        _render_store_lag(engine, store_id)
         df = _load(engine, store_id)
         last_scrape = (
             read_last_scrape_time(engine, store_id) if df is not None else None

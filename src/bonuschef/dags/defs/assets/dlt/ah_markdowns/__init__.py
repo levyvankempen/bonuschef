@@ -24,6 +24,11 @@ from bonuschef.config import AHMarkdownConfig, DatabaseConfig
 from bonuschef.utils.ah_auth import AHTokenManager, TokenStore
 
 
+# Two shops sharing this many clearance items is not a coincidence worth
+# staying quiet about.
+_IDENTICAL_SHELF_IS_SUSPICIOUS = 20
+
+
 class AHMarkdownsUnavailable(RuntimeError):
     """Every store failed. One failing is a warning; all of them is the feed."""
 
@@ -152,15 +157,42 @@ def ah_markdowns_source(cfg: AHMarkdownConfig, stores: list[int], context=None):
 
     def _all():
         failures: list[str] = []
+        # Fingerprint per store, to check the assumption this whole design
+        # rests on: that asking for a shop returns THAT shop's shelf.
+        #
+        # Measured once, on 2026-09-20, against four real shops - 217 items
+        # for Driebergen, 183 for Doorn, 242 for Zeist, none of them the
+        # operator's own 90. That measurement is why there is one credential
+        # instead of one per person. If it ever stops holding, every friend
+        # silently reads somebody else's prices, and nothing else here would
+        # notice.
+        seen: dict[frozenset, int] = {}
         for store_id in stores:
             try:
-                yield from _iter_markdowns(cfg, scraped_at, store_id)
+                rows = list(_iter_markdowns(cfg, scraped_at, store_id))
             except Exception as exc:  # noqa: BLE001 - reported, not swallowed
                 failures.append(f"{store_id}: {type(exc).__name__}")
                 if context is not None:
                     context.log.warning(
                         "store %s could not be scraped: %s", store_id, exc
                     )
+                continue
+
+            # Only a non-trivial shelf is evidence. Two shops with nothing on
+            # clearance genuinely match, and saying so every evening would
+            # teach whoever reads it to ignore the warning that matters.
+            ids = frozenset(r["webshop_id"] for r in rows if r.get("webshop_id"))
+            if len(ids) >= _IDENTICAL_SHELF_IS_SUSPICIOUS and ids in seen:
+                message = (
+                    f"stores {seen[ids]} and {store_id} returned identical "
+                    f"shelves ({len(ids)} items). Clearance is supposed to "
+                    "differ by shop; if it no longer does, one credential "
+                    "cannot serve them all."
+                )
+                if context is not None:
+                    context.log.warning(message)
+            seen.setdefault(ids, store_id)
+            yield from rows
         if failures and len(failures) == len(stores):
             raise AHMarkdownsUnavailable(
                 "no store could be scraped: " + ", ".join(failures)

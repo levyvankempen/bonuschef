@@ -267,3 +267,80 @@ def test_each_row_carries_the_store_it_came_from(monkeypatch):
     )
     rows = list(module._iter_markdowns(CFG, "2026-01-01T00:00:00Z", 1661))
     assert [r["store_id"] for r in rows] == [1661]
+
+
+# --- guarding the measurement the design rests on ---------------------------
+
+
+class _Log:
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def warning(self, msg, *a):
+        self.warnings.append(msg % a if a else str(msg))
+
+    def info(self, *a, **k):
+        pass
+
+
+class _Ctx:
+    def __init__(self):
+        self.log = _Log()
+
+
+def _shelf(store_id, ids):
+    return [{"store_id": store_id, "webshop_id": i} for i in ids]
+
+
+def test_two_shops_returning_the_same_shelf_is_reported(monkeypatch):
+    """The assumption this design rests on is that asking for a shop returns
+    that shop's shelf. It was measured once. If it stops holding, every friend
+    silently reads somebody else's prices and nothing else here would notice.
+    """
+    both = list(range(100, 130))
+
+    def same(cfg, scraped_at, store_id):
+        yield from _shelf(store_id, both)
+
+    monkeypatch.setattr(module, "_iter_markdowns", same)
+    ctx = _Ctx()
+    list(ah_markdowns_source(CFG, [1661, 1876], ctx).store_markdowns)
+    assert any("identical shelves" in w for w in ctx.log.warnings), ctx.log.warnings
+
+
+def test_different_shelves_are_not_reported(monkeypatch):
+    def different(cfg, scraped_at, store_id):
+        yield from _shelf(store_id, range(store_id, store_id + 30))
+
+    monkeypatch.setattr(module, "_iter_markdowns", different)
+    ctx = _Ctx()
+    list(ah_markdowns_source(CFG, [1661, 1876], ctx).store_markdowns)
+    assert not ctx.log.warnings, ctx.log.warnings
+
+
+def test_two_empty_shelves_are_not_suspicious(monkeypatch):
+    """Two shops with nothing on clearance genuinely match. Saying so every
+    evening would teach whoever reads it to ignore the warning that matters.
+    """
+
+    def empty(cfg, scraped_at, store_id):
+        return iter(())
+
+    monkeypatch.setattr(module, "_iter_markdowns", empty)
+    ctx = _Ctx()
+    list(ah_markdowns_source(CFG, [1661, 1876], ctx).store_markdowns)
+    assert not ctx.log.warnings, ctx.log.warnings
+
+
+def test_a_suspicious_shelf_is_still_loaded(monkeypatch):
+    """Reported, not discarded. The rows may well be correct, and throwing
+    away a shop's prices on a suspicion is a worse failure than the one being
+    guarded against."""
+    both = list(range(100, 130))
+
+    def same(cfg, scraped_at, store_id):
+        yield from _shelf(store_id, both)
+
+    monkeypatch.setattr(module, "_iter_markdowns", same)
+    rows = list(ah_markdowns_source(CFG, [1661, 1876], _Ctx()).store_markdowns)
+    assert {r["store_id"] for r in rows} == {1661, 1876}
