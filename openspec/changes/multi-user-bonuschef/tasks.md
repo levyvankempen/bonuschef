@@ -19,8 +19,11 @@ here marked done because task 1.4 has not happened yet.
 - [x] 1.1 Adopt R-R1193780, quiche with broccoli and smoked salmon (#76)
 - [x] 1.2 Adopt R-R1193969, tacos with kibbeling, red cabbage and aioli (#76)
 - [x] 1.3 Withdraw zuurkoolstampot (#76)
-- [ ] 1.4 Review what the matcher withheld on the two new recipes
-
+- [x] 1.4 Reviewed on the live database: nothing withheld. All 5 quiche
+      ingredients and all 10 taco ingredients resolve, including the one that
+      had gone wrong - wit scharrelei was linked to DeLoach Chardonnay, the
+      recheck withdrew it once daily_refresh could run again, and it now
+      resolves to seven kinds of egg
 ## 2. Accounts
 
 - [x] 2.1 Decided: a cookie component. Not tailnet identity, which would be
