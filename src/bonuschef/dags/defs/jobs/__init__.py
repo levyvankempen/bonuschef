@@ -63,7 +63,21 @@ recipes_rebuild_job = define_asset_job(
 # button triggers this same job by name (see portal/dagster_client.py).
 markdowns_refresh_job = define_asset_job(
     name="markdowns_refresh",
-    selection=AssetSelection.assets("ah__store_markdowns").downstream(),
+    # Markdowns and everything downstream, PLUS the accounts staging model.
+    #
+    # That model is upstream of int_store, not downstream of the scrape, so
+    # "downstream of markdowns" does not reach it - and int_store now reads it
+    # to learn which shops have accounts. Without it here the hourly job fails
+    # on a relation that does not exist yet, every hour, until some other job
+    # happens to build it.
+    #
+    # The warehouse CI session cannot catch this: it runs `dbt build` over the
+    # whole project, so every model exists regardless of which job would have
+    # built it. What is tested here instead is the selection itself.
+    selection=(
+        AssetSelection.assets("ah__store_markdowns").downstream()
+        | AssetSelection.assets("stg_portal__accounts")
+    ),
     # In-process, not the default multiprocess executor. This is the one job a
     # person waits on, and the wait was almost entirely overhead: of a measured
     # 39 seconds, the AH scrape took 1 and dbt's actual work took 4. The rest

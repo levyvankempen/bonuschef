@@ -84,6 +84,11 @@ def test_markdowns_refresh_only_touches_clearance_lineage(defs, asset_graph):
         "int_recipe_item_opportunity",
         "marts/fct_recipe_opportunity",
         "marts/fct_recipe_opportunity_items",
+        # Upstream of int_store rather than downstream of the scrape, so it
+        # has to be named explicitly. int_store learns which shops have
+        # accounts from it, and without it here the hourly job fails on a
+        # relation that does not exist.
+        "stg_portal__accounts",
     }
     assert "github__products" not in keys
     assert "ah__recipe_pool" not in keys
@@ -389,3 +394,21 @@ def test_nothing_else_falls_on_the_hour(defs):
             int(h) for h in hours.replace("*", "-1").split(",") if h.isdigit()
         }
         assert not clashes, f"{schedule.name} lands on {sorted(clashes)}"
+
+
+def test_the_hourly_job_builds_every_model_it_depends_on(defs, asset_graph):
+    """int_store reads the accounts staging model, which is upstream of it and
+    therefore not reached by "downstream of the scrape".
+
+    Missing it failed the hourly job on a relation that did not exist, every
+    hour, until another job happened to build it. The warehouse CI session
+    cannot catch that: it runs `dbt build` over the whole project, so every
+    model exists regardless of which job would have built it. The selection is
+    the only place the gap is visible.
+    """
+    job = next(j for j in defs.jobs if j.name == "markdowns_refresh")
+    selected = _keys(job, asset_graph)
+    assert "int_store" in selected, "the scrape rebuilds the store spine"
+    assert "stg_portal__accounts" in selected, (
+        "int_store reads it, so the job that rebuilds int_store must build it"
+    )
