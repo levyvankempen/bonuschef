@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.31.1 (2026-09-23)
+
+### Bug Fixes
+
+- **portal**: The empty Recepten page crashed
+  ([#110](https://github.com/levyvankempen/bonuschef/pull/110),
+  [`faa66b3`](https://github.com/levyvankempen/bonuschef/commit/faa66b37eb0c6866f0269d91b45d5ce8a4b120c1))
+
+### Documentation
+
+- Sync and archive the multi-user change
+  ([#109](https://github.com/levyvankempen/bonuschef/pull/109),
+  [`d3de10c`](https://github.com/levyvankempen/bonuschef/commit/d3de10c625910d03e13497d809142b30c581b321))
+
+
 ## v1.31.0 (2026-09-23)
 
 ### Features
