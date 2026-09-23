@@ -142,3 +142,17 @@ def test_the_guard_would_catch_a_regression(tmp_path):
     )
     hits = [(line, text) for line, text in _copy_in(sample) if _english_words(text)]
     assert hits == [(2, "Recent Price Changes")]
+
+
+def test_the_note_for_invited_people_says_what_is_not_stored():
+    """The reassuring half is the half that gets left out. An earlier design
+    did store each person's Albert Heijn login, and somebody being invited
+    has no way to know it was dropped unless the note says so."""
+    from pathlib import Path
+
+    note = (
+        Path(__file__).resolve().parents[2] / "docs" / "for-people-invited.md"
+    ).read_text()
+    assert "What is not stored" in note
+    assert "bonuskaart" in note
+    assert "Ending it" in note, "how to stop is part of what is stored"
