@@ -24,6 +24,12 @@ sources:
         description: >
           Which products satisfy an ingredient concept. Many-to-many on
           purpose: which is cheapest changes daily.
+      - name: accounts
+        description: >
+          Who uses the portal, and which Albert Heijn each of them reads.
+          The store spine is built from this rather than from what has been
+          scraped, so an account whose shop has never been scraped still has
+          a row - and therefore still sees national promotions.
       - name: ah_recipe_verdicts
         description: >
           A person's decision about a pool recipe. Keyed on recipe_id so that a

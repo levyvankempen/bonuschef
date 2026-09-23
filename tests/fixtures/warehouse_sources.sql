@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS public.recipe_ingredients (
     valid_to     TIMESTAMP
 );
 
+DELETE FROM public.accounts WHERE username LIKE 'fixture_%';
 DELETE FROM public.recipe_ingredients WHERE recipe_id = 999900;
 DELETE FROM public.recipes WHERE recipe_id = 999900;
 DELETE FROM public."ah__pool_recipe_ingredients" WHERE recipe_id >= 999900000;
@@ -218,3 +219,26 @@ INSERT INTO public.recipe_ingredients
     (recipe_id, product_name, product_link, quantity, valid_from, valid_to)
 VALUES
     (999900, 'AH Roomboter', 'wi999003/ah-roomboter', 1, NULL, NULL);
+
+-- An account whose shop has never been scraped.
+--
+-- The store spine used to be built from scraped markdowns, so a store with no
+-- scrape had no row - and three models CROSS JOIN that spine, so it had no
+-- rows anywhere downstream either, including national promotions that do not
+-- depend on a store at all. A second person saw an empty application.
+--
+-- 999998 is scraped by nothing in this fixture on purpose. It is here so the
+-- spine has to carry it.
+CREATE TABLE IF NOT EXISTS public.accounts (
+    account_id           BIGSERIAL PRIMARY KEY,
+    username             TEXT        NOT NULL,
+    password_hash        TEXT        NOT NULL DEFAULT '',
+    must_change_password BOOLEAN     NOT NULL DEFAULT TRUE,
+    store_id             BIGINT,
+    is_operator          BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_sign_in_at      TIMESTAMPTZ
+);
+
+INSERT INTO public.accounts (username, store_id)
+VALUES ('fixture_unscraped_store', 999998);

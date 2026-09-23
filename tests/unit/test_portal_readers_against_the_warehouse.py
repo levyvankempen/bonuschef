@@ -31,6 +31,7 @@ import ast
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
 from bonuschef.portal import db
 
@@ -228,3 +229,40 @@ def test_both_pages_pass_the_stamp():
         assert "read_marts_built_at(engine)" in body, (
             f"{page} reads the marts without asking when they were built"
         )
+
+
+def test_a_store_nobody_has_scraped_still_reaches_the_spine(warehouse):
+    """The bug that made a second person's application empty.
+
+    int_store was built from scraped markdowns. Three models CROSS JOIN it, so
+    a store with no scrape had no row and therefore no rows downstream -
+    including national promotions, which do not depend on a store at all. The
+    fixture's account uses store 999998, which nothing scrapes.
+    """
+    with warehouse.begin() as conn:
+        spine = conn.execute(
+            text(
+                "SELECT clearance_scraped_at, clearance_is_current "
+                "FROM public.int_store WHERE store_id = 999998"
+            )
+        ).fetchone()
+    assert spine is not None, "an account's store must be in the spine"
+    assert spine.clearance_scraped_at is None, "nothing has scraped it"
+    assert spine.clearance_is_current is False, (
+        "never scraped is not current - and must be False rather than NULL, "
+        "because the question has an answer"
+    )
+
+
+def test_that_store_sees_national_promotions(warehouse):
+    """The half of the failure that was least obvious. Bonus prices are
+    national; an unscraped store had none only because the spine excluded
+    it."""
+    with warehouse.begin() as conn:
+        offers = conn.execute(
+            text(
+                "SELECT count(*) FROM public.int_product_offer_today "
+                "WHERE store_id = 999998"
+            )
+        ).scalar()
+    assert offers, "a store with no clearance should still see the bonus"
