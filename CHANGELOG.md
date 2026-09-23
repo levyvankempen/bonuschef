@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.21.0 (2026-09-23)
+
+### Bug Fixes
+
+- **compose**: The portal healthcheck has never run
+  ([#91](https://github.com/levyvankempen/bonuschef/pull/91),
+  [`2a410a4`](https://github.com/levyvankempen/bonuschef/commit/2a410a4632c03671303ada99c90c7edc7d048e20))
+
+### Features
+
+- **portal**: A Profiel tab, and a shop you choose rather than inherit
+  ([#92](https://github.com/levyvankempen/bonuschef/pull/92),
+  [`5109936`](https://github.com/levyvankempen/bonuschef/commit/5109936217b4a93510b248fa189fb964453052b6))
+
+
 ## v1.20.0 (2026-09-23)
 
 ### Bug Fixes
