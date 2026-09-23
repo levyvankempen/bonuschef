@@ -13,6 +13,10 @@ dependencies = [
     "dagster-webserver>=1.11.11",
     "dbt-core>=1.10.13",
     "dbt-postgres>=1.9.1",
+    # Explicit, though it already arrives through dagster-dg-cli. Passwords
+    # are hashed with its scrypt, and a security-relevant dependency that is
+    # only present by accident is one an unrelated upgrade can remove.
+    "cryptography>=46.0.1",
     "dotenv>=0.9.9",
     "streamlit>=1.50.0",
     "supermarktconnector>=0.8.1",
