@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.30.0 (2026-09-23)
+
+### Features
+
+- **portal**: Cards that can be corrected, and three states rather than one
+  ([#107](https://github.com/levyvankempen/bonuschef/pull/107),
+  [`4f73c15`](https://github.com/levyvankempen/bonuschef/commit/4f73c154739607663a784a9cba2fd8f6bc8e98ab))
+
+
 ## v1.29.0 (2026-09-23)
 
 ### Documentation
