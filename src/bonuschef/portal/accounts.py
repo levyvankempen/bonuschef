@@ -73,6 +73,52 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+# How many wrong answers before a pause, and how long the pause lasts.
+#
+# Five is generous for somebody typing their own password and useless for
+# anybody working through a list. Fifteen minutes is long enough that a
+# dictionary takes years and short enough that a person who mistyped theirs
+# five times can go and make tea.
+MAX_FAILURES = 5
+LOCKOUT = timedelta(minutes=15)
+
+_THROTTLED = "Te veel pogingen. Probeer het over een kwartier opnieuw."
+
+
+def _recent_failures(conn, username: str, stamp: datetime) -> int:
+    return int(
+        conn.execute(
+            text("""
+                SELECT count(*) FROM public.sign_in_attempts
+                WHERE lower(username) = lower(:u) AND failed_at > :since
+            """),
+            {"u": username, "since": stamp - LOCKOUT},
+        ).scalar()
+        or 0
+    )
+
+
+def _record_failure(conn, username: str, stamp: datetime) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO public.sign_in_attempts (username, failed_at) VALUES (:u, :t)"
+        ),
+        {"u": username, "t": stamp},
+    )
+
+
+def _clear_failures(conn, username: str) -> None:
+    """A correct password ends the lockout.
+
+    Otherwise somebody who mistyped five times and then remembered it would
+    still be shut out, which punishes the person the throttle is protecting.
+    """
+    conn.execute(
+        text("DELETE FROM public.sign_in_attempts WHERE lower(username) = lower(:u)"),
+        {"u": username},
+    )
+
+
 def sign_in(
     engine, username: str, password: str, *, now: Callable[[], datetime] = _now
 ) -> SignInResult:
@@ -83,7 +129,14 @@ def sign_in(
     verification against a dummy hash, so the response time does not reveal
     which accounts exist.
     """
+    username = username.strip()
+    stamp = now()
     with engine.begin() as conn:
+        # Before the password is even looked at, so a throttled attempt costs
+        # nothing and a locked account cannot be used as an oracle.
+        if _recent_failures(conn, username, stamp) >= MAX_FAILURES:
+            return SignInResult(error=_THROTTLED)
+
         row = conn.execute(
             text("""
                 SELECT account_id, username, password_hash, store_id,
@@ -91,7 +144,7 @@ def sign_in(
                 FROM public.accounts
                 WHERE lower(username) = lower(:username)
             """),
-            {"username": username.strip()},
+            {"username": username},
         ).fetchone()
 
         if row is None:
@@ -100,13 +153,15 @@ def sign_in(
             # a wrong password, which is the same leak the uniform message
             # exists to close.
             verify_password(password, _DUMMY_HASH)
+            _record_failure(conn, username, stamp)
             return SignInResult(error=_REFUSED)
 
         if not verify_password(password, row.password_hash):
+            _record_failure(conn, username, stamp)
             return SignInResult(error=_REFUSED)
 
+        _clear_failures(conn, username)
         token = secrets.token_urlsafe(32)
-        stamp = now()
         conn.execute(
             text("""
                 INSERT INTO public.account_sessions

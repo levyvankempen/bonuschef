@@ -47,6 +47,7 @@ if gate.sign_in_required():
     if not _gate.may_pass:
         gate.render_sign_in(_engine)
         st.caption(f":gray[BonusChef {describe()}]", help=f"commit {get_commit()[:12]}")
+        gate.flush_cookie(st.session_state)
         st.stop()
 
     # Asserted on the attribute and assigned afterwards, so the narrowing
@@ -67,6 +68,7 @@ if gate.sign_in_required():
     if _account.store_id is None:
         render_profile(_account)
         st.caption(f":gray[BonusChef {describe()}]", help=f"commit {get_commit()[:12]}")
+        gate.flush_cookie(st.session_state)
         st.stop()
 
 # Top navigation, not the sidebar. With initial_sidebar_state="collapsed" the
@@ -111,3 +113,9 @@ st.caption(
     f":gray[BonusChef {describe()}]",
     help=f"commit {get_commit()[:12]}",
 )
+
+# Any cookie write, last. The component has to render for the browser to be
+# asked to store anything, and the sign-in path reruns immediately after
+# succeeding - so writing it there tore the frame down before it could. This
+# is the end of a run that reached a page, which means the frame survives.
+gate.flush_cookie(st.session_state)

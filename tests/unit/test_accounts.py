@@ -42,10 +42,16 @@ def _fast_hashing(monkeypatch):
 
 
 class FakeEngine:
-    """Answers queries from a queue and records what it was asked."""
+    """Answers queries from a queue and records what it was asked.
 
-    def __init__(self, *rows):
+    `failures` is what the throttle counter sees. It is answered separately
+    from the row queue because the count is asked first on every sign-in, and
+    letting it consume a queued row made every test one row out of step.
+    """
+
+    def __init__(self, *rows, failures: int = 0):
         self.rows = list(rows)
+        self.failures = failures
         self.statements: list[str] = []
         self.params: list[dict] = []
 
@@ -54,8 +60,11 @@ class FakeEngine:
         yield self
 
     def execute(self, statement, params=None):
-        self.statements.append(" ".join(str(statement).split()))
+        sql = " ".join(str(statement).split())
+        self.statements.append(sql)
         self.params.append(params or {})
+        if "count(*) FROM public.sign_in_attempts" in sql:
+            return SimpleNamespace(scalar=lambda: self.failures, fetchone=lambda: None)
         row = self.rows.pop(0) if self.rows else None
         return SimpleNamespace(fetchone=lambda: row, scalar=lambda: None)
 
@@ -149,7 +158,8 @@ def test_the_username_is_matched_without_regard_to_case():
     engine = FakeEngine(_account_row("correct horse battery"))
     sign_in(engine, "  LEVY ", "correct horse battery", now=lambda: T0)
     assert engine.wrote("lower(username) = lower(:username)")
-    assert engine.params[0]["username"] == "LEVY", "surrounding space is not a username"
+    lookup = next(p for p in engine.params if "username" in p)
+    assert lookup["username"] == "LEVY", "surrounding space is not a username"
 
 
 # --- staying signed in ------------------------------------------------------
@@ -234,3 +244,69 @@ def test_signing_out_without_a_token_does_nothing():
     engine = FakeEngine()
     sign_out(engine, "", now=lambda: T0)
     assert engine.statements == []
+
+
+# --- throttling -------------------------------------------------------------
+
+
+def test_a_failed_attempt_is_recorded():
+    engine = FakeEngine(_account_row("correct horse battery"))
+    sign_in(engine, "levy", "wrong", now=lambda: T0)
+    assert engine.wrote("INSERT INTO public.sign_in_attempts")
+
+
+def test_a_successful_attempt_is_not():
+    engine = FakeEngine(_account_row("correct horse battery"))
+    sign_in(engine, "levy", "correct horse battery", now=lambda: T0)
+    assert not engine.wrote("INSERT INTO public.sign_in_attempts")
+
+
+def test_enough_failures_stop_the_attempts():
+    engine = FakeEngine(
+        _account_row("correct horse battery"), failures=accounts.MAX_FAILURES
+    )
+    result = sign_in(engine, "levy", "correct horse battery", now=lambda: T0)
+    assert not result.ok, "even the right password waits"
+    assert result.error != accounts._REFUSED, "and says why"
+
+
+def test_a_throttled_attempt_does_not_check_the_password():
+    """So a locked account costs nothing to refuse, and cannot be used to
+    measure whether a password was close."""
+    engine = FakeEngine(
+        _account_row("correct horse battery"), failures=accounts.MAX_FAILURES
+    )
+    sign_in(engine, "levy", "correct horse battery", now=lambda: T0)
+    assert not engine.wrote("FROM public.accounts")
+
+
+def test_one_short_of_the_limit_still_tries():
+    engine = FakeEngine(
+        _account_row("correct horse battery"), failures=accounts.MAX_FAILURES - 1
+    )
+    assert sign_in(engine, "levy", "correct horse battery", now=lambda: T0).ok
+
+
+def test_the_count_only_looks_at_recent_failures():
+    """A lockout that never expires is an account somebody has destroyed
+    rather than protected."""
+    engine = FakeEngine(_account_row("correct horse battery"))
+    sign_in(engine, "levy", "wrong", now=lambda: T0)
+    counted = next(p for p in engine.params if "since" in p)
+    assert counted["since"] == T0 - accounts.LOCKOUT
+
+
+def test_a_correct_password_ends_the_lockout():
+    """Otherwise somebody who mistyped five times and then remembered it is
+    still shut out, which punishes the person this protects."""
+    engine = FakeEngine(_account_row("correct horse battery"))
+    sign_in(engine, "levy", "correct horse battery", now=lambda: T0)
+    assert engine.wrote("DELETE FROM public.sign_in_attempts")
+
+
+def test_an_unknown_username_is_throttled_too():
+    """Otherwise the throttle is the thing that tells you which usernames
+    exist: one answers instantly forever, the other stops."""
+    engine = FakeEngine(None)
+    sign_in(engine, "nobody", "wrong", now=lambda: T0)
+    assert engine.wrote("INSERT INTO public.sign_in_attempts")

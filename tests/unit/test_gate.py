@@ -155,3 +155,42 @@ def test_no_page_checks_authentication_for_itself():
         body = path.read_text()
         assert "sign_in_required" not in body, path
         assert "gate.decide" not in body, path
+
+
+def test_the_cookie_is_read_natively_not_through_the_component():
+    """st.context.cookies is filled from the websocket upgrade request, so it
+    is already there on the first run of a fresh page load - which is exactly
+    when a returning visitor needs it.
+
+    The component's own get() is asynchronous and returns None until the
+    frontend answers, which on a fresh load it has not. Reading through it
+    meant every reload showed the sign-in form, so signing in never appeared
+    to stick. A source check, because the difference is in which mechanism is
+    used rather than in any value a test can observe.
+    """
+    import inspect
+
+    source = inspect.getsource(gate.token_from_cookie)
+    assert "st.context.cookies" in source
+    assert "_cookie_manager()" not in source, "that is the asynchronous one"
+
+
+def test_the_cookie_write_is_deferred_to_the_end_of_the_run():
+    """set() renders a component, and the sign-in path reruns immediately
+    after succeeding - tearing the frame down before the browser is asked to
+    store anything. That is why the cookie was never written."""
+    import inspect
+
+    assert "queue_cookie" in inspect.getsource(gate.remember)
+    assert "set(" in inspect.getsource(gate.flush_cookie)
+
+
+def test_a_failed_cookie_write_is_reported_rather_than_swallowed():
+    """An earlier version caught everything and returned quietly, which turned
+    a broken component into "you have to sign in every time" with nothing
+    anywhere saying why."""
+    import inspect
+
+    source = inspect.getsource(gate.flush_cookie)
+    body = source[source.index("except") :]
+    assert "pass" not in body, "a silent failure here is invisible for weeks"
