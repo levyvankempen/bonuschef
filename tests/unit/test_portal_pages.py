@@ -142,6 +142,30 @@ class TestRecipesPage:
         at = run_app(recipes_page.render_recipes).run()
         assert any("(1)" in t.label for t in at.toggle), [t.label for t in at.toggle]
 
+    def test_a_never_scraped_shop_is_not_called_stale(self, monkeypatch):
+        """Three states, not one. Somebody who has just chosen a shop needs to
+        hear "not scanned yet" rather than be told their data is out of
+        date."""
+        priced = TestRecipesPage.PRICED.assign(clearance_scraped_at=pd.NaT)
+        self._wire(monkeypatch, priced=priced)
+        at = run_app(recipes_page.render_recipes).run()
+        assert any("nog niet gescand" in i.value for i in at.info), [
+            i.value for i in at.info
+        ]
+
+    def test_the_ingredient_list_is_not_fetched_until_it_is_opened(self, monkeypatch):
+        """An expander renders its contents whether or not it is expanded, so
+        a hundred saved recipes would each pull their rows on every rerun."""
+        calls = []
+        self._wire(monkeypatch)
+        monkeypatch.setattr(
+            recipes_page,
+            "read_recipe_opportunity_items",
+            lambda e, r, s, b="": calls.append(r) or pd.DataFrame(),
+        )
+        run_app(recipes_page.render_recipes).run()
+        assert calls == [], "nothing should be fetched for a closed card"
+
     def test_the_default_sort_is_longest_not_made(self, monkeypatch):
         """A collection is usually asked "what have I not had for a while".
         Alphabetical is the order it had and answers nothing."""

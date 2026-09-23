@@ -24,6 +24,7 @@ from bonuschef.portal import offers
 from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
     get_engine,
+    read_recipe_opportunity_items,
     mark_recipe_made,
     read_marts_built_at,
     read_recipe_opportunity,
@@ -32,6 +33,7 @@ from bonuschef.portal.db import (
     unsave_recipe,
 )
 from bonuschef.portal.freshness import describe_age, now as freshness_now
+from bonuschef.portal.review import open_single
 
 _SORTS = {
     # First, and the default: a collection is usually asked "what have I not
@@ -59,9 +61,18 @@ def render_recipes(account: Account | None = None) -> None:
         return
 
     priced = read_recipe_opportunity(engine, store_for(account), built_at)
-    priced, stale_notice = offers.withdraw_stale_clearance(priced)
-    if stale_notice:
-        st.warning(stale_notice)
+    # Three states, not one. "Never scraped" is a different statement from
+    # "scraped and out of date", and a person who has just chosen a shop needs
+    # to hear the first rather than be told their data is stale.
+    if offers.snapshot_of(priced) is None:
+        st.info(
+            "Je winkel is nog niet gescand. De bonus zie je gewoon; laatste "
+            "kans-koopjes verschijnen na de eerstvolgende scan."
+        )
+    else:
+        priced, stale_notice = offers.withdraw_stale_clearance(priced)
+        if stale_notice:
+            st.warning(stale_notice)
 
     cards = saved.merge(priced, on="recipe_id", how="left")
     on_offer = cards[_is_on_offer(cards)]
@@ -139,6 +150,8 @@ def _render_card(engine, account: Account, row) -> None:
                 _render_badges(row)
                 st.caption(_describe_last_made(row.get("last_made_at")))
 
+        _render_ingredients(engine, account, row)
+
         with st.container(horizontal=True):
             if st.button(
                 "Gemaakt vandaag",
@@ -154,6 +167,64 @@ def _render_card(engine, account: Account, row) -> None:
             ):
                 unsave_recipe(engine, account.account_id, int(row["recipe_id"]))
                 st.rerun()
+
+
+_OPEN_KEY = "recipes_open_card"
+
+
+def _render_ingredients(engine, account: Account, row) -> None:
+    """The lines behind a card, and the way to correct one.
+
+    Fetched only for the card that is open. An expander renders its contents
+    whether or not it is expanded, so a hundred saved recipes would each pull
+    their ingredient rows on every rerun - and the existing portal requirement
+    forbids retrieving unbounded result sets to display a bounded view.
+
+    The correction has to be here. The page this replaced satisfied "a wrong
+    match is correctable where it is visible" through its detail pane, and
+    deleting that pane without carrying the correction across would have
+    quietly regressed a live requirement.
+    """
+    recipe_id = int(row["recipe_id"])
+    total = row.get("items_total")
+    label = "Ingrediënten" if pd.isna(total) else f"Ingrediënten ({int(total)})"
+    is_open = st.session_state.get(_OPEN_KEY) == recipe_id
+
+    if st.button(
+        label,
+        key=f"open_{recipe_id}",
+        icon=":material/expand_less:" if is_open else ":material/expand_more:",
+    ):
+        st.session_state[_OPEN_KEY] = None if is_open else recipe_id
+        st.rerun()
+
+    if not is_open:
+        return
+
+    items = read_recipe_opportunity_items(
+        engine, recipe_id, store_for(account), read_marts_built_at(engine)
+    )
+    if items.empty:
+        st.caption("Voor dit recept zijn geen ingrediënten bekend.")
+        return
+
+    for _, item in items.iterrows():
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.markdown(str(item.get("item_label") or "?"))
+            if pd.isna(item.get("price_today")):
+                st.caption("nog niet gekoppeld")
+            if pd.notna(item.get("concept_id")):
+                # Keyed on recipe AND line: item_key is "c:<concept_id>", so
+                # two recipes both containing onions would otherwise collide.
+                if st.button(
+                    "Klopt niet",
+                    key=f"fix_{recipe_id}_{item['item_key']}",
+                    icon=":material/edit:",
+                    help="Kies zelf het juiste product voor dit ingrediënt",
+                ):
+                    open_single(
+                        engine, int(item["concept_id"]), str(item["item_label"])
+                    )
 
 
 def _render_price(row) -> None:

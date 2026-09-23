@@ -132,6 +132,9 @@ def wired(monkeypatch):
     monkeypatch.setattr(
         page, "read_rejected_recipes", lambda e, a, built_at="": pd.DataFrame()
     )
+    # Nothing saved by default, so the keep/reject controls are the case a
+    # test sees unless it says otherwise.
+    monkeypatch.setattr(page, "is_kept", lambda e, a, r: False)
     monkeypatch.setattr(page, "read_bonus_feed_loaded_at", lambda e: FRESH_NOW)
     monkeypatch.setattr(page, "read_pipeline_health", lambda e: _healthy())
     monkeypatch.setattr(page.freshness, "now", lambda: FRESH_NOW)
@@ -801,3 +804,14 @@ class TestThePageSaysWhatItKnows:
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         assert not at.exception
+
+
+def test_a_saved_recipe_says_so_before_you_click(wired, monkeypatch):
+    """is_kept has existed since keeping did and was called by nothing, so
+    the page offered "Bewaren" on a recipe already in your collection and
+    only admitted it once you pressed."""
+    monkeypatch.setattr(page, "is_kept", lambda e, a, r: True)
+    at = run_app(page.render_tonight).run()
+    rendered = _texts(at)
+    assert "Bewaard" in rendered
+    assert not any("Bewaren" in b.label for b in at.button)

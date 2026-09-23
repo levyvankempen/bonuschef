@@ -41,6 +41,7 @@ from bonuschef.portal.db import (
     read_bonus_feed_loaded_at,
     read_pipeline_health,
     read_marts_built_at,
+    is_kept,
     keep_recipe,
     read_recipe_opportunity,
     read_recipe_opportunity_items,
@@ -351,6 +352,15 @@ def _render_verdict_controls(engine, account, row) -> None:
     if row.get("source_kind") != "pool":
         return
     recipe_id = int(row["recipe_id"])
+    # Said before the click rather than only in the toast after it. is_kept
+    # has existed since keeping did and was called by nothing, so the page
+    # offered "Bewaren" on a recipe already in your collection and only
+    # admitted it once you pressed.
+    if is_kept(engine, account.account_id, recipe_id):
+        with st.container(horizontal=True):
+            st.badge("Bewaard", color="green", icon=":material/bookmark_added:")
+        return
+
     with st.container(horizontal=True):
         # Keeping was the missing half. The page could reject a recipe and not
         # hold on to one, so a recommendation a person liked was gone at the
