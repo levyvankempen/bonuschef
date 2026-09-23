@@ -996,7 +996,11 @@ def ensure_verdict_table(_engine) -> None:
         conn.execute(
             text("""
             CREATE TABLE IF NOT EXISTS public.ah_recipe_verdicts (
-                recipe_id   BIGINT PRIMARY KEY,
+                -- Keyed on both, so two people can each decide for
+                -- themselves. It used to be recipe_id alone, which made one
+                -- person's "Niet voor mij" hide a recipe from everybody.
+                account_id  BIGINT NOT NULL DEFAULT 0,
+                recipe_id   BIGINT NOT NULL,
                 verdict     TEXT NOT NULL CHECK (verdict IN ('rejected')),
                 decided_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             )
@@ -1004,38 +1008,66 @@ def ensure_verdict_table(_engine) -> None:
         )
 
 
-def reject_recipe(_engine, recipe_id: int) -> None:
+def reject_recipe(_engine, account_id: int, recipe_id: int) -> None:
     """Never show this recipe again, until the person says otherwise."""
     ensure_verdict_table(_engine)
     with _engine.begin() as conn:
         conn.execute(
             text("""
-            INSERT INTO public.ah_recipe_verdicts (recipe_id, verdict)
-            VALUES (CAST(:rid AS bigint), 'rejected')
-            ON CONFLICT (recipe_id) DO UPDATE
+            INSERT INTO public.ah_recipe_verdicts (account_id, recipe_id, verdict)
+            VALUES (:aid, CAST(:rid AS bigint), 'rejected')
+            ON CONFLICT (account_id, recipe_id) DO UPDATE
                 SET verdict = 'rejected', decided_at = now()
         """),
-            {"rid": int(recipe_id)},
+            {"aid": int(account_id), "rid": int(recipe_id)},
         )
     read_recipe_opportunity.clear()
 
 
-def reinstate_recipe(_engine, recipe_id: int) -> None:
+def reinstate_recipe(_engine, account_id: int, recipe_id: int) -> None:
     """Undo a rejection, so a dismissal is not a trap."""
     ensure_verdict_table(_engine)
     with _engine.begin() as conn:
         conn.execute(
             text(
                 "DELETE FROM public.ah_recipe_verdicts "
-                "WHERE recipe_id = CAST(:rid AS bigint)"
+                "WHERE account_id = :aid AND recipe_id = CAST(:rid AS bigint)"
             ),
-            {"rid": int(recipe_id)},
+            {"aid": int(account_id), "rid": int(recipe_id)},
         )
     read_recipe_opportunity.clear()
 
 
+def read_hidden_recipe_ids(_engine, account_id: int) -> set[int]:
+    """Recipes this person has already adopted or rejected.
+
+    The pool model used to exclude these itself, globally - so one person
+    adopting a recipe removed it from everybody's suggestions and one "Niet
+    voor mij" hid it from all of them. Applied here instead, where it is known
+    who is asking.
+
+    Not cached: it changes the moment somebody presses either button, and the
+    cost is two indexed reads of a few hundred rows.
+    """
+    with _engine.begin() as conn:
+        saved = conn.execute(
+            text(
+                "SELECT recipe_id FROM public.account_recipes WHERE account_id = :aid"
+            ),
+            {"aid": int(account_id)},
+        ).fetchall()
+        rejected = conn.execute(
+            text(
+                "SELECT recipe_id FROM public.ah_recipe_verdicts "
+                "WHERE account_id = :aid AND verdict = 'rejected'"
+            ),
+            {"aid": int(account_id)},
+        ).fetchall()
+    return {int(r[0]) for r in saved} | {int(r[0]) for r in rejected}
+
+
 @st.cache_data(ttl=_CACHE_TTL_S)
-def read_rejected_recipes(_engine) -> pd.DataFrame:
+def read_rejected_recipes(_engine, account_id: int, built_at: str = "") -> pd.DataFrame:
     """What has been dismissed, so it can be reviewed and reversed.
 
     Joined to the pool rather than to dim_recipe: a rejected recipe is excluded
@@ -1053,12 +1085,12 @@ def read_rejected_recipes(_engine) -> pd.DataFrame:
             v.decided_at
         FROM public.ah_recipe_verdicts AS v
         LEFT JOIN public."ah__pool_recipes" AS p ON v.recipe_id = p.recipe_id
-        WHERE v.verdict = 'rejected'
+        WHERE v.verdict = 'rejected' AND v.account_id = :account_id
         ORDER BY v.decided_at DESC
     """)
     try:
         with _engine.begin() as conn:
-            return pd.read_sql_query(sql, conn)
+            return pd.read_sql_query(sql, conn, params={"account_id": account_id})
     except Exception:
         # The pool table does not exist until the first refresh has run.
         empty: dict[str, list] = {
@@ -1384,7 +1416,7 @@ def replace_proposals(engine, concept_id: int, products: list[dict]) -> int:
     return len(products)
 
 
-def keep_recipe(engine, recipe_id: int) -> bool:
+def keep_recipe(engine, account_id: int, recipe_id: int) -> bool:
     """Adopt a pool recipe, so it survives the next pool refresh.
 
     The page offered "Niet voor mij" and nothing else, while its own docstring
@@ -1435,8 +1467,22 @@ def keep_recipe(engine, recipe_id: int) -> bool:
         # A kept recipe is no longer a candidate for rejection, and leaving a
         # stale verdict would hide it from the page it was just kept for.
         conn.execute(
-            text("DELETE FROM public.ah_recipe_verdicts WHERE recipe_id = :rid"),
-            {"rid": int(recipe_id)},
+            text(
+                "DELETE FROM public.ah_recipe_verdicts "
+                "WHERE account_id = :aid AND recipe_id = :rid"
+            ),
+            {"aid": int(account_id), "rid": int(recipe_id)},
+        )
+        # The recipe itself stays in the shared catalogue - adding one is work
+        # whose result is the same for everybody. What is personal is that
+        # THIS person has it, which is what account_recipes records.
+        conn.execute(
+            text("""
+                INSERT INTO public.account_recipes (account_id, recipe_id)
+                VALUES (:aid, :rid)
+                ON CONFLICT (account_id, recipe_id) DO NOTHING
+            """),
+            {"aid": int(account_id), "rid": int(recipe_id)},
         )
     # Same as reject_recipe: the ranking the page is showing was read before
     # this, and a kept recipe changes which rows it may evict.
@@ -1444,13 +1490,22 @@ def keep_recipe(engine, recipe_id: int) -> bool:
     return True
 
 
-def is_kept(engine, recipe_id: int) -> bool:
-    """Whether this recipe has already been adopted."""
+def is_kept(engine, account_id: int, recipe_id: int) -> bool:
+    """Whether THIS person has saved this recipe.
+
+    Asked of account_recipes rather than of the catalogue. Asking the
+    catalogue answers "has anybody adopted it", which with two people is a
+    different question and the wrong one: a recipe a friend saved would show
+    as already yours.
+    """
     with engine.begin() as conn:
         return (
             conn.execute(
-                text("SELECT 1 FROM public.ah_recipes WHERE recipe_id = :rid"),
-                {"rid": int(recipe_id)},
+                text(
+                    "SELECT 1 FROM public.account_recipes "
+                    "WHERE account_id = :aid AND recipe_id = :rid"
+                ),
+                {"aid": int(account_id), "rid": int(recipe_id)},
             ).first()
             is not None
         )

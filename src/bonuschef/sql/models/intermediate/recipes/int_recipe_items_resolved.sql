@@ -59,8 +59,12 @@ adopted AS (
 -- an adopted one alike, which is what makes the review queue worth working
 -- through - the effort compounds across every recipe that uses the ingredient.
 --
--- int_pool_recipes_available has already applied the adopted/rejected rules;
--- joining to it rather than re-deriving them keeps one definition.
+-- int_pool_recipes_available used to apply the adopted/rejected rules. It no
+-- longer does, because those rules became personal: one person adopting a
+-- recipe removed it from everybody's suggestions, and one "Niet voor mij"
+-- hid it from all of them. The portal applies them now, for whoever is
+-- asking. This model keeps costing every pool recipe, which is what lets two
+-- people be shown different subsets of the same priced set.
 pool AS (
 
     SELECT

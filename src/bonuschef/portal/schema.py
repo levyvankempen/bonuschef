@@ -175,6 +175,28 @@ _STATEMENTS: tuple[str, ...] = (
     ALTER TABLE IF EXISTS public.ah_recipe_verdicts
         ADD COLUMN IF NOT EXISTS account_id BIGINT
     """,
+    # The old key was recipe_id alone, which is what made one person's
+    # rejection hide a recipe from everybody. Dropping it lets two people
+    # disagree; the unique index below keeps one person from rejecting the
+    # same recipe twice.
+    """
+    ALTER TABLE IF EXISTS public.ah_recipe_verdicts
+        DROP CONSTRAINT IF EXISTS ah_recipe_verdicts_pkey
+    """,
+    # Backfilled to 0 rather than left NULL: NULL never equals NULL, so a
+    # unique index over it would not stop duplicates, and ON CONFLICT would
+    # never fire. 0 is no account, which is what an unattributed verdict is.
+    """
+    UPDATE public.ah_recipe_verdicts SET account_id = 0 WHERE account_id IS NULL
+    """,
+    """
+    ALTER TABLE IF EXISTS public.ah_recipe_verdicts
+        ALTER COLUMN account_id SET NOT NULL
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS ah_recipe_verdicts_account_recipe
+        ON public.ah_recipe_verdicts (account_id, recipe_id)
+    """,
 )
 
 
