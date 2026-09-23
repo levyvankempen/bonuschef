@@ -46,7 +46,11 @@ Every service in the stack SHALL cap the disk its own logs occupy, bounding both
 
 ### Requirement: Published ports are reachable only from the host
 
-Every port the stack publishes SHALL bind to the host loopback interface only. This covers the database and both web interfaces: neither web interface authenticates its callers, and one of them can start and terminate pipeline runs, so exposure is limited to the host and access from elsewhere is an operator's explicit decision — a tunnel or an overlay network — rather than a default.
+Every port the stack publishes SHALL bind to the host loopback interface only. This covers the database and both web interfaces.
+
+The portal now authenticates its callers, and the rule is unchanged by that. The Dagster interface still does not, and it can start and terminate pipeline runs; the database has no business being reachable at all. Exposure stays limited to the host, and access from elsewhere stays an operator's explicit decision — a tunnel or an overlay network — rather than a default.
+
+Stated because the reasoning is the part that erodes: a sign-in wall invites the argument that the loopback binding is now redundant, and it is not. One interface gaining a door does not put one on the others.
 
 #### Scenario: Another machine on the network connects to a published port
 
