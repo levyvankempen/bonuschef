@@ -21,11 +21,21 @@ daily_refresh_schedule = ScheduleDefinition(
     default_status=DefaultScheduleStatus.RUNNING,
 )
 
-# Clearance discounts appear from midday and deepen toward closing; capture the
-# curve by scraping hourly through the afternoon/evening (11:00–20:00 local).
+# Hourly through the hours the shop is open (08:00-21:00 local).
+#
+# The window used to start at 11:00, on the belief that markdowns appear from
+# midday. That was an assumption, and it had a visible cost: between midnight
+# and 11:00 the portal reported clearance as "not from today", which is a
+# banner about a gap the schedule itself created and is indistinguishable from
+# a pipeline that has died. A scrape that finds nothing is an answer; an hour
+# with no scrape is not.
+#
+# 21:00 is included rather than stopping at 20:00. The last hour before
+# closing is when a markdown is deepest and least likely to still be there
+# tomorrow, which is exactly what the intraday series exists to record.
 markdowns_refresh_schedule = ScheduleDefinition(
     job=markdowns_refresh_job,
-    cron_schedule="0 11-20 * * *",
+    cron_schedule="0 8-21 * * *",
     execution_timezone=LOCAL_TIMEZONE,
     default_status=DefaultScheduleStatus.RUNNING,
 )
