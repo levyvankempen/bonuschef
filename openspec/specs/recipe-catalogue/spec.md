@@ -118,7 +118,7 @@ A person SHALL be able to change which products satisfy an ingredient, and their
 #### Scenario: Correcting a wrong proposal
 
 - **WHEN** a person replaces the products proposed for an ingredient
-- **THEN** the replacement is what every recipe using that ingredient costs against
+- **THEN** the replacement is what every recipe using that ingredient costs against, for every account, because which product satisfies an ingredient is a fact about the catalogue rather than a preference
 
 #### Scenario: The matcher runs again
 
