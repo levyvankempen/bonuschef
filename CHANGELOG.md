@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.19.0 (2026-09-23)
+
+### Features
+
+- **accounts**: An operator tool, before the gate that needs it
+  ([#87](https://github.com/levyvankempen/bonuschef/pull/87),
+  [`1471218`](https://github.com/levyvankempen/bonuschef/commit/1471218a9b34538123e5f99cdefa31c6d8b3b9da))
+
+
 ## v1.18.0 (2026-09-23)
 
 ### Features
