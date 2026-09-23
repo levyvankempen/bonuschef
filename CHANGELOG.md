@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.26.0 (2026-09-23)
+
+### Features
+
+- **portal**: Only the operator starts a run, and the page names your shop
+  ([#98](https://github.com/levyvankempen/bonuschef/pull/98),
+  [`5a5593f`](https://github.com/levyvankempen/bonuschef/commit/5a5593f98295acf9ace91b6dd675c91d9211aea6))
+
+
 ## v1.25.0 (2026-09-23)
 
 ### Features
