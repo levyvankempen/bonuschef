@@ -18,6 +18,17 @@ COPY .streamlit/ .streamlit/
 # Install the project itself
 RUN uv sync --frozen --no-dev
 
+# The operator scripts. These are run against production - creating an
+# account, setting a password, pointing an account at a store, curating the
+# catalogue - so they belong in the image rather than being copied in one at a
+# time when needed.
+#
+# Deliberately after the dependency install and after the dbt parse below
+# would be better still, but this sits where it does because the parse needs
+# nothing from here: editing a script rebuilds this layer and the two `uv sync`
+# layers above it are untouched.
+COPY scripts/ scripts/
+
 # Copy dagster instance config
 RUN mkdir -p /app/dagster_home
 COPY dagster.yaml /app/dagster_home/dagster.yaml
