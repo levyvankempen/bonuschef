@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.25.0 (2026-09-23)
+
+### Features
+
+- **recipes**: A saved recipe and a rejection belong to whoever made them
+  ([#97](https://github.com/levyvankempen/bonuschef/pull/97),
+  [`ec7c977`](https://github.com/levyvankempen/bonuschef/commit/ec7c977572416788e358c725c95ce92c25f4f7de))
+
+
 ## v1.24.1 (2026-09-23)
 
 ### Bug Fixes
