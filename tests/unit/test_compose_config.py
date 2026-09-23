@@ -390,3 +390,25 @@ def test_dlt_does_not_retain_completed_load_packages():
         assert str(env.get("LOAD__DELETE_COMPLETED_JOBS", "")).lower() == "true", (
             f"{name} retains completed load packages where nothing will find them"
         )
+
+
+def test_the_operator_scripts_are_in_the_image():
+    """They are run against production - creating an account, setting a
+    password, pointing an account at a store.
+
+    Without this the only way to run one is to copy it into a running
+    container first, which is a step that gets forgotten and an instruction
+    that gets given wrong. It was: the documented way to create the first
+    account named a path the image did not contain.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "COPY scripts/ scripts/" in dockerfile
+
+
+def test_copying_the_scripts_does_not_bust_the_dependency_layers():
+    """Editing a script should not reinstall the dependency tree. If this
+    COPY moves above `uv sync`, every script edit rebuilds from there."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert dockerfile.index("RUN uv sync --frozen --no-dev") < dockerfile.index(
+        "COPY scripts/ scripts/"
+    )
