@@ -89,7 +89,9 @@ def test_the_dialog_is_opened_from_session_state():
     dialog vanishes with whatever was typed in it."""
     body = PAGE.read_text()
     assert "if st.session_state.get(_EDIT_KEY):" in body
-    opener = body[body.index('if st.button(\n                "Bewerken"') :][:400]
+    # Anchored on the label rather than on its indentation, which moved once
+    # already when the card's actions were extracted into their own function.
+    opener = body[body.index('"Bewerken"') :][:400]
     assert "_EDIT_KEY" in opener and "st.rerun()" in opener
 
 
