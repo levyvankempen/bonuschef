@@ -940,7 +940,7 @@ class TestStartingFromAnIngredient:
         # st.pills is a ButtonGroup to AppTest.
         pills = at.get("button_group")
         assert pills, "one tap, no keyboard"
-        assert "kipfilet" in str(pills[0].options)
+        assert "kipfilet" in str(getattr(pills[0], "options", ""))
 
     def test_naming_an_ingredient_narrows_the_recipes(self, wired, monkeypatch):
         """Recipe 1 uses it, recipe 2 does not."""

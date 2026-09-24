@@ -1,6 +1,7 @@
 """Streamlit UI helper functions."""
 
 from collections.abc import Callable, Sequence
+from typing import Literal
 
 import pandas as pd
 import streamlit as st
@@ -24,6 +25,10 @@ _CARD_STYLES = f"""<style>
 </style>"""
 
 _CARD_IMAGE_KEY = "bc-card-image"
+
+# st.badge accepts a fixed set of colour names. Naming it lets the checker
+# verify the call rather than trusting a bare string, as tonight_page does.
+BadgeColour = Literal["red", "orange", "green", "blue", "violet", "gray"]
 
 
 def bigger_image(url: object) -> str:
@@ -63,8 +68,8 @@ def render_recipe_card(
     image_url: object = None,
     saving: str | None = None,
     lead: bool = False,
-    urgency: tuple[str, str] | None = None,
-    offers: Sequence[tuple[str, str, str]] = (),
+    urgency: tuple[str, BadgeColour] | None = None,
+    offers: Sequence[tuple[str, str, BadgeColour]] = (),
     more_offers: int = 0,
     price: Callable[[], None] | None = None,
     rating: Callable[[], None] | None = None,
@@ -116,7 +121,7 @@ def render_recipe_card(
 
 
 def _render_offer_badges(
-    offers: Sequence[tuple[str, str, str]], more_offers: int
+    offers: Sequence[tuple[str, str, BadgeColour]], more_offers: int
 ) -> None:
     """Which ingredients make this cheap, by name.
 

@@ -27,6 +27,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness, offers
 from bonuschef.portal.ui import (
+    BadgeColour,
     bigger_image,
     inject_card_styles,
     render_recipe_card,
@@ -187,7 +188,7 @@ def _render_price(row) -> None:
 
 def _offer_badges(
     engine, recipe_id: int, row, clearance_counts: bool, limit: int = 3
-) -> tuple[list[tuple[str, str, str]], int]:
+) -> tuple[list[tuple[str, str, BadgeColour]], int]:
     """Which ingredients make this recipe cheap, by name.
 
     The card used to say "2x bonus", which is a count. The person is standing in
@@ -212,11 +213,13 @@ def _offer_badges(
     if discounted.empty:
         return [], 0
 
-    named: list[tuple[str, str, str]] = []
+    named: list[tuple[str, str, BadgeColour]] = []
     for _, item in discounted.head(limit).iterrows():
         # A clearance line is orange and a promotion green, matching the
         # vocabulary the ingredient list below already uses.
-        colour = "orange" if item.get("offer_kind") == "clearance" else "green"
+        colour: BadgeColour = (
+            "orange" if item.get("offer_kind") == "clearance" else "green"
+        )
         named.append(
             (str(item["item_label"]), f"− {_euro(item[saving_column])}", colour)
         )
