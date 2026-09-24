@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.0 (2026-09-24)
+
+### Features
+
+- **portal**: An operator page for who has an account and what they do with it
+  ([#120](https://github.com/levyvankempen/bonuschef/pull/120),
+  [`080f2ed`](https://github.com/levyvankempen/bonuschef/commit/080f2ed78d5ebabed25b05a6f74a9129ddb61a81))
+
+
 ## v1.32.2 (2026-09-24)
 
 ### Bug Fixes
