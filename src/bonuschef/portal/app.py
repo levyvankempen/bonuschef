@@ -10,6 +10,7 @@ from bonuschef.portal.add_recipe_page import render_add_recipe
 from bonuschef.portal.db import get_engine
 from bonuschef.portal.profile_page import render_profile
 from bonuschef.portal.recipes_page import render_recipes
+from bonuschef.portal.monitor_page import render_monitor
 from bonuschef.version import describe, get_commit
 
 st.set_page_config(
@@ -116,6 +117,22 @@ pg = st.navigation(
             icon=":material/menu_book:",
         ),
         st.Page(render_add_recipe, title="Toevoegen", icon=":material/add:"),
+        *(
+            # Only for an operator, and only as a convenience: render_monitor
+            # checks for itself. Omitting a page from the navigation decides
+            # what is listed, not what is allowed, and this one shows other
+            # people's collections.
+            [
+                st.Page(
+                    lambda: render_monitor(_account),
+                    title="Beheer",
+                    url_path="beheer",
+                    icon=":material/monitoring:",
+                )
+            ]
+            if gate.sign_in_required() and getattr(_account, "is_operator", False)
+            else []
+        ),
         *(
             # Only with the wall up: without accounts there is no profile to
             # edit, and a tab that offers to change a password nobody has is

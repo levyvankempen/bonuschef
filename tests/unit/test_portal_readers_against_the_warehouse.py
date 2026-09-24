@@ -94,6 +94,17 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
     # so it has no result set to fall out of step with. Listed so the coverage
     # check below cannot be satisfied by forgetting a page.
     "add_recipe_page.py": (),
+    # The operator's overview. Both readers are registered rather than left
+    # out: this page indexes into their frames by column name - store_name,
+    # last_seen_at, saved_count - and those are computed in the SELECT rather
+    # than being columns of a table, which is exactly the shape that falls out
+    # of step silently. pandas yields None for a column a query stopped
+    # returning, so the page would report "nog geen winkel gekozen" over an
+    # account that has one.
+    "monitor_page.py": (
+        ("read_account_overview", ()),
+        ("read_account_saved_recipes", (1,)),
+    ),
 }
 
 # Names that look like column reads but are not: session-state keys, widget
