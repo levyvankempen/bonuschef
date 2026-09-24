@@ -341,6 +341,47 @@ that 3000, 8501 and 5455 are **refused**, and that nothing is forwarded on the r
 Reach them over Tailscale (`tailscale up`, then `http://bonuschef:8501`) or
 `ssh -L 8501:127.0.0.1:8501 root@<guest>`.
 
+### Sharing the portal with people who are not on the tailnet
+
+The portal — and **only** the portal — can be published on a public HTTPS
+address, so a friend opens a link and installs nothing. Dagster must never be
+published this way: it has no authentication and can start and kill pipeline
+runs, and the loopback binding above is the only thing in front of it.
+
+Funnel has to be enabled for the tailnet once, in the admin console. The CLI
+prints the exact link, and waits:
+
+```
+tailscale funnel --bg 8501          # prints a login.tailscale.com/f/funnel link
+                                    # if the tailnet has not enabled it yet
+```
+
+Enable it there, re-run the same command, and the address is
+`https://bonuschef.<your-tailnet>.ts.net`.
+
+Three things to check straight after, because publishing the portal must not
+publish anything else:
+
+```
+tailscale funnel status             # 8501 only — no 3000, no 5455
+docker port dagster_webserver       # still 127.0.0.1:3000
+docker port pg_bonuschef            # still 127.0.0.1:5455
+```
+
+Withdraw it with one command; local and tailnet access are unaffected:
+
+```
+tailscale funnel --https=443 off
+```
+
+The address is public, though not indexed. The sign-in wall is what stands in
+front of it, so it is load-bearing in a way it is not on the tailnet: sign-in
+throttling (five failures per username inside fifteen minutes, recorded in
+Postgres so a restart does not clear it) is a prerequisite for publishing, not
+a later improvement. `BONUSCHEF_INVITE_CODE` is what lets a friend register;
+rotating it in `.env` revokes for everyone at once and is the only revocation
+there is.
+
 ### One growth path this cannot see
 
 `LOAD__DELETE_COMPLETED_JOBS=true` stops dlt keeping a copy of every completed
