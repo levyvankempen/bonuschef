@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.31.4 (2026-09-24)
+
+### Bug Fixes
+
+- **matcher**: Read Dutch morphology instead of a hand-kept word list
+  ([#113](https://github.com/levyvankempen/bonuschef/pull/113),
+  [`1bd2d64`](https://github.com/levyvankempen/bonuschef/commit/1bd2d642366b3802fb1dfee168c1a2e572dbe71b))
+
+
 ## v1.31.3 (2026-09-24)
 
 ### Bug Fixes
