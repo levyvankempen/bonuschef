@@ -531,7 +531,6 @@ def test_a_synonym_the_floor_cannot_see_is_a_known_loss():
         "kokend water",
         "kraanwater",
         "ijswater",
-        "ijsblokjes",
     ],
 )
 def test_water_resolves_to_nothing(ingredient):
@@ -610,3 +609,13 @@ def test_the_head_rule_still_admits_a_real_specialisation():
     """The direction exists for "bloem" against "AH Tarwebloem", where the
     shelf is the specific term. That must survive."""
     assert cohort("bloem", [hit(1, "AH Tarwebloem", "")]) != []
+
+
+def test_ice_is_a_product_and_is_not_withheld():
+    """It looks like the same class - you make it from tap water - and AH
+    sells it, so this is a correct match the water rule would have thrown
+    away. The rule is about ingredients with no product, not about ones
+    somebody could make themselves; by that reading it would take stock and
+    bread with it.
+    """
+    assert cohort("ijsblokjes", [hit(1, "AH IJsblokjes", "")]) != []
