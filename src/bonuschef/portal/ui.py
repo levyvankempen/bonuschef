@@ -18,10 +18,30 @@ _AH_IMAGE_HOST = "static.ah.nl"
 _THUMBNAIL_VARIANT = "_220x162_"
 _LARGER_VARIANT = "_440x324_"
 
-# Scoped to the container key below rather than applied to every image, so the
-# cap cannot reach the clearance thumbnails or anything else.
+# Sizing is done here rather than by Streamlit, and that is the point.
+#
+# width="stretch" makes the frontend size the <img> from the MEASURED width of
+# its parent. When the card is first mounted - and especially when it is
+# re-mounted inside a fragment - that measurement can come back before the
+# container has been laid out, and the picture paints at its minimum size.
+# Clicking it opens Streamlit's fullscreen overlay, and closing that remounts
+# the element against a container that now has a real width, which is why the
+# image is correct ever after. A max-width alone cannot rescue that: it caps an
+# image, it cannot enlarge an under-measured one.
+#
+# Giving the browser width:100% takes the measurement out of the loop entirely.
+# It resolves against the parent's real box at paint time, with no JavaScript
+# involved and nothing to race. !important because Streamlit sets its own
+# inline width on the element.
+#
+# Scoped to the container key below rather than applied to every image, so none
+# of this can reach the clearance thumbnails.
 _CARD_STYLES = f"""<style>
-[class*="st-key-{{key_prefix}}"] img {{{{ max-width: {IMAGE_CAP_PX}px; }}}}
+[class*="st-key-{{key_prefix}}"] img {{{{
+  width: 100% !important;
+  height: auto !important;
+  max-width: {IMAGE_CAP_PX}px;
+}}}}
 </style>"""
 
 _CARD_IMAGE_KEY = "bc-card-image"
@@ -94,7 +114,12 @@ def render_recipe_card(
             # Keyed by the caller, not by the title: two recipes can share a
             # name, and Streamlit raises on a duplicate key.
             with st.container(key=f"{_CARD_IMAGE_KEY}-{key}"):
-                st.image(str(image_url), width="stretch")
+                # Deliberately NOT width="stretch": that is the measured path
+                # described above. Left at its natural width, the image is
+                # 440px wide even if the stylesheet never arrives, and the CSS
+                # above makes it fluid. The failure mode is a correct-sized
+                # picture rather than a tiny one.
+                st.image(str(image_url))
 
         st.markdown(f"### {title}" if lead else f"**{title}**")
 

@@ -1,7 +1,11 @@
 """Tests for chart helpers (pure logic plus AppTest guard paths)."""
 
+import ast
+from pathlib import Path
+
 import pandas as pd
 
+from bonuschef.portal import ui
 from bonuschef.portal.ui import (
     IMAGE_CAP_PX,
     _CARD_IMAGE_KEY,
@@ -55,11 +59,43 @@ def test_a_missing_image_stays_missing():
 
 
 def test_the_card_never_asks_for_more_pixels_than_the_source_has():
-    """Streamlit's own reset sets img { max-width: none }, so a fixed pixel
-    width overflows a narrow phone column and scrolls the page sideways. The
-    image stretches to the column and is capped here instead, which is the
-    only combination that satisfies both halves."""
+    """Streamlit's own reset sets img { max-width: none }, so without a cap a
+    440px source would be stretched across a wider desktop column."""
     assert IMAGE_CAP_PX == 440, "440x324 is the largest variant AH publishes"
     styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY)
     assert f"max-width: {IMAGE_CAP_PX}px" in styles
     assert _CARD_IMAGE_KEY in styles, "the cap must be scoped to the card"
+
+
+def test_the_card_image_is_sized_by_css_rather_than_by_measurement():
+    """A card image sometimes painted tiny, and clicking it fixed it for good.
+
+    That is the signature of width="stretch": the frontend sizes the <img>
+    from the measured width of its parent, and on first mount - especially a
+    re-mount inside a fragment - that measurement can arrive before the
+    container has been laid out. Opening the fullscreen overlay and closing it
+    remounts the element against a container that now has a real width, which
+    is why it stayed correct afterwards.
+
+    width:100% resolves against the parent's real box at paint time, so there
+    is no measurement to race.
+    """
+    styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY)
+    assert "width: 100% !important" in styles, "fluid without being measured"
+    assert "height: auto" in styles, "and never distorted"
+
+    # Read the call, not the text around it: the docstring above names
+    # "stretch" as the thing being avoided, and a substring check on the
+    # source would match that comment and pass no matter what the code did.
+    tree = ast.parse(Path(ui.__file__).read_text())
+    images = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "st.image"
+    ]
+    assert images, "the card must render an image"
+    for call in images:
+        passed = {kw.arg for kw in call.keywords}
+        assert "width" not in passed, (
+            "stretch is the measured path that rendered the picture tiny"
+        )
