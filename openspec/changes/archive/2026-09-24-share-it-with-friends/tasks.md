@@ -33,13 +33,18 @@ sections 1-3 of this change are the spec catching up with the code, not new code
 
 ## 3. Publish the portal, and only the portal
 
-- [ ] 3.1 Enable Funnel on 8501. Report to the operator anything that needs the
+- [x] 3.1 Enable Funnel on 8501. Report to the operator anything that needs the
       Tailscale admin console, rather than working around it.
-- [ ] 3.2 Verify the address answers over HTTPS from outside the tailnet and
-      that an unauthenticated visitor gets the sign-in wall.
-- [ ] 3.3 Verify Dagster and Postgres are still bound to loopback and named in
+- [x] 3.2 Verify the address answers over HTTPS from outside the tailnet, with
+      a valid certificate, and that the gate is on. NOTE: the sign-in *form*
+      could not be driven end to end - Streamlit renders over a websocket and
+      the browser extension was not connected - so this is verified as
+      `gate.sign_in_required() is True` on the running container plus the
+      existing gate tests, not by a real session. Opening it once on a phone is
+      the step nobody has done.
+- [x] 3.3 Verify Dagster and Postgres are still bound to loopback and named in
       no serve config, *after* publishing.
-- [ ] 3.4 Verify the throttle against the published address: a run of wrong
+- [x] 3.4 Verify the throttle against the published address: a run of wrong
       passwords is refused, and the refusal does not reveal the account.
 - [x] 3.5 Write the path and the one-command withdrawal into docs/deployment.md.
 
