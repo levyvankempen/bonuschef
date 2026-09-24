@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.32.1 (2026-09-24)
+
+### Bug Fixes
+
+- **portal**: A card image painted tiny until you clicked it
+  ([#116](https://github.com/levyvankempen/bonuschef/pull/116),
+  [`274ef83`](https://github.com/levyvankempen/bonuschef/commit/274ef83be4812a7714ed8c21b7b164e2f4ba407c))
+
+### Documentation
+
+- Sync and archive the shop-floor recipe cards change
+  ([#115](https://github.com/levyvankempen/bonuschef/pull/115),
+  [`cf94889`](https://github.com/levyvankempen/bonuschef/commit/cf9488915cf94b2f5a260b2a9aa9471887286bd1))
+
+
 ## v1.32.0 (2026-09-24)
 
 ### Features
