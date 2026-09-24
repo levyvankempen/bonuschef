@@ -148,7 +148,42 @@ def leaf_names_ingredient(ingredient_name: str, taxonomy_leaf: str) -> bool:
     title containing "witte kaas" may be a dressing or a salami.
     """
     ing, leaf = normalise(ingredient_name), normalise(taxonomy_leaf)
-    return bool(ing) and bool(leaf) and ing == leaf
+    if not ing or not leaf:
+        return False
+    if ing == leaf:
+        return True
+
+    # AH writes a leaf as a list of the names a thing goes by: "Koriander,
+    # ketoembar", "Afbakbroodjes wit, mix", "Bleekselderij, selderij". Demanding
+    # the whole string match throws that away - "gemalen koriander" against a
+    # leaf that says koriander in so many words was being refused.
+    #
+    # Each part is matched as a name in its own right, head noun and all, so
+    # "gemalen koriander" reaches "koriander" the same way it would reach a
+    # one-word leaf. Split the raw leaf, not the normalised one: normalise()
+    # drops punctuation, so splitting afterwards finds no comma left to split
+    # on and silently reads "Bleekselderij, selderij" as one two-word name.
+    parts = [normalise(part) for part in taxonomy_leaf.split(",")]
+    parts = [part for part in parts if part]
+    if len(parts) > 1:
+        return any(_names_the_same_thing(ing, part) for part in parts)
+    return _names_the_same_thing(ing, leaf)
+
+
+def _names_the_same_thing(ingredient_name: str, leaf: str) -> bool:
+    """Whether one taxonomy name is what this ingredient is called.
+
+    The ingredient's head noun against the leaf's, so "gemalen koriander" is
+    koriander and "verse tijm" is tijm. Not a substring test: that would make
+    "bloem" a "bloemkool" again, which is the bug the prefix ban exists for.
+    """
+    if ingredient_name == leaf:
+        return True
+    ing_head = _head_noun(ingredient_name)
+    leaf_words = _content_words(leaf)
+    if not ing_head or not leaf_words:
+        return False
+    return _same_word(ing_head, _title_head(leaf_words))
 
 
 # Words that describe a product without being what it is. "AH" and
@@ -366,8 +401,49 @@ _TRAILING_QUALIFIERS = frozenset(
         "zak",
         "bos",
         "plakken",
+        # Colours and grades: a closed class, unlike the participles that
+        # _is_qualifier recognises by their shape.
+        "wit",
+        "witte",
+        "bruin",
+        "bruine",
+        "rood",
+        "rode",
+        "groen",
+        "groene",
+        "geel",
+        "gele",
+        "zwart",
+        "zwarte",
+        "blond",
+        "blonde",
+        "naturel",
     }
 )
+
+
+def _is_qualifier(word: str) -> bool:
+    """Whether a trailing word grades the noun rather than being it.
+
+    Position alone cannot answer this, which an earlier attempt here got
+    wrong: in "AH Biologisch Frans stokbrood wit" and "Boursin Sjalot &
+    bieslook" the head sits one word from the end either way, and the
+    difference is that "wit" is an adjective and "bieslook" is a noun. A
+    positional window admitted the cream cheese as shallots.
+
+    So, morphology first. A Dutch past participle - "ge" plus a -d, -t or -en
+    ending - is a qualifier by its shape: gemalen, gesneden, gedroogd,
+    geraspt, gerookt, and every one of their kind, without anybody listing
+    them. That is the half of this that grows on its own, and it is the half
+    that was costing real matches - "Verstegen Strooier koriander gemalen" was
+    being refused for ending on a participle nobody had thought to enumerate.
+
+    Then a closed class for the rest. Colours and grades genuinely are finite
+    in a product title, unlike the participles.
+    """
+    if word in _TRAILING_QUALIFIERS or word.isdigit():
+        return True
+    return len(word) > 4 and word.startswith("ge") and word.endswith(("en", "d", "t"))
 
 
 def _title_head(title_words: list[str]) -> str:
@@ -379,7 +455,7 @@ def _title_head(title_words: list[str]) -> str:
     than the original rule.
     """
     words = list(title_words)
-    while len(words) > 1 and (words[-1] in _TRAILING_QUALIFIERS or words[-1].isdigit()):
+    while len(words) > 1 and _is_qualifier(words[-1]):
         words.pop()
     return words[-1]
 

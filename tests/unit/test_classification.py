@@ -619,3 +619,53 @@ def test_ice_is_a_product_and_is_not_withheld():
     bread with it.
     """
     assert cohort("ijsblokjes", [hit(1, "AH IJsblokjes", "")]) != []
+
+
+def test_a_trailing_participle_is_a_qualifier_not_the_head():
+    """AH writes the preparation after the noun: "Kaas geraspt", "koriander
+    gemalen". A hand-kept list of such words is always one product behind,
+    because Dutch builds them productively: "ge" plus a -d, -t or -en ending
+    makes a past participle out of any verb. Recognising the shape means the
+    list never has to be extended for the next one."""
+    assert head_noun_match("geraspte kaas", "AH Kaas geraspt") is True
+    assert (
+        head_noun_match("gemalen koriander", "Verstegen Strooier koriander gemalen")
+        is True
+    )
+    assert head_noun_match("gesneden sperziebonen", "AH Sperziebonen gesneden") is True
+
+
+def test_a_participle_shaped_noun_is_still_a_noun():
+    """Shape is a heuristic, so it must not eat words that merely start with
+    "ge". "Gehakt" and "gerst" are what is being sold, not how it was cut."""
+    assert head_noun_match("gehakt", "AH Gehakt") is True
+    assert head_noun_match("gerst", "AH Gerst") is True
+
+
+def test_a_trailing_colour_is_a_qualifier_not_the_head():
+    """ "AH Stokbrood wit" is bread, graded by colour. Colours are a closed
+    class - unlike the participles above, nobody invents a new one - so they
+    are listed rather than recognised by shape."""
+    assert (
+        head_noun_match("vers stokbrood", "AH Biologisch Frans stokbrood wit") is True
+    )
+    assert head_noun_match("witlof", "AH Witlof") is True
+
+
+def test_a_trailing_noun_is_not_a_qualifier_however_late_it_sits():
+    """The guard this rule replaced tried to answer positionally: allow the
+    head to sit a word or two from the end. That admitted "Boursin Sjalot &
+    bieslook" as shallots, because the head is one from the end in the cream
+    cheese and in "stokbrood wit" alike. The difference is grammatical, not
+    positional: "wit" is an adjective and "bieslook" is a noun."""
+    assert head_noun_match("sjalot", "Boursin Sjalot & bieslook") is False
+    assert head_noun_match("tomaat", "AH Mozzarella tomaat basilicum") is False
+
+
+def test_a_leaf_naming_several_things_is_read_as_a_list():
+    """Taxonomy leaves are written "Kruiden, specerijen" - two nouns, not a
+    compound. Reading the whole string as one name failed to place any
+    ingredient under such a leaf, which is most of the seasoning aisle."""
+    assert leaf_names_ingredient("koriander", "Kruiden, specerijen") is False
+    assert leaf_names_ingredient("specerijen", "Kruiden, specerijen") is True
+    assert leaf_names_ingredient("kruiden", "Kruiden, specerijen") is True
