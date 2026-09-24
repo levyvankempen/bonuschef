@@ -38,9 +38,17 @@ otherwise.
 
 ## Where it runs
 
-On a small machine in the operator's home, reachable only over their private
-network. It is not on the public internet. Nothing is sent anywhere else, and
-there is no analytics or tracking of any kind.
+On a small machine in the operator's home. You reach it over the internet, at
+an HTTPS address served through Tailscale - which is why you need no app and no
+VPN, and why the operator's home network is not exposed to reach it.
+
+That does mean the sign-in page is on the public internet. Anyone who has the
+address can see the sign-in form; nobody without an account and the invitation
+code gets past it, and repeated password guesses against any name are refused
+after five tries for a quarter of an hour.
+
+Nothing is sent anywhere else, and there is no analytics or tracking of any
+kind.
 
 ## Ending it
 
