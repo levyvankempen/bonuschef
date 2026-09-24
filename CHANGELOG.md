@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.31.3 (2026-09-24)
+
+### Bug Fixes
+
+- **matching**: Ice is a product ([#112](https://github.com/levyvankempen/bonuschef/pull/112),
+  [`a552a4b`](https://github.com/levyvankempen/bonuschef/commit/a552a4b722b46b59add4a2233ef8a7891785b78e))
+
+
 ## v1.31.2 (2026-09-24)
 
 ### Bug Fixes
