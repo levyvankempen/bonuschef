@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.32.2 (2026-09-24)
+
+### Bug Fixes
+
+- **docs**: The page invitees read said it was not on the internet
+  ([#119](https://github.com/levyvankempen/bonuschef/pull/119),
+  [`30b6b88`](https://github.com/levyvankempen/bonuschef/commit/30b6b88745e143ad0dd2deb7c3cd8e83814e4de4))
+
+### Documentation
+
+- Sync and archive the share-it-with-friends change
+  ([#118](https://github.com/levyvankempen/bonuschef/pull/118),
+  [`8643878`](https://github.com/levyvankempen/bonuschef/commit/8643878548ed9e38c48373ebf7152e2e6e85598e))
+
+- **portal**: Specify the sign-in wall before publishing it, and the path to publish
+  ([#117](https://github.com/levyvankempen/bonuschef/pull/117),
+  [`68020e5`](https://github.com/levyvankempen/bonuschef/commit/68020e515631adbb01d47b77ea4c0fc9004e6ca4))
+
+
 ## v1.32.1 (2026-09-24)
 
 ### Bug Fixes
