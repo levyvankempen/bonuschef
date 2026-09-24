@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.31.2 (2026-09-24)
+
+### Bug Fixes
+
+- **matching**: Water is not shopping, and a refusal is not a match
+  ([#111](https://github.com/levyvankempen/bonuschef/pull/111),
+  [`7410c0c`](https://github.com/levyvankempen/bonuschef/commit/7410c0cf413cb2f53f51dd28f5733569844dfdc9))
+
+
 ## v1.31.1 (2026-09-23)
 
 ### Bug Fixes
