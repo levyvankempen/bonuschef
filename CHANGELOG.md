@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.32.0 (2026-09-24)
+
+### Features
+
+- **portal**: Recipes as cards you can recognise, and a way in by ingredient
+  ([#114](https://github.com/levyvankempen/bonuschef/pull/114),
+  [`2d648b6`](https://github.com/levyvankempen/bonuschef/commit/2d648b6fad1732a1141f7492ec7bcbfbb2270940))
+
+
 ## v1.31.4 (2026-09-24)
 
 ### Bug Fixes
