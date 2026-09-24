@@ -171,3 +171,26 @@ def test_surrounding_space_is_trimmed_from_a_name():
     register(engine, "  anne  ", "a-good-password", "a-good-password", CODE)
     written = next(p for p in engine.params if "u" in p and "h" in p)
     assert written["u"] == "anne"
+
+
+def test_rotating_the_invitation_stops_the_old_code(monkeypatch):
+    """The shared code is the only revocation there is, so rotating it has to
+    actually revoke. Existing accounts are untouched by it: the code admits
+    people, it does not authenticate them afterwards."""
+    monkeypatch.setenv("BONUSCHEF_INVITE_CODE", "first-code")
+    engine = FakeEngine()
+    assert register(
+        engine, "vriend", "long-enough-pw", "long-enough-pw", "first-code"
+    ).ok
+
+    monkeypatch.setenv("BONUSCHEF_INVITE_CODE", "second-code")
+    stale = FakeEngine()
+    assert not register(
+        stale, "vriend2", "long-enough-pw", "long-enough-pw", "first-code"
+    ).ok, "the withdrawn code must create nothing"
+    assert not stale.wrote()
+
+    fresh = FakeEngine()
+    assert register(
+        fresh, "vriend3", "long-enough-pw", "long-enough-pw", "second-code"
+    ).ok, "and the current one still works"

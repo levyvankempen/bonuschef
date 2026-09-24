@@ -310,3 +310,47 @@ def test_an_unknown_username_is_throttled_too():
     engine = FakeEngine(None)
     sign_in(engine, "nobody", "wrong", now=lambda: T0)
     assert engine.wrote("INSERT INTO public.sign_in_attempts")
+
+
+def test_a_locked_account_and_an_absent_one_are_refused_identically():
+    """The throttle must not become the oracle the uniform refusal exists to
+    prevent.
+
+    Existing tests check that an unknown username is throttled, and that a
+    locked account says something other than the plain refusal. Neither
+    compares the two refusals to each other - so a message that named the
+    account, or one that only appeared for accounts that exist, would pass
+    both and hand an attacker a way to enumerate usernames.
+    """
+    real = FakeEngine(
+        _account_row("correct horse battery"), failures=accounts.MAX_FAILURES
+    )
+    absent = FakeEngine(None, failures=accounts.MAX_FAILURES)
+
+    locked = sign_in(real, "levy", "correct horse battery", now=lambda: T0)
+    unknown = sign_in(absent, "nobody-here", "whatever", now=lambda: T0)
+
+    assert not locked.ok and not unknown.ok
+    assert locked.error == unknown.error, (
+        "a locked real account must read exactly like a locked absent one"
+    )
+    # And neither looked at the accounts table, so they cost the same too.
+    assert not real.wrote("FROM public.accounts")
+    assert not absent.wrote("FROM public.accounts")
+
+
+def test_locking_one_account_does_not_lock_another():
+    """The counter is keyed on the username. If it were global, one person
+    mistyping their password five times would shut the whole household out -
+    and anyone could do it deliberately."""
+    engine = FakeEngine(_account_row("correct horse battery"))
+    sign_in(engine, "levy", "wrong", now=lambda: T0)
+    counted = [p for p in engine.params if "u" in p or "username" in p]
+    assert counted, "the throttle must be asked about a particular username"
+    assert any(
+        str(p.get("u", p.get("username", ""))).lower() == "levy" for p in counted
+    ), "and it must be the one being attempted"
+
+    # A different account, with no failures of its own, still gets in.
+    other = FakeEngine(_account_row("correct horse battery"), failures=0)
+    assert sign_in(other, "sample", "correct horse battery", now=lambda: T0).ok
