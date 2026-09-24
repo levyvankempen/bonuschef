@@ -34,5 +34,5 @@
 
 - [x] 4.1 Full suite, ruff and ty clean.
 - [x] 4.2 Mutate the operator check and confirm a test fails.
-- [ ] 4.3 After deploy, confirm on the running container that the page renders
+- [x] 4.3 After deploy, confirm on the running container that the page renders
       for an operator and refuses for a non-operator.
