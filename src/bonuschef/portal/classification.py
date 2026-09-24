@@ -574,8 +574,11 @@ _WATER_QUALIFIERS = frozenset(
     }
 )
 
-# Made from the above, in a freezer.
-_NOT_BOUGHT = frozenset({"ijsblokjes", "ijsblokje", "ijsklontjes", "ijsklontje"})
+# Ice deliberately is NOT here. It looks like the same class - you make it
+# from tap water - and AH sells it, so "ijsblokjes" against "AH IJsblokjes" is
+# a correct match that this rule would have thrown away. The rule is about
+# ingredients with no product, not about ingredients somebody could make
+# themselves; by that second reading it would take stock and bread with it.
 
 
 # Words that mean the opposite of each other without sharing a stem, so the
@@ -625,8 +628,6 @@ def comes_from_the_tap(ingredient_name: str) -> bool:
     words = [w for w in normalise(ingredient_name).split() if w]
     if not words:
         return False
-    if len(words) == 1 and words[0] in _NOT_BOUGHT:
-        return True
     # Single-word compounds: kraanwater, ijswater.
     if len(words) == 1 and words[0].endswith("water"):
         return words[0][: -len("water")] in _WATER_QUALIFIERS | {""}
