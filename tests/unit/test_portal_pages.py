@@ -3,6 +3,7 @@
 from typing import Any
 
 import pandas as pd
+import pytest
 
 from bonuschef.portal import analysis_page, recipes_page
 from bonuschef.portal import manual_recipe as recipe_builder
@@ -182,6 +183,97 @@ class TestRecipesPage:
             if "Zalm uit de oven" in m.value or "Quiche" in m.value
         ]
         assert names and "Zalm uit de oven" in names[0], names
+
+
+class TestTheSavedRecipeCard:
+    """The saved card is chosen between the same way a recommended one is, so
+    it is led by its picture on the same terms."""
+
+    def test_a_saved_recipe_is_led_by_its_picture(self, monkeypatch):
+        priced = TestRecipesPage.PRICED.copy()
+        priced["image_url"] = [
+            "https://static.ah.nl/static/recepten/img_9_220x162_JPG.jpg",
+            None,
+        ]
+        TestRecipesPage()._wire(monkeypatch, priced=priced)
+        at = run_app(recipes_page.render_recipes).run()
+        urls = " ".join(str(i.proto) for i in at.get("imgs"))
+        assert "440x324" in urls, "the larger of AH's two variants"
+        assert not at.exception
+
+    def test_a_saved_recipe_without_a_picture_still_renders(self, monkeypatch):
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert not at.exception
+        assert "Zalm uit de oven" in " ".join(m.value for m in at.markdown)
+
+
+class TestSearchingSavedRecipes:
+    """A term typed one-handed in a shop is data, not a program."""
+
+    @pytest.mark.parametrize("term", ["40+", "kip (", "*", "[", "a+b", "?"])
+    def test_a_term_with_pattern_punctuation_does_not_kill_the_page(
+        self, monkeypatch, term
+    ):
+        """str.contains defaults to regex=True, so each of these raised
+        re.error and took the page down with it."""
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes)
+        at.run()
+        at.text_input[0].set_value(term).run()
+        assert not at.exception, f"{term!r} must be searched for, not compiled"
+
+    def test_a_term_still_finds_what_it_names(self, monkeypatch):
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes)
+        at.run()
+        at.text_input[0].set_value("Zalm").run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Zalm uit de oven" in rendered
+        assert "Quiche" not in rendered
+
+
+class TestDeletingASavedRecipe:
+    """It was one tap from a permanent DELETE, with no confirm and no undo,
+    beside "Gemaakt vandaag" on a phone."""
+
+    def test_one_tap_does_not_delete(self, monkeypatch):
+        dropped = []
+        TestRecipesPage()._wire(monkeypatch)
+        monkeypatch.setattr(
+            recipes_page,
+            "unsave_recipe",
+            lambda e, a, r: dropped.append(r),
+        )
+        at = run_app(recipes_page.render_recipes).run()
+        assert not [b for b in at.button if b.label == "Verwijderen"], (
+            "the bare delete must not be a button any more"
+        )
+        # AppTest renders a popover's contents whether or not it is open, so
+        # the guard has to be checked structurally: the confirm must be a
+        # CHILD of the popover rather than a sibling on the card. Asserting
+        # only on button labels let a mutation that removed the popover
+        # entirely go unnoticed.
+        popovers = [p for p in at.get("popover") if "Verwijder" in str(p.proto)]
+        assert popovers, "deleting must sit behind a confirming step"
+        assert any("Ja, verwijderen" in b.label for b in popovers[0].button), (
+            "and the confirm belongs inside it"
+        )
+        assert not dropped
+
+    def test_confirming_deletes(self, monkeypatch):
+        dropped = []
+        TestRecipesPage()._wire(monkeypatch)
+        monkeypatch.setattr(
+            recipes_page,
+            "unsave_recipe",
+            lambda e, a, r: dropped.append(r),
+        )
+        at = run_app(recipes_page.render_recipes).run()
+        confirm = [b for b in at.button if "Ja, verwijderen" in b.label]
+        assert confirm, "the confirming step must be reachable"
+        confirm[0].click().run()
+        assert dropped, "and it must actually delete"
 
 
 class TestAnalysisPage:

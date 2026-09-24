@@ -26,6 +26,12 @@ import streamlit as st
 from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness, offers
+from bonuschef.portal.ui import (
+    BadgeColour,
+    bigger_image,
+    inject_card_styles,
+    render_recipe_card,
+)
 from bonuschef.portal.review import (
     open_review,
     open_single,
@@ -39,12 +45,14 @@ from bonuschef.portal.db import (
     CREDENTIAL_JOB,
     get_engine,
     read_bonus_feed_loaded_at,
+    read_discounted_ingredients,
     read_pipeline_health,
     read_marts_built_at,
     is_kept,
     keep_recipe,
     read_recipe_opportunity,
     read_recipe_opportunity_items,
+    read_recipes_using_ingredient,
     read_rejected_recipes,
     reinstate_recipe,
     reject_recipe,
@@ -178,32 +186,98 @@ def _render_price(row) -> None:
         )
 
 
+def _offer_badges(
+    engine, recipe_id: int, row, clearance_counts: bool, limit: int = 3
+) -> tuple[list[tuple[str, str, BadgeColour]], int]:
+    """Which ingredients make this recipe cheap, by name.
+
+    The card used to say "2x bonus", which is a count. The person is standing in
+    front of one particular discounted thing and the noun is the whole answer.
+
+    The reader is already ordered by saving, so the named ones are the largest
+    and the remainder can be a count without burying the biggest number. Nothing
+    extra is fetched: this is the same query the ingredient list uses, and it is
+    cached per recipe and build.
+    """
+    if not int(row.get("items_discounted") or 0):
+        return [], 0
+    items = read_recipe_opportunity_items(
+        engine, recipe_id, active_store_id(), read_marts_built_at(engine)
+    )
+    if items.empty:
+        return [], 0
+
+    saving_column = "item_saving" if clearance_counts else "item_saving_bonus_only"
+    discounted = items[items["is_discounted"] & items[saving_column].notna()]
+    discounted = discounted[discounted[saving_column].astype(float) > 0]
+    if discounted.empty:
+        return [], 0
+
+    named: list[tuple[str, str, BadgeColour]] = []
+    for _, item in discounted.head(limit).iterrows():
+        # A clearance line is orange and a promotion green, matching the
+        # vocabulary the ingredient list below already uses.
+        colour: BadgeColour = (
+            "orange" if item.get("offer_kind") == "clearance" else "green"
+        )
+        named.append(
+            (str(item["item_label"]), f"− {_euro(item[saving_column])}", colour)
+        )
+    return named, max(len(discounted) - len(named), 0)
+
+
+def _render_items_on_request(
+    engine, recipe_id: int, row, clearance_counts: bool
+) -> None:
+    """The ingredient list, and nothing at all until it is asked for.
+
+    This was an st.expander. Streamlit executes an expander's body whether or
+    not it is open, so a single render of this page issued a query per card and
+    registered a "Klopt niet" button per ingredient - roughly fifty controls
+    streamed over a shop connection to show six recipes. recipes_page already
+    uses this pattern and documents why; this page did not.
+    """
+    total = int(row["items_total"])
+    open_key = f"items_open_{recipe_id}"
+    if not st.session_state.get(open_key):
+        if st.button(
+            f"Ingrediënten ({total})",
+            key=f"show_items_{recipe_id}",
+            icon=":material/list:",
+            width="stretch",
+        ):
+            st.session_state[open_key] = True
+            st.rerun()
+        return
+
+    _render_items(engine, recipe_id, row, clearance_counts)
+    if st.button(
+        "Verbergen", key=f"hide_items_{recipe_id}", icon=":material/expand_less:"
+    ):
+        st.session_state[open_key] = False
+        st.rerun()
+
+
 def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
     """The best option, in full, with the ingredients responsible named."""
-    with st.container(border=True):
-        with st.container(horizontal=True, vertical_alignment="center"):
-            if row.get("image_url"):
-                st.image(row["image_url"], width=96)
-            with st.container():
-                st.markdown(f"### {row['recipe_name']}")
-                st.markdown(f"**{_saving_phrase(row)}** dan normaal")
-                _render_rating(row)
-
-        urgency = _urgency(row)
-        if urgency:
-            label, colour = urgency
-            st.badge(label, color=colour, icon=":material/schedule:")
-
-        _render_price(row)
-
-        # Folded away by default. The answer to "what shall I cook" is the
-        # recipe and its price; the ingredient list is what you open once you
-        # have decided, and on a phone it would otherwise push everything else
-        # off the screen.
-        with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
-            _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
-
-        _render_verdict_controls(engine, account, row)
+    recipe_id = int(row["recipe_id"])
+    offers_named, more = _offer_badges(engine, recipe_id, row, clearance_counts)
+    render_recipe_card(
+        key=f"lead-{recipe_id}",
+        title=str(row["recipe_name"]),
+        image_url=bigger_image(row.get("image_url")),
+        saving=f"{_saving_phrase(row)} dan normaal",
+        lead=True,
+        urgency=_urgency(row),
+        offers=offers_named,
+        more_offers=more,
+        price=lambda: _render_price(row),
+        rating=lambda: _render_rating(row),
+        extra=lambda: _render_items_on_request(
+            engine, recipe_id, row, clearance_counts
+        ),
+        actions=lambda: _render_verdict_controls(engine, account, row),
+    )
 
 
 def _render_rating(row) -> None:
@@ -322,29 +396,29 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
 def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
     """A runner-up: enough to choose by, not enough to compete with the lead.
 
-    Same two prices and the same foldable ingredient list, because "how much is
-    this one" is the question you ask of the alternatives too - but the whole
-    card stays closed until asked, so the ranking still reads as a ranking.
+    Same picture at the same width as the lead. The difference is type scale and
+    how much the card carries - a runner-up rendered at 56 pixels was not a
+    smaller card, it was an unrecognisable one.
     """
-    with st.container(border=True):
-        with st.container(horizontal=True, vertical_alignment="center"):
-            if row.get("image_url"):
-                st.image(row["image_url"], width=56)
-            with st.container():
-                st.markdown(f"**{row['recipe_name']}**")
-                st.caption(_saving_phrase(row))
-                _render_rating(row)
-            urgency = _urgency(row)
-            if urgency:
-                with st.container(horizontal_alignment="right"):
-                    st.badge(urgency[0], color=urgency[1])
-
-        _render_price(row)
-
-        with st.expander(f"Ingrediënten ({int(row['items_total'])})", expanded=False):
-            _render_items(engine, int(row["recipe_id"]), row, clearance_counts)
-
-        _render_verdict_controls(engine, account, row)
+    recipe_id = int(row["recipe_id"])
+    offers_named, more = _offer_badges(
+        engine, recipe_id, row, clearance_counts, limit=1
+    )
+    render_recipe_card(
+        key=f"brief-{recipe_id}",
+        title=str(row["recipe_name"]),
+        image_url=bigger_image(row.get("image_url")),
+        saving=_saving_phrase(row),
+        lead=False,
+        urgency=_urgency(row),
+        offers=offers_named,
+        more_offers=more,
+        price=lambda: _render_price(row),
+        extra=lambda: _render_items_on_request(
+            engine, recipe_id, row, clearance_counts
+        ),
+        actions=lambda: _render_verdict_controls(engine, account, row),
+    )
 
 
 def _render_verdict_controls(engine, account, row) -> None:
@@ -472,7 +546,7 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
             open_review(engine)
 
 
-def _render_pipeline_health(engine) -> None:
+def _render_pipeline_health(engine, credential_only: bool = False) -> None:
     """Say when the work behind the page has stopped, and nothing otherwise.
 
     This is the only surface on which a failure can be noticed: alerting is
@@ -506,6 +580,13 @@ def _render_pipeline_health(engine) -> None:
             icon=":material/key_off:",
         )
 
+    # The credential is the half that changes what you should buy - it means
+    # prices may be wrong - so it stays above the answer. Job names and overdue
+    # hours are addressed to an operator and belong below it, which is what the
+    # portal spec already requires of every page.
+    if credential_only:
+        return
+
     rest = overdue[overdue["job_name"] != CREDENTIAL_JOB]
     for _, row in rest.iterrows():
         when = (
@@ -520,8 +601,61 @@ def _render_pipeline_health(engine) -> None:
         )
 
 
+_SEARCH_KEY = "tonight_ingredient"
+_PILL_KEY = "tonight_ingredient_pill"
+
+
+def _ingredient_filter(engine) -> str:
+    """Let a person start from an ingredient, preferably without typing.
+
+    The question asked in a shop is "this is discounted, what do I cook with
+    it", and its answer should cost one tap. The text field is the second door,
+    for "I already have courgette at home".
+    """
+    store_id = active_store_id()
+    built_at = read_marts_built_at(engine)
+    try:
+        discounted = read_discounted_ingredients(engine, store_id, built_at)
+    except (ProgrammingError, SQLAlchemyError):
+        discounted = pd.DataFrame()
+
+    chosen = ""
+    if not discounted.empty:
+        labels = [str(x) for x in discounted["item_label"].tolist()]
+        picked = st.pills(
+            "In de aanbieding vandaag",
+            labels,
+            selection_mode="single",
+            key=_PILL_KEY,
+        )
+        if picked:
+            chosen = str(picked)
+
+    typed = st.text_input(
+        "Of zoek op ingrediënt",
+        key=_SEARCH_KEY,
+        placeholder="kip, courgette, zalm…",
+    )
+    # A typed term wins: it is the more deliberate of the two.
+    return (typed or chosen or "").strip()
+
+
+def _apply_ingredient_filter(engine, df: pd.DataFrame, term: str) -> pd.DataFrame:
+    """Narrow to recipes using the ingredient, keeping the order they had."""
+    if not term:
+        return df
+    try:
+        ids = read_recipes_using_ingredient(
+            engine, active_store_id(), term, read_marts_built_at(engine)
+        )
+    except (ProgrammingError, SQLAlchemyError):
+        return df
+    return df[df["recipe_id"].astype(int).isin(ids)]
+
+
 def render_tonight(account: Account | None = None) -> None:
     st.title("Vanavond")
+    inject_card_styles()
 
     # Before anything else: what a just-finished correction did, and how the
     # recalculation it started is getting on. Confirming used to be silent, and
@@ -539,8 +673,9 @@ def render_tonight(account: Account | None = None) -> None:
         st.error(f"Geen verbinding met de database: {e}")
         return
 
-    # Before the answers: whether the machinery that produces them is running.
-    _render_pipeline_health(engine)
+    # Only the half that changes what you should buy. The job names and overdue
+    # hours follow the answer rather than preceding it.
+    _render_pipeline_health(engine, credential_only=True)
 
     df, problem = _load(engine)
     if problem == "unbuilt":
@@ -580,26 +715,57 @@ def render_tonight(account: Account | None = None) -> None:
                 "beschrijft mogelijk niet deze week."
             )
 
-    ranked = df[df["opportunity_rank"].notna()].sort_values("opportunity_rank")
+    _render_ingredient_answer(engine, account, df, clearance_current)
 
-    if ranked.empty:
+    # Below the answer, where an operator's measures belong.
+    _render_pipeline_health(engine)
+    _render_coverage(engine, df)
+    _render_rejected(engine, account)
+
+
+@st.fragment
+def _render_ingredient_answer(
+    engine, account, df: pd.DataFrame, clearance_current: bool
+) -> None:
+    """The filter and the recipes it filters, as one independently rerunning
+    piece.
+
+    The controls have to live inside the fragment with the list: a widget
+    outside it reruns the whole script, which would rebuild the banners, the
+    coverage block and the rejected list to answer "show me the chicken ones" -
+    on the connection least able to afford it.
+    """
+    term = _ingredient_filter(engine)
+    _render_answer(engine, account, df, term, clearance_current)
+
+
+def _render_answer(
+    engine, account, df: pd.DataFrame, term: str, clearance_current: bool
+) -> None:
+    """The recipes themselves, filtered by ingredient if one was named."""
+    ranked = df[df["opportunity_rank"].notna()].sort_values("opportunity_rank")
+    matching = _apply_ingredient_filter(engine, ranked, term)
+
+    if term and matching.empty:
+        # Answer in terms of the ingredient rather than showing an empty page,
+        # and still offer the cheapest recipe that uses it.
+        st.info(f"Geen recept met **{term}** onder de aanbiedingen van vandaag.")
+        _render_cheapest_anyway(_apply_ingredient_filter(engine, df, term))
+        return
+
+    if matching.empty:
         st.info(
             "Vandaag is geen van je recepten goedkoper dan normaal. Dat is een "
             "antwoord, geen storing."
         )
         _render_cheapest_anyway(df)
-        _render_coverage(engine, df)
-        _render_rejected(engine, account)
         return
 
-    _render_lead(engine, account, ranked.iloc[0], clearance_current)
-    if len(ranked) > 1:
+    _render_lead(engine, account, matching.iloc[0], clearance_current)
+    if len(matching) > 1:
         st.subheader("Ook de moeite waard")
-        for _, row in ranked.iloc[1:6].iterrows():
+        for _, row in matching.iloc[1:6].iterrows():
             _render_brief(engine, account, row, clearance_current)
-
-    _render_coverage(engine, df)
-    _render_rejected(engine, account)
 
 
 def _render_cheapest_anyway(df: pd.DataFrame) -> None:

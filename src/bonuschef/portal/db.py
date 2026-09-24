@@ -975,6 +975,76 @@ def read_recipe_opportunity_items(
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
+def read_discounted_ingredients(
+    _engine, store_id: int, built_at: str = "", limit: int = 12
+) -> pd.DataFrame:
+    """The ingredients that are discounted today, most useful first.
+
+    These are the tap targets. Measured on the live warehouse: 1,909 distinct
+    ingredient labels, of which 55 are discounted on a given day. A free-text
+    box over the other 1,854 mostly answers "nothing on offer with that", and
+    typing one-handed in a shop is the interaction being removed. So the
+    primary control is this list.
+
+    Ordered by how many ranked recipes use each, because that is what makes a
+    choice worth offering. Bounded in the query rather than afterwards.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            i.item_label,
+            COUNT(DISTINCT i.recipe_id) AS recipes,
+            MIN(i.offer_kind) AS offer_kind
+        FROM "{schema}"."fct_recipe_opportunity_items" AS i
+        JOIN "{schema}"."fct_recipe_opportunity" AS o
+            ON o.recipe_id = i.recipe_id AND o.store_id = i.store_id
+        WHERE i.store_id = :store_id
+          AND i.is_discounted
+          AND o.opportunity_rank IS NOT NULL
+        GROUP BY i.item_label
+        ORDER BY recipes DESC, i.item_label ASC
+        LIMIT :limit
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(
+            sql, conn, params={"store_id": store_id, "limit": int(limit)}
+        )
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_recipes_using_ingredient(
+    _engine, store_id: int, term: str, built_at: str = ""
+) -> tuple[int, ...]:
+    """Which recipes use an ingredient, by either of its two names.
+
+    Both the recipe's own word for it and the matched product's name are
+    searched: the shelf label and the recipe rarely agree, and a person reads
+    "Scharrel kipfilet 300g" off a sticker while the recipe says "kipfilet".
+
+    The term is matched literally. ``\`` , ``%`` and ``_`` are escaped so a
+    typed underscore means an underscore rather than "any character".
+    """
+    if not term or not term.strip():
+        return ()
+    schema = _get_schema()
+    pattern = term.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    sql = text(f"""
+        SELECT DISTINCT recipe_id
+        FROM "{schema}"."fct_recipe_opportunity_items"
+        WHERE store_id = :store_id
+          AND (
+            item_label ILIKE :pattern ESCAPE '\\'
+            OR product_name ILIKE :pattern ESCAPE '\\'
+          )
+    """)
+    with _engine.begin() as conn:
+        rows = conn.execute(
+            sql, {"store_id": store_id, "pattern": f"%{pattern}%"}
+        ).fetchall()
+    return tuple(int(r[0]) for r in rows)
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_bonus_feed_loaded_at(_engine) -> pd.Timestamp | None:
     """When the promotional feed last loaded.
 

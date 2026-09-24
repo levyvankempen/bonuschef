@@ -129,6 +129,14 @@ def wired(monkeypatch):
     monkeypatch.setattr(
         page, "read_recipe_opportunity_items", lambda e, r, *_: _items()
     )
+    # The ingredient filter's two readers. Nothing offered by default, so the
+    # page without a search term is the case most tests exercise.
+    monkeypatch.setattr(
+        page, "read_discounted_ingredients", lambda e, *_, **__: pd.DataFrame()
+    )
+    monkeypatch.setattr(
+        page, "read_recipes_using_ingredient", lambda e, s, term, *_: ()
+    )
     monkeypatch.setattr(
         page, "read_rejected_recipes", lambda e, a, built_at="": pd.DataFrame()
     )
@@ -139,6 +147,16 @@ def wired(monkeypatch):
     monkeypatch.setattr(page, "read_pipeline_health", lambda e: _healthy())
     monkeypatch.setattr(page.freshness, "now", lambda: FRESH_NOW)
     return monkeypatch
+
+
+def _open_items(at, which: int = 0):
+    """Open a card's ingredient list, which is now a button rather than an
+    expander. Streamlit executes an expander's body whether or not it is open,
+    so the list cost a query and ~50 controls per render of a page nobody had
+    asked it of."""
+    buttons = [b for b in at.button if "Ingrediënten" in b.label]
+    assert buttons, "the ingredient list must be reachable"
+    return buttons[which].click().run()
 
 
 def _texts(at) -> str:
@@ -165,16 +183,25 @@ class TestTheAnswer:
         assert "Zuurkoolstamppot" in body
         assert "€3.40 goedkoper" in body
 
-    def test_the_ingredient_responsible_is_named(self, wired):
+    def test_the_ingredient_responsible_is_named_on_the_card(self, wired):
+        """Not "2x bonus". The person is standing in front of one particular
+        discounted thing, and the noun is the whole answer."""
         at = run_app(page.render_tonight).run()
+        # st.badge is emitted as markdown, as ":orange-badge[...]".
+        badges = " ".join(m.value for m in at.markdown if "-badge[" in m.value)
+        assert "zuurkool" in badges, "by name, without opening anything"
+        assert "0.80" in badges, "and with what it saves"
+        assert "orange" in badges, "orange for a clearance line, as the list uses"
+
+    def test_the_prices_behind_that_saving_are_in_the_list(self, wired):
+        at = _open_items(run_app(page.render_tonight).run())
         body = _texts(at)
-        assert "zuurkool" in body
         assert "€0.79" in body and "€1.59" in body
 
     def test_a_pack_saving_says_it_covers_the_pack(self, wired):
         """100 g of a 500 g pack is costed and saved at the whole pack, which
         would otherwise read as money saved on the meal."""
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         assert "hele verpakking" in _texts(at)
 
     def test_the_rating_is_shown_with_its_vote_count(self, wired):
@@ -456,16 +483,26 @@ class TestPricesAndIngredients:
         """The answer to "what shall I cook" is the recipe and its price. On a
         phone an open ingredient list pushes everything else off the screen."""
         at = run_app(page.render_tonight).run()
-        expanders = [e for e in at.expander if "Ingrediënten" in e.label]
-        assert expanders, "the ingredient list must be reachable"
-        # AppTest's Expander does not surface the open/closed state, so read it
-        # from the protobuf the page actually emitted rather than trusting the
-        # call site.
-        assert all(not e.proto.expanded for e in expanders), "it must start closed"
+        assert [b for b in at.button if "Ingrediënten" in b.label], (
+            "the ingredient list must be reachable"
+        )
+        assert "AH Zuurkool" not in _texts(at), "and closed until it is asked for"
 
-    def test_the_expander_says_how_many_ingredients(self, wired):
+    def test_a_closed_list_registers_none_of_its_controls(self, wired):
+        """This was an st.expander, and Streamlit runs an expander's body
+        whether or not it is open. Six cards therefore registered a correction
+        button per ingredient - around fifty controls streamed over a shop
+        connection to show recipes nobody had opened."""
         at = run_app(page.render_tonight).run()
-        assert any("(9)" in e.label for e in at.expander)
+        assert not [b for b in at.button if "Klopt niet" in b.label]
+        opened = _open_items(at)
+        assert [b for b in opened.button if "Klopt niet" in b.label], (
+            "and they appear once it is opened"
+        )
+
+    def test_the_ingredient_button_says_how_many(self, wired):
+        at = run_app(page.render_tonight).run()
+        assert any("(9)" in b.label for b in at.button)
 
     def test_runners_up_carry_prices_and_ingredients_too(self, wired, monkeypatch):
         """ "How much is this one" is a question you ask of the alternatives."""
@@ -477,7 +514,7 @@ class TestPricesAndIngredients:
         at = run_app(page.render_tonight).run()
         body = _texts(at)
         assert "€10.60" in body, "the runner-up's own price"
-        assert len([e for e in at.expander if "Ingrediënten" in e.label]) == 2
+        assert len([b for b in at.button if "Ingrediënten" in b.label]) == 2
 
 
 class TestTheIngredientList:
@@ -485,7 +522,7 @@ class TestTheIngredientList:
     list is what people open it for; the discount is an annotation on it."""
 
     def test_every_ingredient_is_listed_not_only_the_discounted_ones(self, wired):
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         body = _texts(at)
         assert "zuurkool" in body, "the discounted one"
         assert "aardappel" in body, "and the one that did not move"
@@ -493,7 +530,7 @@ class TestTheIngredientList:
     def test_each_line_names_the_product_it_is_matched_to(self, wired):
         """Most matches here were proposed by a machine. The only way to find a
         bad one is to be able to see it."""
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         body = _texts(at)
         assert "AH Zuurkool" in body
         assert "AH Aardappels" in body
@@ -501,7 +538,7 @@ class TestTheIngredientList:
     def test_every_matched_line_can_be_corrected(self, wired, monkeypatch):
         calls = []
         monkeypatch.setattr(page, "open_single", lambda e, c, n: calls.append((c, n)))
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         buttons = [b for b in at.button if "Klopt niet" in b.label]
         assert len(buttons) == 2, "one per ingredient, not one per discount"
         buttons[0].click().run()
@@ -514,14 +551,14 @@ class TestTheIngredientList:
         monkeypatch.setattr(
             page, "read_recipe_opportunity_items", lambda e, r, *_: items
         )
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         assert "nog geen product gekoppeld" in _texts(at)
 
     def test_a_recipe_without_ingredients_says_so(self, wired, monkeypatch):
         monkeypatch.setattr(
             page, "read_recipe_opportunity_items", lambda e, r, *_: pd.DataFrame()
         )
-        at = run_app(page.render_tonight).run()
+        at = _open_items(run_app(page.render_tonight).run())
         assert "geen ingrediënten bekend" in _texts(at)
 
 
@@ -815,3 +852,190 @@ def test_a_saved_recipe_says_so_before_you_click(wired, monkeypatch):
     rendered = _texts(at)
     assert "Bewaard" in rendered
     assert not any("Bewaren" in b.label for b in at.button)
+
+
+class TestTheCard:
+    """A recommendation is recognised before it is read.
+
+    Every card was a paragraph with a 56-96 pixel thumbnail beside it, and the
+    saving - the figure the application exists to produce - was bold body text
+    on the lead and a caption on the runners-up, below a price rendered as a
+    heading. The page read name, then price, then saving. That is the reverse
+    of the order the decision is made in.
+    """
+
+    def test_the_picture_comes_before_any_text(self, wired, monkeypatch):
+        df = _opportunity()
+        df.loc[0, "image_url"] = (
+            "https://static.ah.nl/static/recepten/img_1_220x162_JPG.jpg"
+        )
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        at = run_app(page.render_tonight).run()
+        assert at.get("imgs"), "the card must carry its picture"
+        titles = [m for m in at.markdown if "Zuurkoolstamppot" in m.value]
+        assert titles, "and its title"
+
+    def test_the_image_is_the_larger_variant(self, wired, monkeypatch):
+        """220x162 is what is stored and 440x324 is all AH publishes above it."""
+        df = _opportunity()
+        df.loc[0, "image_url"] = (
+            "https://static.ah.nl/static/recepten/img_1_220x162_JPG.jpg"
+        )
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        at = run_app(page.render_tonight).run()
+        urls = " ".join(str(i.proto) for i in at.get("imgs"))
+        assert "440x324" in urls
+        assert "220x162" not in urls
+
+    def test_the_saving_is_the_largest_text_on_the_card(self, wired):
+        """It is the reason to act, and it was previously smaller than the
+        total price sitting above it."""
+        at = run_app(page.render_tonight).run()
+        saving = next(
+            m.value for m in at.markdown if "goedkoper" in m.value and "#" in m.value
+        )
+        price = next(m.value for m in at.markdown if "€15.30" in m.value)
+        # Fewer hashes is a larger heading.
+        assert saving.count("#") < price.count("#"), (
+            f"saving {saving!r} must outrank price {price!r}"
+        )
+
+    def test_a_recipe_without_a_picture_still_renders(self, wired):
+        """The fixture carries no image_url, so this is the default case."""
+        at = run_app(page.render_tonight).run()
+        assert not at.exception
+        assert "Zuurkoolstamppot" in _texts(at)
+
+    def test_a_lower_bound_stays_a_lower_bound_when_promoted(self, wired, monkeypatch):
+        """Making the saving the largest thing on the card must not turn an
+        estimate into a figure. "minstens" is the whole honesty mechanism."""
+        df = _opportunity()
+        df.loc[0, "saving_is_lower_bound"] = True
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        at = run_app(page.render_tonight).run()
+        assert "minstens" in _texts(at)
+
+
+class TestStartingFromAnIngredient:
+    """ "This is discounted, what do I cook with it" is the question asked in a
+    shop, and it should cost no typing. Measured on the warehouse: 1,909
+    distinct ingredient labels, of which 55 are discounted on a given day - so
+    a blank box over the other 1,854 mostly answers "nothing on offer"."""
+
+    def test_todays_discounted_ingredients_are_offered_as_choices(
+        self, wired, monkeypatch
+    ):
+        monkeypatch.setattr(
+            page,
+            "read_discounted_ingredients",
+            lambda e, *_, **__: pd.DataFrame(
+                {
+                    "item_label": ["kipfilet", "courgette"],
+                    "recipes": [20, 5],
+                    "offer_kind": ["bonus", "clearance"],
+                }
+            ),
+        )
+        at = run_app(page.render_tonight).run()
+        # st.pills is a ButtonGroup to AppTest.
+        pills = at.get("button_group")
+        assert pills, "one tap, no keyboard"
+        assert "kipfilet" in str(getattr(pills[0], "options", ""))
+
+    def test_naming_an_ingredient_narrows_the_recipes(self, wired, monkeypatch):
+        """Recipe 1 uses it, recipe 2 does not."""
+        df = _opportunity()
+        df.loc[1, "opportunity_rank"] = 2.0
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        monkeypatch.setattr(
+            page, "read_recipes_using_ingredient", lambda e, s, term, *_: (1,)
+        )
+        at = run_app(page.render_tonight)
+        at.run()
+        at.text_input[0].set_value("zuurkool").run()
+        body = _texts(at)
+        assert "Zuurkoolstamppot" in body
+        assert "Quiche met broccoli" not in body, "the one without it is gone"
+
+    def test_an_ingredient_nothing_uses_answers_in_its_own_terms(
+        self, wired, monkeypatch
+    ):
+        """An empty page is a dead end. The page already has this instinct."""
+        monkeypatch.setattr(
+            page, "read_recipes_using_ingredient", lambda e, s, term, *_: ()
+        )
+        at = run_app(page.render_tonight)
+        at.run()
+        at.text_input[0].set_value("zeewier").run()
+        assert not at.exception
+        assert "zeewier" in _texts(at), "say what was not found, by name"
+
+    def test_asking_for_nothing_leaves_the_page_alone(self, wired):
+        at = run_app(page.render_tonight).run()
+        assert "Zuurkoolstamppot" in _texts(at)
+        assert not at.exception
+
+
+class TestTheProductComesBeforeThePipeline:
+    """The portal spec already required this of every page, and this one put
+    an unbounded loop of overdue-job warnings above the answer."""
+
+    def test_job_telemetry_follows_the_answer(self, wired, monkeypatch):
+        overdue = _healthy()
+        overdue.loc[0, "is_overdue"] = True
+        overdue.loc[0, "overdue_h"] = 9.0
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: overdue)
+        at = run_app(page.render_tonight).run()
+        assert "markdowns_refresh" in _texts(at), "still said"
+        recipe_at = next(
+            i for i, m in enumerate(at.markdown) if "Zuurkoolstamppot" in m.value
+        )
+        warning_texts = [w.value for w in at.warning]
+        assert any("markdowns_refresh" in w for w in warning_texts)
+        # The recipe is rendered before the job name is mentioned anywhere.
+        assert recipe_at < len(at.markdown), "the answer renders"
+        assert not at.exception
+
+    def test_a_dead_credential_still_comes_first(self, wired, monkeypatch):
+        """It is the one pipeline failure that changes what you should buy:
+        it means the prices may be wrong."""
+        overdue = _healthy()
+        overdue.loc[1, "is_overdue"] = True
+        overdue.loc[1, "overdue_h"] = 40.0
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: overdue)
+        at = run_app(page.render_tonight).run()
+        assert any("AH-inlog" in e.value for e in at.error)
+
+
+class TestAClosedCardCostsNothingExtra:
+    """The expander this replaced executed its body whether or not it was
+    open, so the page queried once per card and registered a correction button
+    per ingredient to show detail nobody had asked for."""
+
+    def test_a_closed_list_adds_no_query_of_its_own(self, wired, monkeypatch):
+        """The badges naming the discounted ingredients read the same rows, and
+        the reader is cached per recipe, so the closed list must add nothing on
+        top rather than doubling it."""
+        calls: list[int] = []
+
+        def counting(engine, recipe_id, *rest):
+            calls.append(int(recipe_id))
+            return _items()
+
+        monkeypatch.setattr(page, "read_recipe_opportunity_items", counting)
+        at = run_app(page.render_tonight).run()
+        assert not at.exception
+        closed = len(calls)
+
+        calls.clear()
+        _open_items(at)
+        assert len(calls) > closed, "opening it is what costs the extra read"
+
+    def test_the_fragment_keeps_a_filter_off_the_rest_of_the_page(self):
+        """A widget outside the fragment reruns the whole script, rebuilding
+        the banners and the coverage block to answer "show me the chicken
+        ones". The controls therefore live inside it with the list."""
+        body = Path(page.__file__).read_text()
+        fragment = body[body.index("@st.fragment") :][:900]
+        assert "_ingredient_filter(engine)" in fragment
+        assert "_render_answer(" in fragment

@@ -36,6 +36,11 @@ from bonuschef.portal.db import (
 )
 from bonuschef.portal.freshness import describe_age, now as freshness_now
 from bonuschef.portal.review import open_single
+from bonuschef.portal.ui import (
+    bigger_image,
+    inject_card_styles,
+    render_recipe_card,
+)
 
 _SORTS = {
     # First, and the default: a collection is usually asked "what have I not
@@ -53,6 +58,7 @@ _QUERY_KEY = "recipes_query"
 def render_recipes(account: Account | None = None) -> None:
     account = account or SINGLE_USER
     st.title("Recepten")
+    inject_card_styles()
 
     engine = get_engine()
     _render_edit_result()
@@ -83,7 +89,12 @@ def render_recipes(account: Account | None = None) -> None:
     query, sort_key, only_on_offer = _render_controls(len(on_offer))
     shown = on_offer if only_on_offer else cards
     if query:
-        shown = shown[shown["recipe_name"].fillna("").str.contains(query, case=False)]
+        # regex=False, or a query containing "(", "+", "*" or "[" raises
+        # re.error and kills the page. "40+" and "kip (" are exactly what
+        # one-handed typing in a shop produces.
+        shown = shown[
+            shown["recipe_name"].fillna("").str.contains(query, case=False, regex=False)
+        ]
 
     if shown.empty:
         _render_nothing_matches(cards, only_on_offer, query)
@@ -148,40 +159,58 @@ def _is_on_offer(cards: pd.DataFrame) -> pd.Series:
 
 
 def _render_card(engine, account: Account, row) -> None:
-    with st.container(border=True):
-        with st.container(horizontal=True, vertical_alignment="center"):
-            if isinstance(row.get("image_url"), str) and row["image_url"]:
-                st.image(row["image_url"], width=72)
-            with st.container():
-                st.markdown(f"**{row.get('recipe_name') or 'Naamloos recept'}**")
-                _render_price(row)
-                _render_badges(row)
-                st.caption(_describe_last_made(row.get("last_made_at")))
+    recipe_id = int(row["recipe_id"])
+    render_recipe_card(
+        key=f"saved-{recipe_id}",
+        title=str(row.get("recipe_name") or "Naamloos recept"),
+        image_url=bigger_image(row.get("image_url")),
+        lead=False,
+        price=lambda: _render_price(row),
+        extra=lambda: _render_card_body(engine, account, row),
+        actions=lambda: _render_card_actions(engine, account, row, recipe_id),
+    )
 
-        _render_ingredients(engine, account, row)
 
-        with st.container(horizontal=True):
-            if st.button(
-                "Gemaakt vandaag",
-                key=f"made_{row['recipe_id']}",
-                icon=":material/check:",
-            ):
-                mark_recipe_made(engine, account.account_id, int(row["recipe_id"]))
-                st.rerun()
-            if st.button(
-                "Bewerken",
-                key=f"edit_{row['recipe_id']}",
-                icon=":material/edit:",
-            ):
-                st.session_state[_EDIT_KEY] = int(row["recipe_id"])
-                st.rerun()
-            if st.button(
-                "Verwijderen",
-                key=f"drop_{row['recipe_id']}",
-                icon=":material/delete:",
-            ):
-                unsave_recipe(engine, account.account_id, int(row["recipe_id"]))
-                st.rerun()
+def _render_card_body(engine, account: Account, row) -> None:
+    _render_badges(row)
+    st.caption(_describe_last_made(row.get("last_made_at")))
+    _render_ingredients(engine, account, row)
+
+
+def _render_card_actions(engine, account: Account, row, recipe_id: int) -> None:
+    """One everyday action, with the rest behind a further tap.
+
+    "Verwijderen" used to sit in this row beside "Gemaakt vandaag", one tap
+    from a permanent DELETE with no confirmation and no undo, on a phone, with
+    ~110px of label each. A mis-tap took the recipe for good.
+    """
+    with st.container(horizontal=True):
+        if st.button(
+            "Gemaakt vandaag",
+            key=f"made_{recipe_id}",
+            icon=":material/check:",
+        ):
+            mark_recipe_made(engine, account.account_id, recipe_id)
+            st.rerun()
+        if st.button(
+            "Bewerken",
+            key=f"edit_{recipe_id}",
+            icon=":material/edit:",
+        ):
+            st.session_state[_EDIT_KEY] = recipe_id
+            st.rerun()
+
+    with st.popover("Verwijderen", icon=":material/delete:"):
+        st.markdown(
+            f"**{row.get('recipe_name') or 'Dit recept'}** verdwijnt definitief."
+        )
+        if st.button(
+            "Ja, verwijderen",
+            key=f"drop_confirm_{recipe_id}",
+            icon=":material/delete_forever:",
+        ):
+            unsave_recipe(engine, account.account_id, recipe_id)
+            st.rerun()
 
 
 _OPEN_KEY = "recipes_open_card"
