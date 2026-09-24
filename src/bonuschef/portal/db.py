@@ -1021,8 +1021,9 @@ def read_recipes_using_ingredient(
     searched: the shelf label and the recipe rarely agree, and a person reads
     "Scharrel kipfilet 300g" off a sticker while the recipe says "kipfilet".
 
-    The term is matched literally. ``\`` , ``%`` and ``_`` are escaped so a
-    typed underscore means an underscore rather than "any character".
+    The term is matched literally: backslash, per-cent and underscore are
+    escaped, so a typed underscore means an underscore rather than "any
+    character".
     """
     if not term or not term.strip():
         return ()
@@ -1042,6 +1043,62 @@ def read_recipes_using_ingredient(
             sql, {"store_id": store_id, "pattern": f"%{pattern}%"}
         ).fetchall()
     return tuple(int(r[0]) for r in rows)
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_account_overview(_engine) -> pd.DataFrame:
+    """Every account, with enough to tell use from abandonment.
+
+    "Last opened" is the maximum ``last_seen_at`` across the account's
+    sessions, not ``last_sign_in_at``. Somebody who signed in six weeks ago and
+    has used the portal daily since has a six-week-old sign-in and a session
+    touched this morning; reporting the sign-in would call an active person
+    dormant.
+
+    ``password_hash`` is not selected. Excluding it here rather than declining
+    to render it means a later change to the page cannot leak a column the
+    query never fetched.
+    """
+    sql = text("""
+        SELECT
+            a.account_id,
+            a.username,
+            a.is_operator,
+            a.created_at,
+            a.last_sign_in_at,
+            a.must_change_password,
+            a.store_id,
+            s.name AS store_name,
+            (SELECT max(x.last_seen_at) FROM public.account_sessions AS x
+              WHERE x.account_id = a.account_id
+                AND x.revoked_at IS NULL) AS last_seen_at,
+            (SELECT count(*) FROM public.account_recipes AS r
+              WHERE r.account_id = a.account_id) AS saved_count,
+            (SELECT max(r.last_made_at) FROM public.account_recipes AS r
+              WHERE r.account_id = a.account_id) AS last_made_at
+        FROM public.accounts AS a
+        LEFT JOIN public.ah_stores AS s ON s.store_id = a.store_id
+        ORDER BY a.username
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn)
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_account_saved_recipes(_engine, account_id: int) -> pd.DataFrame:
+    """What one account has kept, most recently saved first."""
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT
+            r.recipe_id, r.saved_at, r.last_made_at, r.notes,
+            d.recipe_name
+        FROM public.account_recipes AS r
+        LEFT JOIN "{schema}"."dim_recipe" AS d ON d.recipe_id = r.recipe_id
+        WHERE r.account_id = :account_id
+        ORDER BY r.saved_at DESC NULLS LAST
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"account_id": int(account_id)})
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
