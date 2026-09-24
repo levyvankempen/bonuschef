@@ -89,6 +89,6 @@
       the page does not raise.
 - [x] 7.2 Mutate each new rule (the URL rewrite, the ingredient filter, the
       literal-text search, the delete guard) and confirm a test fails for each.
-- [ ] 7.3 After deploy, verify on the running container by behaviour rather than by
+- [x] 7.3 After deploy, verify on the running container by behaviour rather than by
       grepping for a comment: the upgraded URL, the filter narrowing the list, and
       a closed card issuing no item query.
