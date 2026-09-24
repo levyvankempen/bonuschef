@@ -517,3 +517,96 @@ def test_a_synonym_the_floor_cannot_see_is_a_known_loss():
     exists so that the day synonyms arrive, the failure points at the reason.
     """
     assert cohort("bospaddenstoelenfond", [hit(1, "AH Bouillon paddenstoel", "")]) == []
+
+
+# --- water is not shopping --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ingredient",
+    [
+        "water",
+        "warm water",
+        "lauwwarm water",
+        "kokend water",
+        "kraanwater",
+        "ijswater",
+        "ijsblokjes",
+    ],
+)
+def test_water_resolves_to_nothing(ingredient):
+    """What a recipe means by water comes out of a tap.
+
+    Two of these were live and absurd: "warm water" and "lauwwarm water" both
+    resolved to tinned tuna, because a title like "Statesman Tonijn stukken in
+    water" ends on the word "water" and the head-noun rule therefore matched
+    perfectly. Both food, both ambient, nothing objected.
+    """
+    assert cohort(ingredient, [hit(1, "Statesman Tonijn stukken in water", "")]) == []
+
+
+@pytest.mark.parametrize(
+    ("ingredient", "title"),
+    [
+        ("tonijn in water in blik", "John West Tonijn in water"),
+        ("tonijnstukken in water", "Princes Tonijnstukken in water"),
+        ("waterkers", "AH Biologisch Waterkers"),
+        ("mini-watermeloen", "AH Mini watermeloen"),
+    ],
+)
+def test_a_product_that_merely_mentions_water_is_untouched(ingredient, title):
+    """The rule asks whether the ingredient REDUCES to water, not whether it
+    says the word. Tuna packed in water is a product."""
+    assert cohort(ingredient, [hit(1, title, "")]) != []
+
+
+# --- an explicit refusal outranks a perfect name match ----------------------
+
+
+@pytest.mark.parametrize(
+    ("ingredient", "title"),
+    [
+        ("gezouten pinda's", "AH Pinda's ongezouten"),
+        ("gezouten cashewnoten", "AH Cashewnoten ongezouten"),
+        ("gezouten macadamianoten", "AH Ongezouten macadamiamix"),
+        ("geroosterde amandelen", "AH Terra Ongebrande amandelen"),
+    ],
+)
+def test_the_opposite_of_what_was_asked_is_refused(ingredient, title):
+    """Six of these were live. The head noun, the leaf and the department all
+    matched - it is the same nut - and the packet is the one thing the recipe
+    ruled out."""
+    assert cohort(ingredient, [hit(1, title, "")]) == []
+
+
+@pytest.mark.parametrize(
+    ("ingredient", "title"),
+    [
+        ("gepelde ongezouten pistachenoten", "AH Pistachenoten"),
+        ("ongesneden snijbonen", "AH Snijbonen"),
+        ("ongezouten roomboter", "AH Roomboter ongezouten"),
+        ("gezouten pinda's", "AH Pinda's gezouten"),
+    ],
+)
+def test_silence_about_an_attribute_is_not_a_refusal(ingredient, title):
+    """Only an explicit opposite counts. Refusing every product that fails to
+    mention an attribute would reject most of the catalogue."""
+    assert cohort(ingredient, [hit(1, title, "")]) != []
+
+
+# --- a modifier is not a head ----------------------------------------------
+
+
+def test_a_compound_is_matched_on_its_head_not_on_any_word():
+    """ "salade-ui" is a kind of ui; "salade" is only what kind. Matching on
+    any word made "AH Selleriesalade" a specialisation of it, which is how a
+    spring onion came to be priced as a tub of celery salad."""
+    assert (
+        cohort("salade-ui", [hit(1, "AH Selleriesalade", "Vers", ("Salades",))]) == []
+    )
+
+
+def test_the_head_rule_still_admits_a_real_specialisation():
+    """The direction exists for "bloem" against "AH Tarwebloem", where the
+    shelf is the specific term. That must survive."""
+    assert cohort("bloem", [hit(1, "AH Tarwebloem", "")]) != []

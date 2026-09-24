@@ -542,6 +542,98 @@ def cohort(ingredient_name: str, candidates: list) -> list:
     return [c for c in candidates if normalise(getattr(c, "taxonomy_leaf", "")) == key]
 
 
+# Water, however it is described. What a recipe means by it comes out of a
+# tap, and no shopping list should carry it.
+#
+# The failure this prevents was not subtle: "warm water" and "lauwwarm water"
+# both resolved to tinned tuna, because a title like "Statesman Tonijn stukken
+# in water" has "water" as its last word, and the head-noun rule therefore
+# matched perfectly. Every other check passed too - both food, both ambient.
+_WATER_QUALIFIERS = frozenset(
+    {
+        "warm",
+        "warme",
+        "lauwwarm",
+        "lauw",
+        "heet",
+        "hete",
+        "koud",
+        "koude",
+        "kokend",
+        "kokende",
+        "gekookt",
+        "gekookte",
+        "kraan",
+        "ijs",
+        "ijskoud",
+        "ijskoude",
+        "bruisend",
+        "bruisende",
+        "plat",
+        "platte",
+    }
+)
+
+# Made from the above, in a freezer.
+_NOT_BOUGHT = frozenset({"ijsblokjes", "ijsblokje", "ijsklontjes", "ijsklontje"})
+
+
+# Words that mean the opposite of each other without sharing a stem, so the
+# "on-" rule below cannot see it. Nuts are roosterd in a recipe and gebrand on
+# a packet; "ongebrand" is therefore a refusal of "geroosterd".
+_OPPOSITES = {
+    "geroosterd": "ongebrand",
+    "geroosterde": "ongebrande",
+    "gebrand": "ongeroosterd",
+    "gebrande": "ongeroosterde",
+}
+
+
+def contradicts(ingredient_name: str, title: str) -> bool:
+    """Whether the product explicitly refuses what the ingredient asked for.
+
+    Dutch negates with "on-", so a recipe asking for gezouten pinda's against
+    a packet named "AH Pinda's ongezouten" is not a near miss - it is the one
+    thing the recipe said not to buy. Six such pairs were live: salted nuts of
+    five kinds resolved to their unsalted versions, and the head nouns matched
+    perfectly every time, which is why nothing else caught them.
+
+    Only an explicit refusal counts. A plain "AH Pistachenoten" against
+    "ongezouten pistachenoten" says nothing about salt and stays acceptable -
+    the alternative is refusing every product that fails to mention an
+    attribute, which would reject most of the catalogue.
+    """
+    asked = set(normalise(ingredient_name).split())
+    offered = set(normalise(title).split())
+    for word in asked:
+        if _OPPOSITES.get(word) in offered:
+            return True
+        if not word.startswith("on") and f"on{word}" in offered:
+            return True
+        if word.startswith("on") and word[2:] in offered:
+            return True
+    return False
+
+
+def comes_from_the_tap(ingredient_name: str) -> bool:
+    """Whether this ingredient is water, and therefore not a thing to buy.
+
+    Deliberately narrow. "tonijn in water" is a product and must not be
+    caught: this asks whether the ingredient REDUCES to water once the
+    temperature and source words are removed, not whether it mentions water.
+    """
+    words = [w for w in normalise(ingredient_name).split() if w]
+    if not words:
+        return False
+    if len(words) == 1 and words[0] in _NOT_BOUGHT:
+        return True
+    # Single-word compounds: kraanwater, ijswater.
+    if len(words) == 1 and words[0].endswith("water"):
+        return words[0][: -len("water")] in _WATER_QUALIFIERS | {""}
+    remaining = [w for w in words if w not in _WATER_QUALIFIERS]
+    return remaining == ["water"]
+
+
 def recognisable(ingredient_name: str, candidate) -> bool:
     """Whether a candidate is identifiably the ingredient, by either evidence.
 
@@ -552,6 +644,18 @@ def recognisable(ingredient_name: str, candidate) -> bool:
     because it asks a different question - not "how good is this?" but "is this
     the same thing?"
     """
+    # Water is not shopping. Checked before anything else, because every
+    # other rule here is about whether a candidate is the right THING and
+    # these have no right thing - the answer is no product at all.
+    if comes_from_the_tap(ingredient_name):
+        return False
+
+    # An explicit refusal outranks every positive signal below. "gezouten
+    # pinda's" against "AH Pinda's ongezouten" matches on the head noun, the
+    # leaf and the department - and is the one packet the recipe ruled out.
+    if contradicts(ingredient_name, getattr(candidate, "title", "") or ""):
+        return False
+
     # The packaging comes off first. A shelf label says "Kuhne Mierikswortel",
     # never "mierikswortel in pot", so comparing the raw ingredient text finds
     # no agreement and withholds a correct product.
@@ -569,15 +673,29 @@ def recognisable(ingredient_name: str, candidate) -> bool:
     # Both directions. The recipe is usually the specific term and the shelf
     # the general one ("runderbouillon" for a Bouillon), but AH inverts it as
     # often: the recipe says "bloem" and the shelf says "AH Tarwebloem".
-    # Suffix matching stays safe either way, because Dutch compounds name
-    # their head last - a tarwebloem is a bloem, and a bloemkool, which does
-    # not end in "bloem", is still not one.
+    #
+    # The reverse direction compares against the ingredient's HEAD, not its
+    # words. Dutch compounds name their head last, so "salade-ui" is a kind
+    # of ui and "salade" is only what kind - and matching on any word made
+    # "AH Selleriesalade" a specialisation of "salade-ui", which is how a
+    # spring onion came to be priced as a tub of celery salad.
+    #
+    # Suffix matching stays safe in both directions once the head is the
+    # thing being matched: a tarwebloem is a bloem, and a bloemkool, which
+    # does not end in "bloem", is still not one.
+    head = _head_noun(name)
     return (
         _specialises(name, leaf)
-        or _specialises(leaf, name)
+        or _specialises(leaf, head)
         or _specialises(name, title)
-        or _specialises(title, name)
+        or _specialises(title, head)
     )
+
+
+def _head_noun(text: str) -> str:
+    """The word a Dutch compound is a kind of: the last content word."""
+    words = _content_words(text)
+    return _title_head(words) if words else ""
 
 
 def _specialises(ingredient_name: str, text: str) -> bool:
