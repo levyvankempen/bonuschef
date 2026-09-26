@@ -414,3 +414,56 @@ def test_the_intermediate_model_does_not_claim_to_exclude_what_it_keeps():
     assert "excludes NEITHER" in header, (
         "the header must say it excludes neither adopted nor rejected recipes"
     )
+
+
+def test_each_union_dedupes_against_its_own_sibling_branch():
+    """Two models UNION ALL an adopted path with the pool path, and each needs
+    its own exclusion - not one shared one.
+
+    int_recipe_items_resolved's adopted branch reads stg_portal__ah_recipes;
+    fct_recipe_opportunity's reads dim_recipe. Those differ: a deleted recipe
+    leaves dim_recipe and stays in ah_recipes. Deduping both against dim_recipe
+    would leave int_recipe_items_resolved duplicated; deduping both against
+    ah_recipes would drop a deleted recipe out of the pool entirely, so nobody
+    could be recommended it again.
+    """
+    items = Path(
+        "src/bonuschef/sql/models/intermediate/recipes/int_recipe_items_resolved.sql"
+    ).read_text()
+    pool = items[items.index("pool AS (") :]
+    code = "\n".join(
+        line for line in pool.splitlines() if not line.strip().startswith("--")
+    )
+    assert "NOT IN" in code, "the pool branch must exclude adopted recipes"
+    assert "stg_portal__ah_recipes" in code, (
+        "and against stg_portal__ah_recipes, which is what its adopted branch reads"
+    )
+
+    mart = Path(
+        "src/bonuschef/sql/models/marts/recipes/fct_recipe_opportunity.sql"
+    ).read_text()
+    mart_pool = mart[mart.index("int_pool_recipes_available") :]
+    mart_pool = mart_pool[: mart_pool.index("agg AS (")]
+    mart_code = "\n".join(
+        line for line in mart_pool.splitlines() if not line.strip().startswith("--")
+    )
+    assert "dim_recipe" in mart_code, (
+        "the mart excludes against dim_recipe, which is what ITS sibling reads"
+    )
+
+
+def test_both_grains_are_still_tested():
+    """These two tests are what caught the outage. Losing either makes the next
+    duplicate silent instead of loud."""
+    schema = Path(
+        "src/bonuschef/sql/models/marts/recipes/_recipes_models.yml"
+    ).read_text()
+    assert "[store_id, recipe_id]" in schema
+
+    int_schema = Path(
+        "src/bonuschef/sql/models/intermediate/recipes/_int_recipes__properties.yml"
+    ).read_text()
+    assert "int_recipe_items_resolved" in int_schema
+    block = int_schema[int_schema.index("int_recipe_items_resolved") :][:500]
+    assert "unique_combination_of_columns" in block
+    assert "recipe_id" in block and "item_key" in block

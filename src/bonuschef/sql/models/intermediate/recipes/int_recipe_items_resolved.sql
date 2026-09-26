@@ -81,6 +81,23 @@ pool AS (
     FROM {{ ref('int_pool_recipes_available') }} AS r
     INNER JOIN {{ ref('stg_ah__pool_recipe_ingredients') }} AS i
         ON r.recipe_id = i.ah_recipe_id
+    -- An adopted recipe is in `adopted` above AND still in the pool, so
+    -- without this its lines arrive twice and the (recipe_id, item_key) grain
+    -- declared above is a lie. It was a lie: 24 pairs were duplicated, the
+    -- uniqueness test failed, dbt build failed with it, and every job stayed
+    -- red for days.
+    --
+    -- Excluded against stg_portal__ah_recipes specifically, because that is
+    -- what `adopted` reads. fct_recipe_opportunity makes the same exclusion
+    -- against dim_recipe, because that is what ITS sibling branch reads, and
+    -- the two differ: a deleted recipe leaves dim_recipe but stays in
+    -- ah_recipes. Deduping both against one of them would either leave a
+    -- duplicate or drop a recipe out of the pool entirely.
+    WHERE
+        r.recipe_id NOT IN (
+            SELECT adopted_recipes.ah_recipe_id
+            FROM {{ ref('stg_portal__ah_recipes') }} AS adopted_recipes
+        )
     GROUP BY r.recipe_id, i.concept_id
 
 )
