@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.33.5 (2026-09-26)
+
+### Bug Fixes
+
+- **portal**: Stop calling a dearer markdown a last chance
+  ([#127](https://github.com/levyvankempen/bonuschef/pull/127),
+  [`4fcd243`](https://github.com/levyvankempen/bonuschef/commit/4fcd243645774949b26d653cdf9fbd0c513d06e9))
+
+### Documentation
+
+- Sync and archive the new-shop trigger
+  ([#126](https://github.com/levyvankempen/bonuschef/pull/126),
+  [`12d409e`](https://github.com/levyvankempen/bonuschef/commit/12d409e0f079b9c9667c7b2cfb173cfb39124f92))
+
+
 ## v1.33.4 (2026-09-26)
 
 ### Bug Fixes
