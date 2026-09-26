@@ -467,3 +467,26 @@ def test_both_grains_are_still_tested():
     block = int_schema[int_schema.index("int_recipe_items_resolved") :][:500]
     assert "unique_combination_of_columns" in block
     assert "recipe_id" in block and "item_key" in block
+
+
+def test_the_promotion_test_filters_to_live_promotions_like_the_mart_does():
+    """It asserts every LIVE promotion reaches the comparison, and for a while
+    its WHERE clause did not say "live".
+
+    fct_bonus_price_comparison holds only promotions whose window includes
+    today, so demanding an expired one appear asks the mart to invent a row -
+    which the test's own header says is wrong. Without the filter it passed only
+    while the promotional feed was fresh, and a feed goes stale exactly when the
+    pipeline is red. So once red, this test helped hold it red: 167 rows, every
+    one a promotion whose window had closed.
+    """
+    sql = Path(
+        "src/bonuschef/sql/tests/assert_every_promotion_reaches_the_comparison.sql"
+    ).read_text()
+    code = "\n".join(
+        line for line in sql.splitlines() if not line.strip().startswith("--")
+    )
+    assert "bonus_start_date" in code and "bonus_end_date" in code, (
+        "the test must apply the same liveness window as the mart it checks"
+    )
+    assert "CURRENT_DATE" in code

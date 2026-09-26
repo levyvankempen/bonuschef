@@ -1,5 +1,8 @@
 -- Every live promotion we could compare must appear in the comparison.
 --
+-- "Live" is load-bearing and was missing from the WHERE clause for a while:
+-- see the note on the date filter at the bottom.
+--
 -- The mart used to be driven by our own catalogue with an INNER JOIN, so a
 -- promoted product we had never seen a price for was not reported with its
 -- observed saving unknown - it was not reported at all. Measured on live data
@@ -29,3 +32,14 @@ LEFT JOIN {{ ref('fct_bonus_price_comparison') }} AS c
 WHERE
     b.is_bonus
     AND c.webshop_id IS NULL
+    -- Live, on the same terms the mart uses. Without this the test asked for
+    -- rows the mart deliberately does not hold: fct_bonus_price_comparison
+    -- filters to promotions whose window includes today, so an expired one
+    -- appearing here is the mart being right.
+    --
+    -- It therefore passed only while the promotional feed was fresh, and the
+    -- feed goes stale precisely when the pipeline is red - so once red, this
+    -- test helped keep it red. All 167 rows it failed on were promotions whose
+    -- window had closed.
+    AND (b.bonus_start_date IS NULL OR b.bonus_start_date <= CURRENT_DATE)
+    AND (b.bonus_end_date IS NULL OR b.bonus_end_date >= CURRENT_DATE)
