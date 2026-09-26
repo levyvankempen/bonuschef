@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.4 (2026-09-26)
+
+### Bug Fixes
+
+- **portal**: Prices on Recepten, a page that stays put, and a new shop that fills itself
+  ([#125](https://github.com/levyvankempen/bonuschef/pull/125),
+  [`f39cbcd`](https://github.com/levyvankempen/bonuschef/commit/f39cbcda56f01b47ae38af7c733e58ab62666897))
+
+
 ## v1.33.3 (2026-09-26)
 
 ### Bug Fixes
