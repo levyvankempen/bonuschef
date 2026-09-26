@@ -29,5 +29,5 @@
 ## 5. Verify
 
 - [x] 5.1 Full suite, ruff and ty clean.
-- [ ] 5.2 After deploy, confirm on the running container that the guard answers
+- [x] 5.2 After deploy, confirm on the running container that the guard answers
       correctly for a known and an unknown shop.
