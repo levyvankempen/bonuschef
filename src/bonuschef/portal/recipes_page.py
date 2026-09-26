@@ -355,9 +355,9 @@ def _render_ingredients(engine, account: Account, row) -> None:
     )
     for _, item in items.iterrows():
         with st.container(horizontal=True, vertical_alignment="center"):
-            st.markdown(str(item.get("item_label") or "?"))
-            if pd.isna(item.get("price_today")):
-                st.caption("nog niet gekoppeld")
+            with st.container():
+                st.markdown(str(item.get("item_label") or "?"))
+                _render_item_match(item)
             if pd.notna(item.get("concept_id")):
                 # Keyed on recipe AND line: item_key is "c:<concept_id>", so
                 # two recipes both containing onions would otherwise collide.
@@ -370,6 +370,39 @@ def _render_ingredients(engine, account: Account, row) -> None:
                     open_single(
                         engine, int(item["concept_id"]), str(item["item_label"])
                     )
+
+
+def _render_item_match(item) -> None:
+    """Which product this line rests on, and what it costs.
+
+    The page offered "Klopt niet" against a line that named only the
+    ingredient - so a person was asked to judge a match they could not see,
+    and the card's total rested on products nothing displayed. The portal spec
+    requires both halves together: show which product the figure rests on, and
+    offer to correct it from the same place. Only the second half was here.
+    """
+    if item["is_unresolved"] or pd.isna(item.get("price_today")):
+        st.caption("nog geen product gekoppeld")
+        return
+
+    bits = [str(item.get("product_name") or "")]
+    price = item.get("price_today")
+    if pd.notna(price):
+        shown = offers.euro(price)
+        ordinary = item.get("price_ordinary")
+        if (
+            pd.notna(ordinary)
+            and pd.notna(item.get("item_saving"))
+            and float(item["item_saving"]) > 0
+        ):
+            shown = f"{shown} i.p.v. {offers.euro(ordinary)}"
+        bits.append(shown)
+    pack = item.get("sales_unit_size")
+    if pack and str(pack).strip():
+        # A recipe wanting 100 g of a 500 g pack is costed at the pack, because
+        # that is what has to be bought.
+        bits.append(f"hele verpakking: {pack}")
+    st.caption(" · ".join(b for b in bits if b))
 
 
 def _render_price(row) -> None:

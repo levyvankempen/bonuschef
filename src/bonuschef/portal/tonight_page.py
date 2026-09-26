@@ -226,6 +226,7 @@ def _offer_badges(
     return named, max(len(discounted) - len(named), 0)
 
 
+@st.fragment
 def _render_items_on_request(
     engine, recipe_id: int, row, clearance_counts: bool
 ) -> None:
@@ -234,28 +235,30 @@ def _render_items_on_request(
     This was an st.expander. Streamlit executes an expander's body whether or
     not it is open, so a single render of this page issued a query per card and
     registered a "Klopt niet" button per ingredient - roughly fifty controls
-    streamed over a shop connection to show six recipes. recipes_page already
-    uses this pattern and documents why; this page did not.
+    streamed over a shop connection to show six recipes.
+
+    A fragment, and with no st.rerun() in it, because the first version of this
+    had both problems: st.rerun() re-runs the whole page, the page gets taller
+    by the length of the list, and the browser lands somewhere other than where
+    the thumb was. Opening a list is not a reason to move the page. A fragment
+    re-runs only this block, and the toggle takes effect in the same run, so
+    there is nothing to scroll.
     """
     total = int(row["items_total"])
     open_key = f"items_open_{recipe_id}"
-    if not st.session_state.get(open_key):
-        if st.button(
-            f"Ingrediënten ({total})",
-            key=f"show_items_{recipe_id}",
-            icon=":material/list:",
-            width="stretch",
-        ):
-            st.session_state[open_key] = True
-            st.rerun()
-        return
+    opened = bool(st.session_state.get(open_key))
 
-    _render_items(engine, recipe_id, row, clearance_counts)
     if st.button(
-        "Verbergen", key=f"hide_items_{recipe_id}", icon=":material/expand_less:"
+        "Verbergen" if opened else f"Ingrediënten ({total})",
+        key=f"items_toggle_{recipe_id}",
+        icon=":material/expand_less:" if opened else ":material/list:",
+        width="stretch",
     ):
-        st.session_state[open_key] = False
-        st.rerun()
+        opened = not opened
+        st.session_state[open_key] = opened
+
+    if opened:
+        _render_items(engine, recipe_id, row, clearance_counts)
 
 
 def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:

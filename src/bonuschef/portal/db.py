@@ -1065,6 +1065,23 @@ def read_recipes_using_ingredient(
     return tuple(int(r[0]) for r in rows)
 
 
+def store_has_clearance(engine, store_id: int) -> bool:
+    """Whether the warehouse holds any clearance for this shop.
+
+    Asks the same table Laatste kans reads, so the answer is exactly "would
+    that page be empty" rather than a proxy for it. Uncached on purpose: it is
+    asked once, immediately after a shop is chosen, and a cached "no" would
+    outlive the scrape it triggers.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT 1 FROM "{schema}"."fct_store_clearance"
+        WHERE store_id = :store_id LIMIT 1
+    """)
+    with engine.begin() as conn:
+        return conn.execute(sql, {"store_id": int(store_id)}).fetchone() is not None
+
+
 @st.cache_data(ttl=_CACHE_TTL_S)
 def read_account_overview(_engine) -> pd.DataFrame:
     """Every account, with enough to tell use from abandonment.
