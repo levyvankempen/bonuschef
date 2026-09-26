@@ -185,6 +185,82 @@ class TestRecipesPage:
         assert names and "Zalm uit de oven" in names[0], names
 
 
+class TestTheIngredientsOnTheRecipesPage:
+    """The page offered "Klopt niet" against a line naming only the ingredient.
+
+    So a person was asked to judge a match they could not see, and the card's
+    total rested on products nothing displayed. The portal spec asks for both
+    halves together - show which product the figure rests on, and offer to
+    correct it from the same place - and only the second half was there.
+    """
+
+    ITEMS = pd.DataFrame(
+        {
+            "item_key": ["c:1", "c:2"],
+            "concept_id": [1, 2],
+            "item_label": ["zalmfilet", "bloemkool"],
+            "product_name": ["AH Zalmfilet op huid", "AH Bloemkool"],
+            "price_today": [2.19, None],
+            "price_ordinary": [4.88, None],
+            "item_saving": [2.69, None],
+            "sales_unit_size": ["ca. 300 g", None],
+            "is_unresolved": [False, True],
+            "factor": [1.0, 1.0],
+            "hidden": [False, False],
+        }
+    )
+
+    def _open(self, monkeypatch):
+        TestRecipesPage()._wire(monkeypatch)
+        monkeypatch.setattr(
+            recipes_page,
+            "read_recipe_opportunity_items",
+            lambda e, r, s, b="": self.ITEMS,
+        )
+        monkeypatch.setattr(
+            recipes_page,
+            "read_recipe_lines_override",
+            lambda e, a, r: pd.DataFrame(),
+        )
+        at = run_app(recipes_page.render_recipes).run()
+        button = [b for b in at.button if "Ingredi" in b.label]
+        assert button, "the ingredient list must be reachable"
+        return button[0].click().run()
+
+    def test_each_line_names_the_product_the_price_rests_on(self, monkeypatch):
+        at = self._open(monkeypatch)
+        captions = " ".join(c.value for c in at.caption)
+        assert "AH Zalmfilet op huid" in captions, (
+            "a person cannot judge a match they cannot see"
+        )
+
+    def test_each_line_carries_its_price(self, monkeypatch):
+        """The whole point of the page is what a recipe costs. The lines the
+        total is made of showed no money at all."""
+        at = self._open(monkeypatch)
+        captions = " ".join(c.value for c in at.caption)
+        assert "2.19" in captions, captions
+
+    def test_a_discounted_line_says_what_it_was(self, monkeypatch):
+        at = self._open(monkeypatch)
+        captions = " ".join(c.value for c in at.caption)
+        assert "i.p.v." in captions and "4.88" in captions
+
+    def test_a_pack_price_says_it_is_the_pack(self, monkeypatch):
+        """100 g of a 300 g pack is costed at the pack, because that is what
+        has to be bought."""
+        at = self._open(monkeypatch)
+        assert "hele verpakking" in " ".join(c.value for c in at.caption)
+
+    def test_an_unresolved_line_says_so_instead_of_showing_a_price(self, monkeypatch):
+        at = self._open(monkeypatch)
+        assert "nog geen product gekoppeld" in " ".join(c.value for c in at.caption)
+
+    def test_every_line_can_still_be_corrected(self, monkeypatch):
+        at = self._open(monkeypatch)
+        assert len([b for b in at.button if "Klopt niet" in b.label]) == 2
+
+
 class TestTheSavedRecipeCard:
     """The saved card is chosen between the same way a recommended one is, so
     it is led by its picture on the same terms."""

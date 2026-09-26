@@ -1035,7 +1035,46 @@ class TestAClosedCardCostsNothingExtra:
         """A widget outside the fragment reruns the whole script, rebuilding
         the banners and the coverage block to answer "show me the chicken
         ones". The controls therefore live inside it with the list."""
-        body = Path(page.__file__).read_text()
-        fragment = body[body.index("@st.fragment") :][:900]
-        assert "_ingredient_filter(engine)" in fragment
-        assert "_render_answer(" in fragment
+        # Located by name through the AST, not by "the first @st.fragment":
+        # there are two fragments now and that anchor broke the moment the
+        # second one was added.
+        import ast
+
+        tree = ast.parse(Path(page.__file__).read_text())
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "_render_ingredient_answer"
+        )
+        assert any("st.fragment" in ast.unparse(d) for d in fn.decorator_list), (
+            "the filter and its list must rerun as one fragment"
+        )
+        body = ast.unparse(fn)
+        assert "_ingredient_filter(engine)" in body
+        assert "_render_answer(" in body
+
+
+def test_opening_the_ingredient_list_does_not_rerun_the_page():
+    """Reported from the shop: tapping "Ingrediënten" moved the page instead of
+    staying where the thumb was.
+
+    st.rerun() re-runs the whole script, the page grows by the length of the
+    list, and the browser lands somewhere else. A fragment re-runs only that
+    block and the toggle takes effect in the same run, so there is nothing to
+    scroll. Opening a list is not a reason to move the page.
+    """
+    import ast
+
+    tree = ast.parse(Path(page.__file__).read_text())
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_render_items_on_request"
+    )
+    assert any("st.fragment" in ast.unparse(d) for d in fn.decorator_list), (
+        "it must rerun as a fragment rather than as the whole page"
+    )
+    calls = {ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}
+    assert "st.rerun" not in calls, (
+        "st.rerun re-runs the page and loses the reader's place"
+    )
