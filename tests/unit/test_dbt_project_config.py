@@ -490,3 +490,33 @@ def test_the_promotion_test_filters_to_live_promotions_like_the_mart_does():
         "the test must apply the same liveness window as the mart it checks"
     )
     assert "CURRENT_DATE" in code
+
+
+def test_an_offer_must_be_on_the_product_the_line_is_priced_at():
+    """A saving is the difference on ONE product.
+
+    The three offer CTEs used to read every candidate product for the concept
+    and take the cheapest offer among them, while the ordinary price came from
+    whichever candidate int_recipe_items_priced had chosen. Picked
+    independently, so a "saving" could be one product's markdown measured
+    against another product's shelf price, at a different pack size: 112 of 667
+    savings, 93 across different pack sizes, EUR 57 that was partly just a
+    bigger pack.
+
+    It is also what made an offer look dearer than the ordinary price, which
+    cannot happen to one product - a markdown is cheaper than its own shelf
+    price by definition.
+    """
+    model = Path(
+        "src/bonuschef/sql/models/intermediate/recipes/int_recipe_item_opportunity.sql"
+    ).read_text()
+    code = "\n".join(
+        line for line in model.splitlines() if not line.strip().startswith("--")
+    )
+    assert "int_recipe_item_candidates" not in code, (
+        "the offer CTEs must read `priced`, so the offer is on the priced product"
+    )
+    assert code.count("FROM priced AS c") == 3, (
+        "all three offer collapses - clearance/bonus, bonus-only, conditional - "
+        f"must be restricted, found {code.count('FROM priced AS c')}"
+    )

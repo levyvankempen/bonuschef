@@ -29,8 +29,32 @@ reference AS (
 
 ),
 
--- The concept fan-out collapses here: every candidate product for a line is
--- offered a price, and exactly one survives per (store, recipe, line).
+-- The offer must be on the product the line is PRICED at, which is why these
+-- read `priced` rather than the candidate set.
+--
+-- They used to read every candidate for the concept and take the cheapest
+-- offer among them, while the ordinary price came from whichever candidate
+-- int_recipe_items_priced had chosen. The two were picked independently, so a
+-- "saving" could be one product's markdown measured against another product's
+-- shelf price - and with different pack sizes at that. Measured on live data:
+-- 112 of 667 savings were computed across two products, 93 of them across
+-- different pack sizes, claiming EUR 57 that was partly just a bigger pack.
+-- Heinz Tomato frito 212 g against Heinz Tomato frito biologisch 350 g;
+-- kipfilet blokjes 200 g against kipdijfilet blokjes 300 g.
+--
+-- It also produced the report that found this: an offer price ABOVE the
+-- ordinary price, which cannot happen to one product - a markdown is cheaper
+-- than its own shelf price by definition - and only looked possible because
+-- the two numbers described different things.
+--
+-- So: a saving is the difference on one product, its normal price against its
+-- price today. Substituting a cheaper product that also satisfies the
+-- ingredient is a real saving a shopper would take, but it cannot be measured
+-- by subtracting per-pack prices; it needs a unit price, which is a change of
+-- its own.
+--
+-- One offer still survives per (store, recipe, line): a product can carry both
+-- a clearance and a bonus row, and the cheaper of those is the price to pay.
 best_offer AS (
 
     SELECT DISTINCT ON (o.store_id, c.recipe_id, c.item_key)
@@ -46,7 +70,7 @@ best_offer AS (
         o.sales_unit_size,
         o.bonus_mechanism,
         o.requires_multibuy
-    FROM {{ ref('int_recipe_item_candidates') }} AS c
+    FROM priced AS c
     INNER JOIN {{ ref('int_product_offer_today') }} AS o
         ON c.product_link = o.product_link
     -- A price obtainable only by buying more than the recipe needs is not a
@@ -69,7 +93,7 @@ best_bonus_offer AS (
         c.recipe_id,
         c.item_key,
         o.offer_price AS bonus_offer_price
-    FROM {{ ref('int_recipe_item_candidates') }} AS c
+    FROM priced AS c
     INNER JOIN {{ ref('int_product_offer_today') }} AS o
         ON c.product_link = o.product_link
     WHERE o.offer_kind = 'bonus' AND NOT o.requires_multibuy
@@ -88,7 +112,7 @@ best_conditional_offer AS (
         c.item_key,
         o.offer_price AS conditional_offer_price,
         o.bonus_mechanism AS conditional_mechanism
-    FROM {{ ref('int_recipe_item_candidates') }} AS c
+    FROM priced AS c
     INNER JOIN {{ ref('int_product_offer_today') }} AS o
         ON c.product_link = o.product_link
     WHERE o.requires_multibuy

@@ -388,7 +388,11 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                         color="orange",
                     )
                 elif not discounted:
-                    _render_markdown_that_is_not_cheaper(item)
+                    _render_offer_that_is_not_cheaper(item)
+            elif item.get("offer_kind") == "bonus" and not discounted:
+                # The commoner case, and the one the sixteen live examples are:
+                # a promotion that does not beat the price we last observed.
+                _render_offer_that_is_not_cheaper(item)
             if pd.notna(item.get("item_conditional_saving")):
                 st.caption(
                     f"{item['conditional_mechanism']} — telt niet mee in het bedrag"
@@ -410,32 +414,40 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     )
 
 
-def _render_markdown_that_is_not_cheaper(item) -> None:
-    """Say that the markdown sticker is not a saving, where the price is.
+def _render_offer_that_is_not_cheaper(item) -> None:
+    """Say that an offer on this product is not a saving, where the price is.
 
-    A quarter of clearance lines are in this state, and on most of them AH's
-    markdown price is higher than the price we have observed for the product.
-    Silence would be defensible if the page said nothing about the offer at
-    all; announcing "laatste kans" and then showing an unchanged price is not
-    silence, it is a contradiction the reader has to resolve.
+    The wording follows the kind of offer, because the two arise for different
+    reasons and the first version of this got it wrong by calling both a
+    markdown.
 
-    Stated in grey and without urgency: it is worth knowing that the sticker on
-    the shelf is not a bargain, and it is not a reason to hurry.
+    A *clearance* price is cheaper than its own product's shelf price by
+    definition, so a markdown that looks dearer means our reference is out of
+    date rather than that the sticker is bad - only four products in the whole
+    offer table are in that state, and the tracked price behind them may be up
+    to the staleness window old.
+
+    A *bonus* has no such guarantee: a promotion can simply not beat the price
+    we last observed, which is every one of the sixteen cases that reach a
+    recipe line. Naming it "afgeprijsd" would be wrong twice over.
     """
     offer = item.get("offer_price")
     ordinary = item.get("price_ordinary")
+    clearance = item.get("offer_kind") == "clearance"
+    noun = "afgeprijsd op" if clearance else "in de bonus voor"
+
     if pd.isna(offer):
-        st.caption(":gray[afgeprijsd, maar niet goedkoper dan de gewone prijs]")
+        st.caption(f":gray[{noun} een prijs die niet lager is dan normaal]")
         return
     if pd.notna(ordinary) and float(offer) > float(ordinary):
-        st.caption(
-            f":gray[afgeprijsd op {_euro(offer)}, duurder dan de "
-            f"{_euro(ordinary)} die we normaal zien]"
+        tail = (
+            "onze prijs is mogelijk verouderd"
+            if clearance
+            else f"hoger dan de {_euro(ordinary)} die we voor dit product zien"
         )
+        st.caption(f":gray[{noun} {_euro(offer)} — {tail}]")
         return
-    st.caption(
-        f":gray[afgeprijsd op {_euro(offer)}, geen voordeel tegenover de gewone prijs]"
-    )
+    st.caption(f":gray[{noun} {_euro(offer)} — geen voordeel tegenover normaal]")
 
 
 def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:

@@ -1137,7 +1137,28 @@ class TestAMarkdownThatIsNotCheaper:
         body = _texts(at)
         assert "afgeprijsd" in body, body[:400]
         assert "1.49" in body, "say what the sticker asks"
-        assert "1.09" in body, "and what we normally see"
+
+    def test_a_bonus_that_is_not_cheaper_is_not_called_a_markdown(
+        self, wired, monkeypatch
+    ):
+        """The two arise for different reasons. A clearance price beats its own
+        product's shelf price by definition, so one that looks dearer means our
+        reference is stale; a promotion has no such guarantee and simply may not
+        beat the price we last saw. All sixteen live cases are the latter, and
+        calling them "afgeprijsd" would be wrong twice over."""
+        items = self._dearer_markdown()
+        items.loc[0, "offer_kind"] = "bonus"
+        items.loc[0, "stock"] = None
+        items.loc[0, "price_ordinary"] = 4.15
+        items.loc[0, "price_today"] = 4.15
+        items.loc[0, "offer_price"] = 4.22
+        monkeypatch.setattr(
+            page, "read_recipe_opportunity_items", lambda e, r, *_: items
+        )
+        body = _texts(_open_items(run_app(page.render_tonight).run()))
+        assert "in de bonus" in body, body[:400]
+        assert "afgeprijsd" not in body, "a bonus is not a markdown"
+        assert "4.22" in body and "4.15" in body
 
     def test_a_markdown_that_is_cheaper_still_gets_its_badge(self, wired):
         """The fixture's default clearance line is a real saving, and must not
