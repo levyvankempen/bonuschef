@@ -1078,3 +1078,63 @@ def test_opening_the_ingredient_list_does_not_rerun_the_page():
     assert "st.rerun" not in calls, (
         "st.rerun re-runs the page and loses the reader's place"
     )
+
+
+class TestAMarkdownThatIsNotCheaper:
+    """Reported from the running app: a line badged "laatste kans · nog 2" with
+    an unchanged price and no saving.
+
+    The mart was right. AH's markdown on that spitskool was EUR 1.49 against
+    the EUR 1.09 we track, so is_discounted is false and item_saving is 0 - it
+    declined to call a dearer sticker a discount. The page announced urgency
+    anyway, because the badge needed only a clearance offer and a known stock.
+    Measured: 116 of 463 clearance lines, 103 of them with the sticker dearer
+    than the tracked price.
+    """
+
+    @staticmethod
+    def _dearer_markdown() -> pd.DataFrame:
+        items = _items()
+        items.loc[0, "item_label"] = "gesneden spitskool"
+        items.loc[0, "product_name"] = "AH Fijngesneden spitskool"
+        items.loc[0, "is_discounted"] = False
+        items.loc[0, "item_saving"] = 0.0
+        items.loc[0, "price_ordinary"] = 1.09
+        items.loc[0, "price_today"] = 1.09
+        items.loc[0, "offer_price"] = 1.49
+        items.loc[0, "offer_kind"] = "clearance"
+        items.loc[0, "stock"] = 2.0
+        return items
+
+    def _render(self, monkeypatch):
+        monkeypatch.setattr(
+            page,
+            "read_recipe_opportunity_items",
+            lambda e, r, *_: self._dearer_markdown(),
+        )
+        return _open_items(run_app(page.render_tonight).run())
+
+    def test_no_urgency_badge_without_a_saving(self, wired, monkeypatch):
+        """Urgency is a reason to act now. Without a saving there is none."""
+        at = self._render(monkeypatch)
+        badges = " ".join(m.value for m in at.markdown if "-badge[" in m.value)
+        assert "laatste kans" not in badges, (
+            "a markdown that is not cheaper must not be announced as urgent"
+        )
+
+    def test_the_discrepancy_is_stated_where_the_price_is(self, wired, monkeypatch):
+        """The portal is required to communicate a retailer's advertised saving
+        failing to survive comparison with observed prices, in the place where
+        the saving is shown."""
+        at = self._render(monkeypatch)
+        body = _texts(at)
+        assert "afgeprijsd" in body, body[:400]
+        assert "1.49" in body, "say what the sticker asks"
+        assert "1.09" in body, "and what we normally see"
+
+    def test_a_markdown_that_is_cheaper_still_gets_its_badge(self, wired):
+        """The fixture's default clearance line is a real saving, and must not
+        lose its urgency to this."""
+        at = _open_items(run_app(page.render_tonight).run())
+        badges = " ".join(m.value for m in at.markdown if "-badge[" in m.value)
+        assert "laatste kans" in badges
