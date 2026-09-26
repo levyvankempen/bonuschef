@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.2 (2026-09-26)
+
+### Bug Fixes
+
+- **sql**: The second broken grain, hidden behind the first
+  ([#123](https://github.com/levyvankempen/bonuschef/pull/123),
+  [`03f1b49`](https://github.com/levyvankempen/bonuschef/commit/03f1b49b356a7927d92f601f1c2f80745e48bf6d))
+
+
 ## v1.33.1 (2026-09-26)
 
 ### Bug Fixes
