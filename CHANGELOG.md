@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.7 (2026-09-26)
+
+### Bug Fixes
+
+- A saving is a difference on one product, not between two
+  ([#129](https://github.com/levyvankempen/bonuschef/pull/129),
+  [`6efad08`](https://github.com/levyvankempen/bonuschef/commit/6efad088e8e33e0be28d35230e01767007ee5db2))
+
+
 ## v1.33.6 (2026-09-26)
 
 ### Bug Fixes
