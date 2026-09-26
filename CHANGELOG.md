@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.3 (2026-09-26)
+
+### Bug Fixes
+
+- **sql**: A test that held the pipeline down once it was down
+  ([#124](https://github.com/levyvankempen/bonuschef/pull/124),
+  [`6fbf974`](https://github.com/levyvankempen/bonuschef/commit/6fbf97419731fab0341e36490be4d4b90d180e00))
+
+
 ## v1.33.2 (2026-09-26)
 
 ### Bug Fixes
