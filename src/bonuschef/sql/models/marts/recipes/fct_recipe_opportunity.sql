@@ -66,7 +66,7 @@ rankable_recipes AS (
     -- per-person exclusion at all - the recipe still appears, sourced from
     -- dim_recipe instead of twice.
     WHERE recipe_id NOT IN (
-        SELECT recipe_id FROM {{ ref('dim_recipe') }}
+        SELECT adopted.recipe_id FROM {{ ref('dim_recipe') }} AS adopted
     )
 
 ),
