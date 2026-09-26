@@ -285,3 +285,29 @@ def test_that_store_sees_national_promotions(warehouse):
             )
         ).scalar()
     assert offers, "a store with no clearance should still see the bonus"
+
+
+def test_the_fixture_and_the_application_find_the_same_database(warehouse):
+    """The invariant that was missing, and cost eight tests.
+
+    This fixture resolves connection details with defaults; the application
+    resolves them through DatabaseConfig.from_env(), where PG_HOST is required
+    and has no default. On a developer machine with Postgres on 5455 and nothing
+    exported, the two disagreed - the fixture connected, declared a warehouse
+    available, and then every test that ran the real app got "PG_HOST is
+    required" from inside it.
+
+    Eight tests failed locally and passed in CI for that reason alone, which is
+    the worst possible place for a difference to live: the machine where the
+    work happens is the one that lies to you.
+    """
+    from bonuschef.config import DatabaseConfig
+
+    cfg = DatabaseConfig.from_env()
+    with warehouse.begin() as conn:
+        fixture_db = conn.execute(text("SELECT current_database()")).scalar()
+    assert cfg.database == fixture_db, (
+        f"the fixture is on {fixture_db!r} and the application on "
+        f"{cfg.database!r}; a test that passes against one proves nothing "
+        "about the other"
+    )
