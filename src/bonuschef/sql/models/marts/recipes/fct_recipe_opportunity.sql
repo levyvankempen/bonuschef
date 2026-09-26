@@ -51,6 +51,23 @@ rankable_recipes AS (
         CAST(rating_average AS numeric) AS rating_average,
         CAST(rating_count AS bigint) AS rating_count
     FROM {{ ref('int_pool_recipes_available') }}
+    -- A recipe somebody adopted is in dim_recipe AND still in the pool, so
+    -- without this it arrives twice under one id and the (store_id, recipe_id)
+    -- grain above is a lie. It was a lie: the uniqueness test on this model
+    -- failed on eight pairs, dbt build failed with it, and the whole pipeline
+    -- stayed red - which is why clearance went a day stale and new shops
+    -- looked empty. The portal then rendered the same recipe as both the lead
+    -- and a runner-up and collided its widget keys.
+    --
+    -- int_pool_recipes_available used to do this and stopped on purpose: the
+    -- exclusion there was per-person and global at once, so one person
+    -- adopting a recipe removed it from everybody's suggestions. That reason
+    -- still holds, so the filter does not go back there. Here it is not a
+    -- per-person exclusion at all - the recipe still appears, sourced from
+    -- dim_recipe instead of twice.
+    WHERE recipe_id NOT IN (
+        SELECT recipe_id FROM {{ ref('dim_recipe') }}
+    )
 
 ),
 
