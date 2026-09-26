@@ -126,17 +126,44 @@ def run_app(
     return AppTest.from_string(script, default_timeout=default_timeout)
 
 
+# What this fixture connects to, and therefore what the code under test must
+# connect to as well. Defaults only - anything already exported wins, so CI's
+# values are never overridden.
+_WAREHOUSE_ENV = {
+    "PG_USER": "postgres",
+    "PG_PASSWORD": "postgres",
+    "PG_HOST": "localhost",
+    "PG_PORT": "5455",
+    "PG_DB": "postgres",
+}
+
+
 @pytest.fixture(scope="session")
 def warehouse():
     """A built warehouse, or a skip - except in CI, where it is a failure.
 
     CI provides one. A skip there is a green check that proves nothing, which
     is the thing this whole capability exists to stop.
+
+    The connection details are exported, not merely used. This fixture reads
+    them with defaults; the application reads them through
+    DatabaseConfig.from_env(), where PG_HOST is required and has none. On a
+    machine with Postgres on 5455 and nothing exported, the two disagreed: the
+    fixture connected happily and declared the warehouse available, and then
+    every test that ran the real app got "PG_HOST is required" from inside it.
+    Eight tests failed locally and passed in CI for exactly that reason, which
+    is the worst place for a difference to live.
+
+    Exporting the defaults makes one answer serve both, so the fixture cannot
+    promise a database the code under test is unable to find.
     """
+    for key, value in _WAREHOUSE_ENV.items():
+        os.environ.setdefault(key, value)
+
     url = (
-        f"postgresql+psycopg2://{os.getenv('PG_USER', 'postgres')}:"
-        f"{os.getenv('PG_PASSWORD', 'postgres')}@{os.getenv('PG_HOST', 'localhost')}:"
-        f"{os.getenv('PG_PORT', '5455')}/{os.getenv('PG_DB', 'postgres')}"
+        f"postgresql+psycopg2://{os.environ['PG_USER']}:"
+        f"{os.environ['PG_PASSWORD']}@{os.environ['PG_HOST']}:"
+        f"{os.environ['PG_PORT']}/{os.environ['PG_DB']}"
     )
     try:
         engine = create_engine(url, pool_pre_ping=True)

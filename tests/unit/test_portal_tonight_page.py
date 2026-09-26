@@ -801,6 +801,13 @@ class TestTheCacheFollowsTheData:
             def begin(self):
                 raise RuntimeError("column built_at does not exist")
 
+        # The reader is cached on `_engine`, and an underscore-prefixed
+        # argument is excluded from st.cache_data's key - so a value another
+        # test put there would be returned whatever engine is passed here, and
+        # this assertion would pass without the fallback existing at all. It
+        # did pass that way, for as long as no test in the session could reach
+        # a warehouse to populate the cache.
+        db.read_marts_built_at.clear()
         assert db.read_marts_built_at(_Engine()) == "unknown"
 
 
