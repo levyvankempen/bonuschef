@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.6 (2026-09-26)
+
+### Bug Fixes
+
+- **tests**: The suite now passes on the machine it is written on
+  ([#128](https://github.com/levyvankempen/bonuschef/pull/128),
+  [`badebd9`](https://github.com/levyvankempen/bonuschef/commit/badebd9da679ebef35c69645217cbcf8bd3f8924))
+
+
 ## v1.33.5 (2026-09-26)
 
 ### Bug Fixes
