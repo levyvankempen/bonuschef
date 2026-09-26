@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.33.1 (2026-09-26)
+
+### Bug Fixes
+
+- The pipeline has been red for days, and two pages crashed because of it
+  ([#122](https://github.com/levyvankempen/bonuschef/pull/122),
+  [`fa5d267`](https://github.com/levyvankempen/bonuschef/commit/fa5d267f43f56e0f107d1733bcf5855565bba5fa))
+
+### Documentation
+
+- Sync and archive the operator monitor change
+  ([#121](https://github.com/levyvankempen/bonuschef/pull/121),
+  [`cb8cdb5`](https://github.com/levyvankempen/bonuschef/commit/cb8cdb5651f9d0b57c439b6e4965a378b4dce35c))
+
+
 ## v1.33.0 (2026-09-24)
 
 ### Features
