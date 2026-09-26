@@ -365,16 +365,30 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     bits.append(f"hele verpakking: {pack}")
                 st.caption(" · ".join(b for b in bits if b))
 
-            # No "laatste kans" badge when the scan it came from is not today's.
-            if (
-                clearance_counts
-                and item.get("offer_kind") == "clearance"
-                and pd.notna(item.get("stock"))
-            ):
-                st.badge(
-                    f"laatste kans · nog {int(item['stock'])}",
-                    color="orange",
-                )
+            # No "laatste kans" badge when the scan it came from is not
+            # today's - and none when the markdown is not actually cheaper.
+            #
+            # The badge used to need only a clearance offer and a known stock,
+            # so it announced urgency on a line whose price had not moved: 116
+            # of 463 clearance lines, and on 103 of them the sticker price was
+            # DEARER than the price we track. "laatste kans · nog 2" beside an
+            # unchanged EUR 1,09 reads as a discount somebody forgot to apply,
+            # when in truth the mart looked at the markdown and correctly
+            # declined to call it one.
+            #
+            # Urgency is a reason to act now. Without a saving there is no
+            # reason, so the badge goes and the discrepancy is said instead -
+            # which is what the portal is required to do wherever a retailer's
+            # advertised saving does not survive comparison with observed
+            # prices.
+            if clearance_counts and item.get("offer_kind") == "clearance":
+                if discounted and pd.notna(item.get("stock")):
+                    st.badge(
+                        f"laatste kans · nog {int(item['stock'])}",
+                        color="orange",
+                    )
+                elif not discounted:
+                    _render_markdown_that_is_not_cheaper(item)
             if pd.notna(item.get("item_conditional_saving")):
                 st.caption(
                     f"{item['conditional_mechanism']} — telt niet mee in het bedrag"
@@ -394,6 +408,34 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     open_single(
                         engine, int(item["concept_id"]), str(item["item_label"])
                     )
+
+
+def _render_markdown_that_is_not_cheaper(item) -> None:
+    """Say that the markdown sticker is not a saving, where the price is.
+
+    A quarter of clearance lines are in this state, and on most of them AH's
+    markdown price is higher than the price we have observed for the product.
+    Silence would be defensible if the page said nothing about the offer at
+    all; announcing "laatste kans" and then showing an unchanged price is not
+    silence, it is a contradiction the reader has to resolve.
+
+    Stated in grey and without urgency: it is worth knowing that the sticker on
+    the shelf is not a bargain, and it is not a reason to hurry.
+    """
+    offer = item.get("offer_price")
+    ordinary = item.get("price_ordinary")
+    if pd.isna(offer):
+        st.caption(":gray[afgeprijsd, maar niet goedkoper dan de gewone prijs]")
+        return
+    if pd.notna(ordinary) and float(offer) > float(ordinary):
+        st.caption(
+            f":gray[afgeprijsd op {_euro(offer)}, duurder dan de "
+            f"{_euro(ordinary)} die we normaal zien]"
+        )
+        return
+    st.caption(
+        f":gray[afgeprijsd op {_euro(offer)}, geen voordeel tegenover de gewone prijs]"
+    )
 
 
 def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
