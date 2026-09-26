@@ -360,3 +360,57 @@ def test_every_published_mart_declares_its_grain():
         if m.stem.startswith("fct_") and not declared.get(m.stem, False)
     ]
     assert not missing, f"published marts with no declared grain: {missing}"
+
+
+# --- the grain of fct_recipe_opportunity -------------------------------------
+
+
+def test_the_pool_branch_excludes_what_has_been_adopted():
+    """The grain (store_id, recipe_id) was a lie for days.
+
+    A recipe somebody adopts lives in dim_recipe and stays in the pool, and the
+    model UNION ALLs both - so it arrived twice under one id. That failed the
+    uniqueness test on this model, which failed dbt build, which left the whole
+    pipeline red: clearance went a day stale and new shops looked empty. The
+    portal meanwhile rendered the same recipe as the lead AND a runner-up, and
+    Streamlit raised on the duplicate widget key.
+
+    int_pool_recipes_available used to exclude adopted recipes and stopped on
+    purpose, because the exclusion was global and one person adopting hid the
+    recipe from everybody. So the dedupe belongs at the UNION ALL, not back
+    there - and this test pins which of the two it is.
+    """
+    model = Path(
+        "src/bonuschef/sql/models/marts/recipes/fct_recipe_opportunity.sql"
+    ).read_text()
+    pool_branch = model[model.index("int_pool_recipes_available") :]
+    pool_branch = pool_branch[: pool_branch.index("agg AS (")]
+    statements = "\n".join(
+        line for line in pool_branch.splitlines() if not line.strip().startswith("--")
+    )
+    assert "NOT IN" in statements, "the pool branch must exclude adopted recipes"
+    assert "dim_recipe" in statements, "and it excludes them by what dim_recipe holds"
+
+
+def test_the_uniqueness_test_on_that_grain_still_exists():
+    """It is what caught this. Removing it would make the bug silent again
+    rather than loud."""
+    schema = Path(
+        "src/bonuschef/sql/models/marts/recipes/_recipes_models.yml"
+    ).read_text()
+    block = schema[schema.index("- name: fct_recipe_opportunity") :][:600]
+    assert "unique_combination_of_columns" in block
+    assert "[store_id, recipe_id]" in block
+
+
+def test_the_intermediate_model_does_not_claim_to_exclude_what_it_keeps():
+    """Its header claimed the adopted exclusion lived there and warned that
+    without it the grain would break. The claim went stale when accounts
+    arrived; the warning came true."""
+    model = Path(
+        "src/bonuschef/sql/models/intermediate/recipes/int_pool_recipes_available.sql"
+    ).read_text()
+    header = model[: model.index("SELECT")]
+    assert "excludes NEITHER" in header, (
+        "the header must say it excludes neither adopted nor rejected recipes"
+    )

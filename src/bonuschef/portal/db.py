@@ -175,8 +175,28 @@ def _get_schema() -> str:
 
 @st.cache_resource
 def get_engine():
+    """The engine, and the account schema applied exactly once per process.
+
+    ``ensure_account_tables`` existed, was idempotent, was safe to run on every
+    start - and was called by nothing. The tables it creates got made by hand
+    during the work that introduced them, so the one added afterwards
+    (``account_recipe_lines``) was simply never created, and the Recepten page
+    raised UndefinedTable on production for anybody whose card it tried to
+    price. A migration nobody runs is a migration that does not exist.
+
+    Here rather than in a page, because this function is cached per process:
+    the portal must not issue schema-changing statements on each interaction,
+    and calling it from a render would do exactly that.
+    """
+    from bonuschef.portal.schema import ensure_account_tables
+
     cfg = DatabaseConfig.from_env()
-    return create_engine(cfg.url, pool_pre_ping=True, pool_size=3, max_overflow=2)
+    engine = create_engine(cfg.url, pool_pre_ping=True, pool_size=3, max_overflow=2)
+    # Deliberately not wrapped. A portal that cannot apply its own schema is
+    # broken, and swallowing that produces exactly the failure this is fixing:
+    # pages that mostly work until one of them touches the table nobody made.
+    ensure_account_tables(engine)
+    return engine
 
 
 # ---------------------------------------------------------------------------

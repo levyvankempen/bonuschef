@@ -2,14 +2,17 @@
 
 -- The pool recipes actually on offer to the person today.
 --
--- Two rules, and both belong here rather than being repeated at each use:
---   * a pool recipe the person has already adopted is excluded, or it would
---     appear under the same id from two sources and break every grain that
---     counts recipes;
---   * a rejected recipe is excluded entirely. A dismissal is permanent until
---     reversed, and keyed on recipe_id so it survives the weekly refetch - a
---     recipe that climbs back into AH's popular listing must not quietly
---     reappear after someone has said no to it.
+-- This model excludes NEITHER what has been adopted nor what has been
+-- rejected. Both exclusions used to live here and both were removed when
+-- accounts arrived; the note at the bottom of this file says why, and it still
+-- holds.
+--
+-- The header used to claim the adopted exclusion was here, and warned that
+-- without it a recipe "would appear under the same id from two sources and
+-- break every grain that counts recipes". That warning was right and the claim
+-- was stale: the grain of fct_recipe_opportunity did break, its uniqueness
+-- test failed, and dbt build failed with it for days. The dedupe now lives in
+-- that mart, at the UNION ALL that actually creates the second row.
 
 SELECT
     p.ah_recipe_id AS recipe_id,
