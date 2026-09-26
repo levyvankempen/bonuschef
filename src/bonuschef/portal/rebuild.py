@@ -15,6 +15,7 @@ import streamlit as st
 from bonuschef.portal.dagster_client import DagsterTriggerError, trigger_job
 
 RECIPES_REBUILD_JOB = "recipes_rebuild"
+MARKDOWNS_JOB = "markdowns_refresh"
 
 
 def start_recipe_rebuild() -> str | None:
@@ -32,5 +33,31 @@ def start_recipe_rebuild() -> str | None:
         # implying the save went wrong.
         st.warning(
             f"Het recept is opgeslagen, maar de prijsberekening kon niet starten: {exc}"
+        )
+        return None
+
+
+def start_store_first_scrape() -> str | None:
+    """Ask Dagster to scrape clearance now, for a shop it has never seen.
+
+    markdowns_refresh reads the shops to scrape from the accounts, so a new one
+    needs no configuration - only a run. Without this, somebody who signs up and
+    picks a shop nobody else uses sees an empty Laatste kans until the next
+    hourly scrape happens to come round, which is the first visit and the one
+    that decides whether they come back.
+
+    Fire-and-forget, like the recipe rebuild above, and for the same reason: the
+    shop is saved the moment it is chosen and the koopjes are derived. Blocking
+    the profile page for a minute would be worse than an explained wait.
+    """
+    try:
+        return trigger_job(MARKDOWNS_JOB)
+    except DagsterTriggerError:
+        # The shop is the person's choice and is saved either way. Only the
+        # promise about when data arrives changes, so that is what is said -
+        # not that something went wrong with the save.
+        st.info(
+            "Je winkel is opgeslagen. De koopjes van deze winkel verschijnen "
+            "bij de volgende ronde, binnen het uur."
         )
         return None

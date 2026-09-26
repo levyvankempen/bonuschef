@@ -20,7 +20,9 @@ from bonuschef.portal.db import (
     read_store_directory,
     set_account_password,
     set_account_store,
+    store_has_clearance,
 )
+from bonuschef.portal.rebuild import start_store_first_scrape
 from bonuschef.portal.gate import forget, token_from_state
 from bonuschef.portal.passwords import (
     MIN_LENGTH,
@@ -97,10 +99,26 @@ def _render_store(engine, account: Account) -> None:
     if st.button("Winkel opslaan", type="primary", disabled=chosen is None):
         picked = None if chosen is None else int(chosen)
         if picked is not None and set_account_store(engine, account.account_id, picked):
+            # Asked BEFORE the cache is cleared and while the answer still
+            # describes the shop just chosen.
+            fresh_shop = not store_has_clearance(engine, picked)
             # The readers are cached per store, so a frame built for the old
             # one would otherwise be served until its TTL ran out.
             st.cache_data.clear()
-            st.session_state[_SAVED] = f"Je winkel is nu {labels[picked]}."
+            message = f"Je winkel is nu {labels[picked]}."
+            if fresh_shop:
+                # Nobody has scraped this shop, so Laatste kans would be empty
+                # until the hourly round came past. Start it now and say so:
+                # a job that runs silently is indistinguishable from one that
+                # never started. Only for a shop with no data - runs are
+                # serialised instance-wide, so triggering on every change would
+                # let somebody queue work by using the dropdown.
+                if start_store_first_scrape():
+                    message += (
+                        " We halen de koopjes van deze winkel nu op; "
+                        "over een paar minuten staan ze op Laatste kans."
+                    )
+            st.session_state[_SAVED] = message
             st.rerun()
         else:
             st.error("Die winkel kennen we niet.")
