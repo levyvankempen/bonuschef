@@ -31,7 +31,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from bonuschef.portal.accounts import Account, account_for_token, sign_in, sign_out
+from bonuschef.portal.accounts import (
+    IDLE_LIFETIME,
+    Account,
+    account_for_token,
+    sign_in,
+    sign_out,
+)
 from bonuschef.portal.registration import register, registration_open
 
 # Name of the cookie holding the session token.
@@ -42,6 +48,16 @@ _TOKEN_KEY = "_bonuschef_token"
 
 # A cookie write waiting for the end of the run.
 _PENDING = "_bonuschef_pending_cookie"
+
+# How long the browser should keep the token.
+#
+# Derived from the server's session lifetime rather than chosen, because two
+# numbers would drift and the shorter one silently wins. The cookie was written
+# with neither expires_at nor max_age, which the library treats as a session
+# cookie: the browser discarded it on closing the tab while the session itself
+# stayed valid for a fortnight. The server remembered and the browser forgot,
+# and the symptom was signing in every single time.
+_COOKIE_MAX_AGE_S = int(IDLE_LIFETIME.total_seconds())
 
 _FLAG = "BONUSCHEF_REQUIRE_SIGN_IN"
 
@@ -220,6 +236,26 @@ def token_from_cookie() -> str:
         return ""
 
 
+def _served_over_https() -> bool:
+    """Whether this page arrived over HTTPS.
+
+    Decides the Secure flag, which cannot simply be hardcoded either way. True
+    always would stop the cookie being stored at all on the tailnet and
+    ssh-tunnel paths, which are plain HTTP and are documented access routes -
+    so "fixing" persistence for the public address would break it for the
+    operator. False always would put a session token on the wire in clear if
+    the app were ever reached over HTTP from somewhere untrusted.
+
+    Reading the scheme answers both, and costs nothing.
+    """
+    import streamlit as st
+
+    try:
+        return str(st.context.url or "").lower().startswith("https://")
+    except Exception:  # pragma: no cover - only outside a Streamlit runtime
+        return False
+
+
 def queue_cookie(state, token: str) -> None:
     """Ask for the cookie to be written at the end of this run.
 
@@ -245,7 +281,19 @@ def flush_cookie(state) -> None:
     token = state.pop(_PENDING)
     try:
         if token:
-            _cookie_manager().set(COOKIE, token, key="bonuschef_cookie_set")
+            _cookie_manager().set(
+                COOKIE,
+                token,
+                key="bonuschef_cookie_set",
+                max_age=_COOKIE_MAX_AGE_S,
+                secure=_served_over_https(),
+                # Lax rather than the library's strict default. Strict withholds
+                # the cookie on a cross-site navigation, which is exactly how
+                # somebody opens a link sent to them in a chat app - so the
+                # first visit back would show the sign-in form despite holding
+                # a perfectly good session.
+                same_site="lax",
+            )
         else:
             _cookie_manager().delete(COOKIE, key="bonuschef_cookie_del")
     except Exception as exc:  # the app must survive a component that will not
