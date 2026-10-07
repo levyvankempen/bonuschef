@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.10 (2026-10-07)
+
+### Bug Fixes
+
+- **portal**: Only an operator may change what an ingredient means
+  ([#133](https://github.com/levyvankempen/bonuschef/pull/133),
+  [`359148f`](https://github.com/levyvankempen/bonuschef/commit/359148f611f5bd086a9c24cdafda6993499d4eb7))
+
+
 ## v1.33.9 (2026-10-07)
 
 ### Bug Fixes
