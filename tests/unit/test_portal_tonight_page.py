@@ -174,14 +174,34 @@ def wired(monkeypatch):
     return monkeypatch
 
 
+def _open_card(at, which: int = 0):
+    """Open one card's detail.
+
+    Every card is compact since the lead was removed: the highlights are on the
+    face and the ingredients, ratings and actions are one tap away.
+    """
+    more = [b for b in at.button if b.label == "Meer"]
+    assert more, "a card must offer its detail"
+    return more[which].click().run()
+
+
 def _open_items(at, which: int = 0):
-    """Open a card's ingredient list, which is now a button rather than an
-    expander. Streamlit executes an expander's body whether or not it is open,
-    so the list cost a query and ~50 controls per render of a page nobody had
-    asked it of."""
+    """Open a card's ingredient list.
+
+    Two taps now: every card is compact since the lead was removed, so the
+    detail - ingredients, ratings, actions - sits behind "Meer", and the list
+    behind a second button inside it.
+
+    Both are buttons rather than expanders. Streamlit executes an expander's
+    body whether or not it is open, so the list cost a query and ~50 controls
+    per render of a page nobody had asked it of.
+    """
+    more = [b for b in at.button if b.label == "Meer"]
+    if more:
+        at = more[which].click().run()
     buttons = [b for b in at.button if "Ingrediënten" in b.label]
     assert buttons, "the ingredient list must be reachable"
-    return buttons[which].click().run()
+    return buttons[0].click().run()
 
 
 def _texts(at) -> str:
@@ -230,18 +250,27 @@ class TestTheAnswer:
         assert "hele verpakking" in _texts(at)
 
     def test_the_rating_is_shown_with_its_vote_count(self, wired):
-        at = run_app(page.render_tonight).run()
+        at = _open_card(run_app(page.render_tonight).run())
         body = _texts(at)
         assert "4.6" in body and "128" in body
 
-    def test_runners_up_are_listed_without_competing(self, wired, monkeypatch):
+    def test_every_answer_is_presented_alike(self, wired, monkeypatch):
+        """There used to be a lead card - full width, bigger type, its own
+        picture - with the rest below as alternatives. That made the page show
+        one recipe and a hint of others. Rank order already says which is best,
+        and cards that look alike are easier to compare, which is the task."""
         df = _opportunity()
         df.loc[1, "opportunity_rank"] = 2.0
         df.loc[1, "saving_total"] = 0.90
         df.loc[1, "exclusion_reason"] = None
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
-        assert "Ook de moeite waard" in _texts(at)
+        body = _texts(at)
+        assert "Zuurkoolstamppot" in body and "Quiche met broccoli" in body
+        assert "Ook de moeite waard" not in body, "no lead, so nothing is 'also'"
+        assert len([b for b in at.button if b.label == "Meer"]) == 2, (
+            "both are compact cards"
+        )
 
 
 class TestLowerBounds:
@@ -399,7 +428,7 @@ class TestCuration:
     def test_a_pool_recipe_can_be_rejected(self, wired, monkeypatch):
         calls = []
         monkeypatch.setattr(page, "reject_recipe", lambda e, a, r: calls.append(r))
-        at = run_app(page.render_tonight).run()
+        at = _open_card(run_app(page.render_tonight).run())
         buttons = [b for b in at.button if "Niet voor mij" in b.label]
         assert buttons, "a pool recipe must be dismissable"
         buttons[0].click().run()
@@ -486,7 +515,7 @@ class TestPricesAndIngredients:
     def test_ingredients_are_folded_away_until_asked_for(self, wired):
         """The answer to "what shall I cook" is the recipe and its price. On a
         phone an open ingredient list pushes everything else off the screen."""
-        at = run_app(page.render_tonight).run()
+        at = _open_card(run_app(page.render_tonight).run())
         assert [b for b in at.button if "Ingrediënten" in b.label], (
             "the ingredient list must be reachable"
         )
@@ -505,7 +534,7 @@ class TestPricesAndIngredients:
         )
 
     def test_the_ingredient_button_says_how_many(self, wired):
-        at = run_app(page.render_tonight).run()
+        at = _open_card(run_app(page.render_tonight).run())
         assert any("(9)" in b.label for b in at.button)
 
     def test_runners_up_carry_prices_and_ingredients_too(self, wired, monkeypatch):
@@ -517,13 +546,13 @@ class TestPricesAndIngredients:
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
-        assert "€10.60" in body, "the runner-up's own price, on its face"
-        # The lead keeps its ingredient button; a runner-up is compact and puts
-        # the list behind "Meer", so two cards no longer mean two list buttons.
-        assert [b for b in at.button if "Ingrediënten" in b.label], "the lead's"
-        opened = [b for b in at.button if b.label == "Meer"][0].click().run()
-        assert len([b for b in opened.button if "Ingrediënten" in b.label]) == 2, (
-            "and the runner-up's, once opened"
+        assert "€10.60" in body, "each card's own price, on its face"
+        # Every card is compact now, so the ingredient list is behind "Meer" on
+        # all of them rather than inline on one.
+        assert not [b for b in at.button if "Ingrediënten" in b.label]
+        opened = _open_card(at)
+        assert [b for b in opened.button if "Ingrediënten" in b.label], (
+            "and reachable once a card is opened"
         )
 
 
@@ -832,7 +861,7 @@ def test_a_saved_recipe_says_so_before_you_click(wired, monkeypatch):
     the page offered "Bewaren" on a recipe already in your collection and
     only admitted it once you pressed."""
     monkeypatch.setattr(page, "is_kept", lambda e, a, r: True)
-    at = run_app(page.render_tonight).run()
+    at = _open_card(run_app(page.render_tonight).run())
     rendered = _texts(at)
     assert "Bewaard" in rendered
     assert not any("Bewaren" in b.label for b in at.button)
@@ -867,15 +896,13 @@ class TestTheCard:
         assert at.get("imgs"), "the alternatives must carry their pictures"
         assert [m for m in at.markdown if "Quiche met broccoli" in m.value]
 
-    def test_the_lead_has_no_hero_image(self, wired, monkeypatch):
-        """It is the answer rather than one of a set to recognise among, and a
-        440-pixel hero above it pushed every alternative off the first screen to
-        say what the title says in four words."""
+    def test_every_card_carries_its_own_picture(self, wired, monkeypatch):
+        """With the lead removed there is no card that is exempt: all of them
+        are scanned, so all of them are recognised by sight."""
         self._with_images(monkeypatch)
         at = run_app(page.render_tonight).run()
         urls = " ".join(str(i.proto) for i in at.get("imgs"))
-        assert "img_1_" not in urls, "the lead's own picture is not rendered"
-        assert "img_2_" in urls, "while the alternative's is"
+        assert "img_1_" in urls and "img_2_" in urls
 
     def test_the_image_is_the_larger_variant(self, wired, monkeypatch):
         """220x162 is what is stored and 440x324 is all AH publishes above it."""

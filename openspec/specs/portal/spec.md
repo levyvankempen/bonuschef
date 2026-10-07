@@ -338,12 +338,12 @@ The portal SHALL have a destination that answers, in one view, which recipe is m
 #### Scenario: There is a clear best option
 
 - **WHEN** one recipe is markedly cheaper today than it ordinarily is
-- **THEN** it is presented first and in full, with the ingredients responsible named
+- **THEN** it is presented first, with the ingredients responsible named
 
 #### Scenario: Several are worth considering
 
 - **WHEN** more than one recipe is cheaper today
-- **THEN** the others are listed below, briefly, without competing with the first for attention
+- **THEN** they are presented alike and in order, so they can be compared rather than ranked by how loudly each is drawn
 
 #### Scenario: A saving that is only partly known
 
@@ -625,10 +625,6 @@ largest text is the saving. The dish is identified by sight in less than a
 second; the saving is the reason to act. Neither is served by a thumbnail beside
 a paragraph.
 
-A recommendation that is itself the answer - the one the page has already chosen
-- MAY omit its image. Recognition is what makes a set of cards scannable, and a
-single card is not being scanned; a full-width picture above it pushes the
-alternatives off the first screen to say what the title says in four words.
 
 The card SHALL also name the discounted ingredients that produce the saving,
 rather than only counting them. A person in the shop is standing in front of one
@@ -636,13 +632,8 @@ of them.
 
 #### Scenario: A recommended recipe on a phone
 
-- **WHEN** recipes are recommended to be chosen between
+- **WHEN** recipes are recommended
 - **THEN** each one's image spans the width of its card and appears before any text, and the saving is the largest text on the card
-
-#### Scenario: The recommendation that is the answer
-
-- **WHEN** one recommendation is presented as the answer rather than as one of a set
-- **THEN** it may be shown without an image, so that the alternatives are reachable without scrolling past a picture
 
 #### Scenario: Why this recipe is cheap
 
@@ -668,11 +659,6 @@ of them.
 
 - **WHEN** recommendations are laid out
 - **THEN** as many are placed side by side as the width allows, falling to one where it does not, so the image is never halved on a phone
-
-#### Scenario: The lead keeps the width
-
-- **WHEN** one recommendation is the best answer and the rest are alternatives
-- **THEN** the best one keeps the full width, because it is the answer rather than one of a set to compare
 
 ### Requirement: A person can start from an ingredient
 
