@@ -66,6 +66,12 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
         ("read_recipe_opportunity", (FIXTURE_STORE_ID,)),
         ("read_recipe_opportunity_items", (1, FIXTURE_STORE_ID)),
         ("read_pipeline_health", ()),
+        # The ingredient control's own two readers. Registered because the page
+        # indexes into their frames by name - `recipes` for the pill counts,
+        # `item_label` for the driving ingredient - and this guard is what
+        # caught `recipes` being read from a reader nobody had listed.
+        ("read_discounted_ingredients", (FIXTURE_STORE_ID,)),
+        ("read_driving_ingredients", (FIXTURE_STORE_ID,)),
     ),
     "recipes_page.py": (
         # The dashboard reads the opportunity mart, not the cost mart. The

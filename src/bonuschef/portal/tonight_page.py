@@ -46,6 +46,7 @@ from bonuschef.portal.db import (
     get_engine,
     read_bonus_feed_loaded_at,
     read_discounted_ingredients,
+    read_driving_ingredients,
     read_pipeline_health,
     read_marts_built_at,
     is_kept,
@@ -672,12 +673,45 @@ _SEARCH_KEY = "tonight_ingredient"
 _PILL_KEY = "tonight_ingredient_pill"
 
 
+def _pill_labels(discounted: pd.DataFrame) -> dict[str, str]:
+    """What each pill reads, mapped to what the filter needs.
+
+    The label carries its count because that is what makes the row a table of
+    contents rather than a list of words; the filter needs the bare label. Kept
+    as a mapping rather than parsed back apart, so an ingredient whose own name
+    ends in a bracketed number cannot be mangled.
+
+    Pulled out of the widget because AppTest cannot drive a single-select
+    st.pills - set_value iterates the string and select passes None - which is
+    the same limitation this repo already recorded for st.segmented_control. The
+    mapping is the part worth testing, so it is testable without the widget.
+    """
+    shown: dict[str, str] = {}
+    for _, row in discounted.iterrows():
+        label = str(row["item_label"])
+        count = int(row.get("recipes") or 0)
+        shown[f"{label} ({count})" if count else label] = label
+    return shown
+
+
 def _ingredient_filter(engine) -> str:
     """Let a person start from an ingredient, preferably without typing.
 
-    The question asked in a shop is "this is discounted, what do I cook with
-    it", and its answer should cost one tap. The text field is the second door,
-    for "I already have courgette at home".
+    This is the page's table of contents, not a search box. "These nineteen
+    things are cheap today, with how many recipes each" is the answer to the
+    question actually asked in a shop - "this is on offer, what do I cook with
+    it" - and it costs one tap.
+
+    The counts were already being fetched and thrown away. read_discounted_
+    ingredients groups ranked recipes per ingredient and orders by how many use
+    each, precisely so the most useful choices come first; only the labels were
+    read.
+
+    The text field is behind a popover. Its own reader's note argues that typing
+    one-handed in a shop "is the interaction being removed", and that free text
+    over the other 1,854 labels "mostly answers nothing on offer with that" -
+    and then the page shipped it as a peer of the pills, where it won by being
+    lower and larger. Recepten already owns search by name.
     """
     store_id = active_store_id()
     built_at = read_marts_built_at(engine)
@@ -688,21 +722,22 @@ def _ingredient_filter(engine) -> str:
 
     chosen = ""
     if not discounted.empty:
-        labels = [str(x) for x in discounted["item_label"].tolist()]
+        shown = _pill_labels(discounted)
         picked = st.pills(
-            "In de aanbieding vandaag",
-            labels,
+            "Vandaag in de aanbieding",
+            list(shown),
             selection_mode="single",
             key=_PILL_KEY,
         )
         if picked:
-            chosen = str(picked)
+            chosen = shown.get(str(picked), str(picked))
 
-    typed = st.text_input(
-        "Of zoek op ingrediënt",
-        key=_SEARCH_KEY,
-        placeholder="kip, courgette, zalm…",
-    )
+    with st.popover("Zoek zelf", icon=":material/search:"):
+        typed = st.text_input(
+            "Zoek op ingrediënt",
+            key=_SEARCH_KEY,
+            placeholder="kip, courgette, zalm…",
+        )
     # A typed term wins: it is the more deliberate of the two.
     return (typed or chosen or "").strip()
 
@@ -806,6 +841,60 @@ def _render_ingredient_answer(
     _render_answer(engine, account, df, term, clearance_current)
 
 
+_SHORTLIST = 6
+
+
+def _choose_shortlist(
+    ranked: pd.DataFrame, drivers: dict[int, str], want: int = _SHORTLIST
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """The alternatives, chosen for being different answers.
+
+    Ordering by saving alone does not rank recipes. Every ranked recipe owes its
+    saving to exactly one discounted ingredient, so the sum is a property of the
+    product: every recipe containing one particular bacon scores the same
+    EUR 2.00, ties break on recipe_id, and the bacon therefore runs contiguously
+    down the page. Measured on one shop: of the top twenty, eleven were the same
+    salmon and five were bacon. Six cards carried one fact.
+
+    So: walk the ranking in order and take the first recipe for each ingredient
+    not yet represented. If that leaves too few - some days only two ingredients
+    are discounted - fill up from the largest groups, still in rank order,
+    rather than showing a two-card page.
+
+    Soft rather than hard, because hard fails at both ends: one-per-ingredient
+    means a nineteen-card page on a good day and a two-card one on a thin day.
+
+    Returns the chosen rows and how many were passed over per ingredient, which
+    is what "Meer met zalm (11)" needs and what the page must disclose.
+    """
+    seen: set[str] = set()
+    chosen: list[int] = []
+    passed_over: dict[str, int] = {}
+
+    for position, recipe_id in enumerate(ranked["recipe_id"].astype(int)):
+        label = drivers.get(recipe_id, "")
+        if label in seen:
+            passed_over[label] = passed_over.get(label, 0) + 1
+            continue
+        seen.add(label)
+        chosen.append(position)
+
+    if len(chosen) < want:
+        # Too few distinct ingredients today. Fill from what was passed over,
+        # keeping rank order, so a thin day is still a full page.
+        for position, recipe_id in enumerate(ranked["recipe_id"].astype(int)):
+            if len(chosen) >= want:
+                break
+            if position not in chosen:
+                chosen.append(position)
+                label = drivers.get(recipe_id, "")
+                if passed_over.get(label):
+                    passed_over[label] -= 1
+        chosen.sort()
+
+    return ranked.iloc[chosen[:want]], {k: v for k, v in passed_over.items() if v > 0}
+
+
 def _render_answer(
     engine, account, df: pd.DataFrame, term: str, clearance_current: bool
 ) -> None:
@@ -845,11 +934,65 @@ def _render_answer(
         _render_cheapest_anyway(df)
         return
 
-    _render_lead(engine, account, matching.iloc[0], clearance_current)
-    if len(matching) > 1:
+    try:
+        drivers_frame = read_driving_ingredients(
+            engine, active_store_id(), read_marts_built_at(engine)
+        )
+        drivers = {
+            int(r["recipe_id"]): str(r["item_label"])
+            for _, r in drivers_frame.iterrows()
+        }
+    except (ProgrammingError, SQLAlchemyError):
+        # Without the drivers the page cannot choose for difference, so it falls
+        # back to the ranking as it stands rather than to nothing.
+        drivers = {}
+
+    shortlist, passed_over = _choose_shortlist(matching, drivers)
+
+    _render_lead(engine, account, shortlist.iloc[0], clearance_current)
+    if len(shortlist) > 1:
         st.subheader("Ook de moeite waard")
-        for _, row in matching.iloc[1:6].iterrows():
+        for _, row in shortlist.iloc[1:].iterrows():
             _render_brief(engine, account, row, clearance_current)
+
+    _render_shortlist_note(len(matching), len(shortlist), passed_over)
+
+
+def _render_shortlist_note(
+    ranked: int, shown: int, passed_over: dict[str, int]
+) -> None:
+    """Say what is not on the page, and offer the way to it.
+
+    The coverage caption below says how many recipes were ranked. Beside a
+    shorter list that becomes a misrepresentation of the page's own selection,
+    which the honesty requirement does not allow - so the moment the shortlist
+    is narrower than the ranking, it has to say so and why.
+
+    The drill-down sets the pill that already exists rather than adding a second
+    control. The page had two ways to filter by ingredient once before, and the
+    pills lost to the text box; it is not getting a third.
+    """
+    if shown >= ranked:
+        return
+
+    st.caption(
+        f"{ranked} recepten zijn vandaag goedkoper; hierboven staan {shown}, "
+        "één per aanbieding."
+    )
+    if not passed_over:
+        return
+
+    with st.container(horizontal=True):
+        for label, count in sorted(
+            passed_over.items(), key=lambda kv: kv[1], reverse=True
+        )[:4]:
+            if st.button(
+                f"Meer met {label} ({count})",
+                key=f"more_{label}",
+                icon=":material/expand_more:",
+            ):
+                st.session_state[_SEARCH_KEY] = label
+                st.rerun(scope="fragment")
 
 
 def _render_cheapest_anyway(df: pd.DataFrame) -> None:

@@ -140,6 +140,19 @@ def wired(monkeypatch):
     )
     # Nothing dismissed by default, so the ranking is the case most tests want.
     monkeypatch.setattr(page, "read_rejected_recipe_ids", lambda e, a: set())
+    # One row per recipe: which discounted ingredient it owes its saving to.
+    monkeypatch.setattr(
+        page,
+        "read_driving_ingredients",
+        lambda e, s, *_: pd.DataFrame(
+            {
+                "recipe_id": [1, 2],
+                "item_label": ["zuurkool", "broccoli"],
+                "item_saving": [0.80, 0.50],
+                "offer_kind": ["clearance", "bonus"],
+            }
+        ),
+    )
     monkeypatch.setattr(
         page, "read_rejected_recipes", lambda e, a, built_at="": pd.DataFrame()
     )
@@ -1287,3 +1300,218 @@ class TestTheCorrectionIsNotOfferedToEveryone:
         assert [b for b in at.button if "Klopt niet" in b.label], (
             "SINGLE_USER is an operator and must keep the control"
         )
+
+
+def test_the_fixture_patches_every_reader_the_page_calls():
+    """Three times now, adding a reader has broken fifty tests at once.
+
+    The page calls its readers by module-level name, so an unpatched one runs
+    against the fixture's fake engine, raises AttributeError rather than a
+    SQLAlchemy error, and takes the whole render down. The cascade is loud but
+    says nothing about which reader is missing, so this names it.
+    """
+    import ast
+    import inspect
+
+    source = Path(page.__file__).read_text()
+    tree = ast.parse(source)
+    imported = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith(".db")
+        for alias in node.names
+    }
+    called = {
+        ast.unparse(n.func)
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    readers = {n for n in imported & called if n.startswith("read_")}
+
+    patched = set()
+    for line in inspect.getsource(wired).splitlines():
+        for reader in readers:
+            if f'"{reader}"' in line:
+                patched.add(reader)
+
+    # These are reached only on paths the fixture deliberately does not take.
+    allowed_unpatched = {"read_bonus_feed_loaded_at", "read_marts_built_at"}
+    missing = readers - patched - allowed_unpatched
+    assert not missing, (
+        f"the wired fixture does not patch {sorted(missing)}, so those run "
+        "against a fake engine and take every test in this file down at once"
+    )
+
+
+class TestTheAlternativesAreDifferentAnswers:
+    """Six cards used to carry one fact.
+
+    Every ranked recipe owes its saving to exactly one discounted ingredient, so
+    saving_total is a property of the product: every recipe containing one
+    particular bacon scores the same EUR 2.00, ties break on recipe_id, and the
+    bacon runs contiguously. Of the top twenty for one shop, eleven were the
+    same salmon and five were bacon.
+    """
+
+    @staticmethod
+    def _ranked(n: int, drivers: list[str]) -> tuple[pd.DataFrame, dict[int, str]]:
+        frame = pd.DataFrame(
+            {"recipe_id": list(range(1, n + 1)), "opportunity_rank": range(1, n + 1)}
+        )
+        return frame, dict(enumerate(drivers, start=1))
+
+    def test_one_recipe_per_ingredient_is_preferred(self):
+        ranked, drivers = self._ranked(
+            6, ["spek", "spek", "spek", "zalm", "zalm", "sinaasappel"]
+        )
+        shortlist, passed = page._choose_shortlist(ranked, drivers, want=3)
+        chosen = [drivers[int(r)] for r in shortlist["recipe_id"]]
+        assert chosen == ["spek", "zalm", "sinaasappel"], chosen
+        assert passed == {"spek": 2, "zalm": 1}
+
+    def test_the_lead_is_still_the_best_overall(self):
+        """Choosing for variety must not demote the best answer."""
+        ranked, drivers = self._ranked(4, ["spek", "spek", "zalm", "ui"])
+        shortlist, _ = page._choose_shortlist(ranked, drivers, want=3)
+        assert int(shortlist.iloc[0]["recipe_id"]) == 1
+
+    def test_a_thin_day_still_fills_the_page(self):
+        """Hard one-per-ingredient would show two cards while eight recipes are
+        cheaper."""
+        ranked, drivers = self._ranked(8, ["spek"] * 4 + ["zalm"] * 4)
+        shortlist, _ = page._choose_shortlist(ranked, drivers, want=6)
+        assert len(shortlist) == 6, "a thin day is not a two-card page"
+        assert list(shortlist["recipe_id"]) == sorted(shortlist["recipe_id"]), (
+            "and the fill keeps rank order"
+        )
+
+    def test_a_rich_day_is_not_a_nineteen_card_page(self):
+        ranked, drivers = self._ranked(19, [f"ing{i}" for i in range(19)])
+        shortlist, _ = page._choose_shortlist(ranked, drivers, want=6)
+        assert len(shortlist) == 6
+
+    def test_recipes_with_no_known_driver_still_rank(self):
+        """If the driver query fails the page falls back to the ranking rather
+        than to nothing, so an empty mapping must not empty the page."""
+        ranked, _ = self._ranked(5, [""] * 5)
+        shortlist, _ = page._choose_shortlist(ranked, {}, want=4)
+        assert len(shortlist) == 4
+
+    def test_the_page_shows_different_ingredients_end_to_end(self, wired, monkeypatch):
+        df = _opportunity()
+        df.loc[1, "opportunity_rank"] = 2.0
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "Zuurkoolstamppot" in body and "Quiche met broccoli" in body
+
+
+class TestThePageSaysWhatItIsNotShowing:
+    def test_a_narrower_shortlist_is_disclosed(self, wired, monkeypatch):
+        """A count of what was ranked, beside a shorter list, misrepresents the
+        page's own selection - which the honesty requirement forbids."""
+        base = _opportunity()
+        many = pd.concat([base.iloc[[0]]] * 9, ignore_index=True)
+        many["recipe_id"] = range(1, 10)
+        many["opportunity_rank"] = range(1, 10)
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: many)
+        # All nine driven by one ingredient, so three are passed over for six.
+        monkeypatch.setattr(
+            page,
+            "read_driving_ingredients",
+            lambda e, s, *_: pd.DataFrame(
+                {
+                    "recipe_id": list(range(1, 10)),
+                    "item_label": ["zuurkool"] * 9,
+                    "item_saving": [0.8] * 9,
+                    "offer_kind": ["clearance"] * 9,
+                }
+            ),
+        )
+        at = run_app(page.render_tonight).run()
+        captions = " ".join(c.value for c in at.caption)
+        assert "één per aanbieding" in captions, captions
+        assert [b for b in at.button if "Meer met zuurkool" in b.label], (
+            "and the way to the rest is offered"
+        )
+
+    def test_the_drill_down_uses_the_control_that_exists(self):
+        """The page had two ways to filter by ingredient once already. It is not
+        getting a third."""
+        import ast
+
+        tree = ast.parse(Path(page.__file__).read_text())
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "_render_shortlist_note"
+        )
+        body = ast.unparse(fn)
+        assert "_SEARCH_KEY" in body, "it must drive the existing filter"
+
+
+class TestTheIngredientControlIsTheTableOfContents:
+    def test_the_pills_carry_their_counts(self, wired, monkeypatch):
+        """The counts were already fetched and thrown away."""
+        monkeypatch.setattr(
+            page,
+            "read_discounted_ingredients",
+            lambda e, *_, **__: pd.DataFrame(
+                {
+                    "item_label": ["kipfilet", "courgette"],
+                    "recipes": [20, 5],
+                    "offer_kind": ["bonus", "clearance"],
+                }
+            ),
+        )
+        at = run_app(page.render_tonight).run()
+        options = str(getattr(at.get("button_group")[0], "options", ""))
+        assert "kipfilet (20)" in options, options
+
+    def test_the_pill_maps_back_to_the_bare_label(self):
+        """The label carries its count for reading; the filter needs the label.
+
+        Tested on the mapping rather than through the widget: AppTest cannot
+        drive a single-select st.pills - set_value iterates the string and
+        select passes None - which is the limitation this repo already recorded
+        for st.segmented_control.
+        """
+        frame = pd.DataFrame(
+            {
+                "item_label": ["kipfilet", "courgette"],
+                "recipes": [20, 5],
+                "offer_kind": ["bonus", "clearance"],
+            }
+        )
+        mapping = page._pill_labels(frame)
+        assert mapping["kipfilet (20)"] == "kipfilet"
+        assert mapping["courgette (5)"] == "courgette"
+
+    def test_an_ingredient_without_a_count_is_still_offered(self):
+        frame = pd.DataFrame(
+            {"item_label": ["kipfilet"], "recipes": [0], "offer_kind": ["bonus"]}
+        )
+        assert page._pill_labels(frame) == {"kipfilet": "kipfilet"}
+
+    def test_a_name_ending_in_a_bracketed_number_is_not_mangled(self):
+        """Which is why this is a mapping rather than a parse."""
+        frame = pd.DataFrame(
+            {"item_label": ["kaas 48+ (stuk)"], "recipes": [3], "offer_kind": ["bonus"]}
+        )
+        mapping = page._pill_labels(frame)
+        assert mapping["kaas 48+ (stuk) (3)"] == "kaas 48+ (stuk)"
+
+    def test_typing_is_behind_a_popover(self):
+        """Its own reader argues one-handed typing in a shop is the interaction
+        being removed, and then the page shipped the box as a peer of the pills,
+        where it won by being lower and larger."""
+        import ast
+
+        tree = ast.parse(Path(page.__file__).read_text())
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "_ingredient_filter"
+        )
+        calls = [ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)]
+        assert "st.popover" in calls, calls
