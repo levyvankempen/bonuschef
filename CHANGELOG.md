@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.33.8 (2026-10-07)
+
+### Bug Fixes
+
+- **portal**: Keep people signed in across closing the tab
+  ([#131](https://github.com/levyvankempen/bonuschef/pull/131),
+  [`4942d2c`](https://github.com/levyvankempen/bonuschef/commit/4942d2c22e560c2639be9eb3dd1d4dc04a15d609))
+
+### Documentation
+
+- Spec ArgoCD and Helm delivery for the portal
+  ([#130](https://github.com/levyvankempen/bonuschef/pull/130),
+  [`208f43e`](https://github.com/levyvankempen/bonuschef/commit/208f43ee8e5321cc346913c02d30c85076f6cc2a))
+
+
 ## v1.33.7 (2026-09-26)
 
 ### Bug Fixes
