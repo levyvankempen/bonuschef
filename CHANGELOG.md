@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.38.0 (2026-10-07)
+
+### Features
+
+- **portal**: Two cards across where two fit, highlights first
+  ([#138](https://github.com/levyvankempen/bonuschef/pull/138),
+  [`79f2795`](https://github.com/levyvankempen/bonuschef/commit/79f2795ad9ca76fa525a8d8fdbc22160eb1f52d0))
+
+
 ## v1.37.0 (2026-10-07)
 
 ### Features
