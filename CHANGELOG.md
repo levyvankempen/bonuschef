@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.40.0 (2026-10-07)
+
+### Features
+
+- **portal**: No lead card, just the grid
+  ([#140](https://github.com/levyvankempen/bonuschef/pull/140),
+  [`c306e8d`](https://github.com/levyvankempen/bonuschef/commit/c306e8da7f7f5af9e9664744cd8fc52e990d82d1))
+
+
 ## v1.39.0 (2026-10-07)
 
 ### Features
