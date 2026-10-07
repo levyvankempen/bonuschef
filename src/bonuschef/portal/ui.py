@@ -180,10 +180,15 @@ def render_recipe_card(
 
         st.markdown(f"### {title}" if lead else f"**{title}**")
 
-        # The largest text on the card. It is the reason to act, and it was
-        # previously bold body text on the lead and a caption on the runners-up.
+        # The largest text on the card, and now the same size on all of them.
+        #
+        # It used to be one step smaller on a runner-up than on the lead. With
+        # the lead gone every card is a runner-up, which left the saving the
+        # same size as the price below it - and the requirement is that the
+        # saving is the largest thing on the card, because it is the reason to
+        # act.
         if saving:
-            st.markdown(f"{'##' if lead else '###'} {saving}")
+            st.markdown(f"## {saving}")
 
         if urgency:
             label, colour = urgency
@@ -195,7 +200,7 @@ def render_recipe_card(
         _render_offer_badges(offers, more_offers)
 
         if not compact:
-            if lead and rating is not None:
+            if rating is not None:
                 rating()
             if extra is not None:
                 extra()
@@ -230,6 +235,9 @@ def _render_details_on_request(key, rating, extra, actions) -> None:
     if not opened:
         return
     if rating is not None:
+        # Rendered whatever kind of card this is. It used to be gated on `lead`,
+        # and with the lead removed that gate meant no card ever showed a
+        # rating - a feature deleted by a condition rather than by a decision.
         rating()
     if extra is not None:
         extra()

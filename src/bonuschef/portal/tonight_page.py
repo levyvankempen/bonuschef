@@ -312,39 +312,6 @@ def _render_items_on_request(
         _render_items(engine, recipe_id, row, clearance_counts, account)
 
 
-def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
-    """The best option, in full, with the ingredients responsible named.
-
-    No picture, deliberately, where the alternatives below all have one.
-
-    Recognising a dish by sight is what makes a row of cards scannable, and it
-    is why the alternatives are led by their images. The lead is not being
-    scanned: it is the answer, already chosen for the reader, and a 440-pixel
-    hero above it pushes every alternative off the first screen to say something
-    the title says in four words. Removing it is how the page shows more than
-    one answer at once.
-    """
-    recipe_id = int(row["recipe_id"])
-    offers_named, more, blockable = _offer_badges(
-        engine, recipe_id, row, clearance_counts
-    )
-    render_recipe_card(
-        key=f"lead-{recipe_id}",
-        title=str(row["recipe_name"]),
-        saving=f"{_saving_phrase(row)} dan normaal",
-        lead=True,
-        urgency=_urgency(row),
-        offers=offers_named,
-        more_offers=more,
-        price=lambda: _render_price(row),
-        rating=lambda: _render_rating(row),
-        extra=lambda: _render_items_on_request(
-            engine, recipe_id, row, clearance_counts, account
-        ),
-        actions=lambda: _render_verdict_controls(engine, account, row, blockable),
-    )
-
-
 def _render_rating(row) -> None:
     """AH's readers' verdict, never without its weight."""
     average = row.get("rating_average")
@@ -543,6 +510,9 @@ def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
         offers=offers_named,
         more_offers=more,
         price=lambda: _render_price(row),
+        # Only the lead used to carry this. With the lead gone, not passing it
+        # here would mean no card ever showed a rating.
+        rating=lambda: _render_rating(row),
         extra=lambda: _render_items_on_request(
             engine, recipe_id, row, clearance_counts, account
         ),
@@ -1125,19 +1095,20 @@ def _render_answer(
 
     shortlist, passed_over = _choose_shortlist(matching, drivers)
 
-    _render_lead(engine, account, shortlist.iloc[0], clearance_current)
-    if len(shortlist) > 1:
-        st.subheader("Ook de moeite waard")
-        # The lead keeps the full width - it is the answer. The alternatives go
-        # two across where two fit, because they are read to compare rather than
-        # to decide on, and comparing is easier side by side.
-        rest = list(shortlist.iloc[1:].iterrows())
-        for pair_start in range(0, len(rest), _PER_ROW):
-            pair = rest[pair_start : pair_start + _PER_ROW]
-            with card_grid(_PER_ROW, key=f"tonight-{pair_start}") as columns:
-                for column, (_, row) in zip(columns, pair):
-                    with column:
-                        _render_brief(engine, account, row, clearance_current)
+    # Every answer in the same grid, best first.
+    #
+    # There used to be a lead card: full width, bigger type, its own picture,
+    # with the rest listed below as alternatives. It made the page show one
+    # recipe and a hint of others. Rank order already says which is best, and
+    # six cards that look alike are easier to compare than one that shouts and
+    # five that whisper - which is the actual task here, choosing between them.
+    cards = list(shortlist.iterrows())
+    for row_start in range(0, len(cards), _PER_ROW):
+        chunk = cards[row_start : row_start + _PER_ROW]
+        with card_grid(_PER_ROW, key=f"tonight-{row_start}") as columns:
+            for column, (_, row) in zip(columns, chunk):
+                with column:
+                    _render_brief(engine, account, row, clearance_current)
 
     _render_shortlist_note(len(matching), len(shortlist), passed_over, blocked_count)
 
