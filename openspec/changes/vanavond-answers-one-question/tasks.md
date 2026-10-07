@@ -8,19 +8,19 @@
 
 ## 2. Alternatives chosen for difference
 
-- [ ] 2.1 Pick the shortlist by driving ingredient: first recipe per ingredient
+- [x] 2.1 Pick the shortlist by driving ingredient: first recipe per ingredient
       in rank order, filling from the largest groups if too few remain. Lead
       unchanged.
-- [ ] 2.2 Offer "Meer met <ingredient> (n)" by setting the existing pill.
-- [ ] 2.3 Test: many recipes sharing one ingredient yield cards driven by
+- [x] 2.2 Offer "Meer met <ingredient> (n)" by setting the existing pill.
+- [x] 2.3 Test: many recipes sharing one ingredient yield cards driven by
       different ones; the lead is still the best overall; too few groups still
       fills the page; the drill-down sets the pill rather than a second control.
 
 ## 3. The ingredient control above the answer
 
-- [ ] 3.1 Move the pills above the lead card and render their counts.
-- [ ] 3.2 Demote the free-text box into a popover.
-- [ ] 3.3 Test that arriving shows what is on offer with counts, and that
+- [x] 3.1 Move the pills above the lead card and render their counts.
+- [x] 3.2 Demote the free-text box into a popover.
+- [x] 3.3 Test that arriving shows what is on offer with counts, and that
       naming an ingredient still works from the popover.
 
 ## 4. The two prices on the card face
@@ -59,8 +59,8 @@
 
 ## 7. Honesty about the shortlist
 
-- [ ] 7.1 Say how many were ranked, how many are shown, and why the rest are not.
-- [ ] 7.2 Test the caption accounts for both dedup and exclusions.
+- [x] 7.1 Say how many were ranked, how many are shown, and why the rest are not.
+- [x] 7.2 Test the caption accounts for both dedup and exclusions.
 
 ## 8. Verify
 

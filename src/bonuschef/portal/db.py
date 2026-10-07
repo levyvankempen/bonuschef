@@ -1019,6 +1019,34 @@ def read_recipe_opportunity_items(
 
 
 @st.cache_data(ttl=_CACHE_TTL_S)
+def read_driving_ingredients(
+    _engine, store_id: int, built_at: str = ""
+) -> pd.DataFrame:
+    """Which discounted ingredient each recipe owes its saving to.
+
+    One row per recipe, the largest saving winning, so the page can choose
+    alternatives that are different answers rather than the same answer five
+    times. Measured on live data: every ranked recipe has exactly one discounted
+    ingredient, so "the driving one" is not a simplification - it is the whole
+    saving.
+
+    One bounded query for the whole store rather than one per card. The card's
+    own badge reader is per recipe and cached, which is right for a card; asking
+    it forty times to decide which six to show would not be.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT DISTINCT ON (recipe_id)
+            recipe_id, item_label, item_saving, offer_kind
+        FROM "{schema}"."fct_recipe_opportunity_items"
+        WHERE store_id = :store_id AND is_discounted
+        ORDER BY recipe_id, item_saving DESC NULLS LAST, item_label ASC
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"store_id": store_id})
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
 def read_discounted_ingredients(
     _engine, store_id: int, built_at: str = "", limit: int = 12
 ) -> pd.DataFrame:
