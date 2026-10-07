@@ -140,6 +140,15 @@ def wired(monkeypatch):
     )
     # Nothing dismissed by default, so the ranking is the case most tests want.
     monkeypatch.setattr(page, "read_rejected_recipe_ids", lambda e, a: set())
+    # Nothing excluded by default.
+    monkeypatch.setattr(page, "read_blocked_concepts", lambda e, a: pd.DataFrame())
+    monkeypatch.setattr(page, "read_recipes_with_concepts", lambda e, s, c: set())
+    monkeypatch.setattr(
+        page,
+        "read_known_concepts",
+        lambda e, s, *_: pd.DataFrame({"concept_id": [1, 2], "item_label": ["a", "b"]}),
+    )
+    monkeypatch.setattr(page, "block_ingredients", lambda e, a, c: len(c))
     # One row per recipe: which discounted ingredient it owes its saving to.
     monkeypatch.setattr(
         page,

@@ -54,6 +54,30 @@ _STATEMENTS: tuple[str, ...] = (
         last_sign_in_at      TIMESTAMPTZ
     )
     """,
+    # ------------------------------------------------------------------
+    # Food a person does not eat
+    # ------------------------------------------------------------------
+    #
+    # Keyed on the concept, which is what resolutions, the matcher and the
+    # review flow are all keyed on. Not on the label: the same food answers to
+    # several - eight concepts contain "spek" in one shop - and blocking by
+    # label is the thing that looks easy and feels broken on first use.
+    #
+    # Cascades on the account so the invitee document's promise - "ask the
+    # operator to delete your account and everything above goes with it" -
+    # stays true structurally rather than by anybody remembering.
+    """
+    CREATE TABLE IF NOT EXISTS public.account_ingredient_blocks (
+        account_id      BIGINT      NOT NULL
+            REFERENCES public.accounts (account_id) ON DELETE CASCADE,
+        concept_id      BIGINT      NOT NULL,
+        -- What it was called when it was blocked, so the list reads back in
+        -- the words the person used rather than as a row of numbers.
+        label_at_block  TEXT        NOT NULL,
+        blocked_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (account_id, concept_id)
+    )
+    """,
     # Case-insensitive: "Levy" and "levy" must not be two people, and the
     # sign-in form should not care which one was typed.
     """

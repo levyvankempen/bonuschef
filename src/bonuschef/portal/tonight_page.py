@@ -42,6 +42,11 @@ from bonuschef.portal.review import (
 from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
     active_store_id,
+    block_ingredients,
+    read_blocked_concepts,
+    read_known_concepts,
+    read_recipes_with_concepts,
+    shares_a_run,
     count_flagged_concepts,
     CREDENTIAL_JOB,
     get_engine,
@@ -191,7 +196,7 @@ def _render_price(row) -> None:
 
 def _offer_badges(
     engine, recipe_id: int, row, clearance_counts: bool, limit: int = 3
-) -> tuple[list[OfferLine], int]:
+) -> tuple[list[OfferLine], int, list[tuple[int, str]]]:
     """Which ingredients make this recipe cheap, by name.
 
     The card used to say "2x bonus", which is a count. The person is standing in
@@ -203,18 +208,18 @@ def _offer_badges(
     cached per recipe and build.
     """
     if not int(row.get("items_discounted") or 0):
-        return [], 0
+        return [], 0, []
     items = read_recipe_opportunity_items(
         engine, recipe_id, active_store_id(), read_marts_built_at(engine)
     )
     if items.empty:
-        return [], 0
+        return [], 0, []
 
     saving_column = "item_saving" if clearance_counts else "item_saving_bonus_only"
     discounted = items[items["is_discounted"] & items[saving_column].notna()]
     discounted = discounted[discounted[saving_column].astype(float) > 0]
     if discounted.empty:
-        return [], 0
+        return [], 0, []
 
     price_column = "price_today" if clearance_counts else "price_today_bonus_only"
     named: list[OfferLine] = []
@@ -237,7 +242,15 @@ def _offer_badges(
                 reference_note=_reference_note(item.get("ordinary_price_age_days")),
             )
         )
-    return named, max(len(discounted) - len(named), 0)
+    # The blockable concepts, from the same rows. Read once: a second call for
+    # them would be cached in production and invisible here, which is exactly
+    # the kind of "free" extra read that stops being free later.
+    blockable = [
+        (int(item["concept_id"]), str(item["item_label"]))
+        for _, item in discounted.head(3).iterrows()
+        if pd.notna(item.get("concept_id"))
+    ]
+    return named, max(len(discounted) - len(named), 0), blockable
 
 
 # A "was" price older than this is reported with its age. Chosen to be short:
@@ -301,7 +314,9 @@ def _render_items_on_request(
 def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
     """The best option, in full, with the ingredients responsible named."""
     recipe_id = int(row["recipe_id"])
-    offers_named, more = _offer_badges(engine, recipe_id, row, clearance_counts)
+    offers_named, more, blockable = _offer_badges(
+        engine, recipe_id, row, clearance_counts
+    )
     render_recipe_card(
         key=f"lead-{recipe_id}",
         title=str(row["recipe_name"]),
@@ -316,7 +331,7 @@ def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
         extra=lambda: _render_items_on_request(
             engine, recipe_id, row, clearance_counts, account
         ),
-        actions=lambda: _render_verdict_controls(engine, account, row),
+        actions=lambda: _render_verdict_controls(engine, account, row, blockable),
     )
 
 
@@ -504,7 +519,7 @@ def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
     smaller card, it was an unrecognisable one.
     """
     recipe_id = int(row["recipe_id"])
-    offers_named, more = _offer_badges(
+    offers_named, more, blockable = _offer_badges(
         engine, recipe_id, row, clearance_counts, limit=1
     )
     render_recipe_card(
@@ -520,11 +535,11 @@ def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
         extra=lambda: _render_items_on_request(
             engine, recipe_id, row, clearance_counts, account
         ),
-        actions=lambda: _render_verdict_controls(engine, account, row),
+        actions=lambda: _render_verdict_controls(engine, account, row, blockable),
     )
 
 
-def _render_verdict_controls(engine, account, row) -> None:
+def _render_verdict_controls(engine, account, row, blockable=()) -> None:
     """Keep it, or never see it again."""
     if row.get("source_kind") != "pool":
         return
@@ -558,13 +573,93 @@ def _render_verdict_controls(engine, account, row) -> None:
             else:
                 st.toast("Stond al bij je eigen recepten", icon=":material/check:")
             st.rerun()
-        if st.button(
-            "Niet voor mij", key=f"reject_{recipe_id}", icon=":material/block:"
-        ):
-            reject_recipe(engine, account.account_id, recipe_id)
-            st.rerun()
+        _render_not_for_me(engine, account, recipe_id, blockable)
         if row.get("url"):
             st.link_button("Bekijk bij AH", row["url"])
+
+
+def _render_not_for_me(engine, account, recipe_id: int, blockable=()) -> None:
+    """Dismiss this recipe, and - separately - stop being offered the food in it.
+
+    Dismissing stays one tap. It is the commoner of the two and it was one tap
+    before; putting it behind a popover to make room for the rarer action would
+    be a regression dressed as tidying.
+
+    The exclusion sits behind its own control, and only when there is something
+    to exclude. The moment somebody wants to say "not bacon" is while looking at
+    a bacon card rather than three days later in a settings page, so it lives
+    here - and Profiel is where it is reviewed and reversed.
+
+    The blockable ingredients are handed in rather than read again: the card has
+    already fetched those rows to name them.
+    """
+    if st.button("Niet voor mij", key=f"reject_{recipe_id}", icon=":material/block:"):
+        reject_recipe(engine, account.account_id, recipe_id)
+        st.rerun()
+
+    if not blockable:
+        return
+    with st.popover("Nooit meer", icon=":material/no_meals:"):
+        st.caption("Dit eet je niet:")
+        for concept_id, label in blockable:
+            if st.button(
+                f"Geen {label}",
+                key=f"block_{recipe_id}_{concept_id}",
+                icon=":material/no_meals:",
+                width="stretch",
+            ):
+                st.session_state[_BLOCK_PENDING] = (int(concept_id), str(label))
+                st.rerun()
+
+
+@st.dialog("Nooit meer voorstellen")
+def _confirm_block(engine, account) -> None:
+    """Say what else this hides, before it hides it.
+
+    One food answers to many names - eight concepts contain "spek" in one shop -
+    so blocking a single concept is narrower than "no bacon" and would feel
+    broken on first use. Blocking every name that looks similar would be broader
+    than asked. Neither is decided here: the siblings are offered and the person
+    chooses, so the bluntness is visible rather than silent in either direction.
+    """
+    pending = st.session_state.get(_BLOCK_PENDING)
+    if not pending:
+        return
+    concept_id, label = pending
+
+    st.markdown(f"**{label}** komt niet meer in je suggesties.")
+    chosen = {int(concept_id): str(label)}
+
+    try:
+        known = read_known_concepts(
+            engine, active_store_id(), read_marts_built_at(engine)
+        )
+    except (ProgrammingError, SQLAlchemyError):
+        known = pd.DataFrame()
+
+    siblings = [
+        (int(r["concept_id"]), str(r["item_label"]))
+        for _, r in known.iterrows()
+        if int(r["concept_id"]) != int(concept_id)
+        and shares_a_run(str(r["item_label"]), str(label))
+    ]
+    if siblings:
+        st.caption(
+            "Dit lijkt er ook op. Vink aan wat je ook niet wilt zien — "
+            "anders blijft alleen het bovenstaande weg."
+        )
+        for sibling_id, sibling_label in siblings[:8]:
+            if st.checkbox(sibling_label, key=f"sib_{concept_id}_{sibling_id}"):
+                chosen[sibling_id] = sibling_label
+
+    if st.button("Opslaan", type="primary", width="stretch"):
+        block_ingredients(
+            engine,
+            account.account_id,
+            [{"concept_id": k, "label": v} for k, v in chosen.items()],
+        )
+        st.session_state.pop(_BLOCK_PENDING, None)
+        st.rerun()
 
 
 def _render_rejected(engine, account) -> None:
@@ -705,6 +800,9 @@ def _render_pipeline_health(engine, credential_only: bool = False) -> None:
 
 
 _SEARCH_KEY = "tonight_ingredient"
+
+# An ingredient waiting to be confirmed as "never again".
+_BLOCK_PENDING = "_tonight_block_pending"
 _PILL_KEY = "tonight_ingredient_pill"
 
 
@@ -872,6 +970,8 @@ def _render_ingredient_answer(
     coverage block and the rejected list to answer "show me the chicken ones" -
     on the connection least able to afford it.
     """
+    if st.session_state.get(_BLOCK_PENDING):
+        _confirm_block(engine, account)
     term = _ingredient_filter(engine)
     _render_answer(engine, account, df, term, clearance_current)
 
@@ -952,6 +1052,26 @@ def _render_answer(
         dismissed = set()
     if dismissed:
         ranked = ranked[~ranked["recipe_id"].astype(int).isin(dismissed)]
+
+    # Food they have said they do not eat. Membership, applied before the
+    # ranking is consulted - where choosing for difference is presentation,
+    # applied after. Merging the two into one relevance score would leave
+    # neither explainable, and every figure on this page traces to a sentence.
+    blocked_count = 0
+    try:
+        blocked = read_blocked_concepts(engine, account.account_id)
+        if not blocked.empty:
+            with_blocked = read_recipes_with_concepts(
+                engine,
+                active_store_id(),
+                tuple(int(c) for c in blocked["concept_id"]),
+            )
+            if with_blocked:
+                before = len(ranked)
+                ranked = ranked[~ranked["recipe_id"].astype(int).isin(with_blocked)]
+                blocked_count = before - len(ranked)
+    except (ProgrammingError, SQLAlchemyError):
+        pass
     matching = _apply_ingredient_filter(engine, ranked, term)
 
     if term and matching.empty:
@@ -990,11 +1110,11 @@ def _render_answer(
         for _, row in shortlist.iloc[1:].iterrows():
             _render_brief(engine, account, row, clearance_current)
 
-    _render_shortlist_note(len(matching), len(shortlist), passed_over)
+    _render_shortlist_note(len(matching), len(shortlist), passed_over, blocked_count)
 
 
 def _render_shortlist_note(
-    ranked: int, shown: int, passed_over: dict[str, int]
+    ranked: int, shown: int, passed_over: dict[str, int], blocked: int = 0
 ) -> None:
     """Say what is not on the page, and offer the way to it.
 
@@ -1007,13 +1127,16 @@ def _render_shortlist_note(
     control. The page had two ways to filter by ingredient once before, and the
     pills lost to the text box; it is not getting a third.
     """
-    if shown >= ranked:
+    if shown >= ranked and not blocked:
         return
 
-    st.caption(
+    note = (
         f"{ranked} recepten zijn vandaag goedkoper; hierboven staan {shown}, "
         "één per aanbieding."
     )
+    if blocked:
+        note += f" {blocked} blijven weg om wat je niet eet."
+    st.caption(note)
     if not passed_over:
         return
 

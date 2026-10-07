@@ -1397,6 +1397,136 @@ def save_recipe_line_overrides(
     read_recipe_lines_override.clear()
 
 
+_RUN = 4
+
+
+def shares_a_run(a: str, b: str, length: int = _RUN) -> bool:
+    """Whether two ingredient names share a run of letters.
+
+    How the siblings of a blocked ingredient are found, and deliberately
+    symmetric. A prefix test is not: blocking "spekreepjes" would reach
+    "ontbijtspek" because "spek" leads the compound, while blocking
+    "ontbijtspek" would reach nothing, so which one a person happened to tap
+    would decide how much it hid.
+
+    Four letters is short enough to join spekreepjes, spekblokjes, speklapjes,
+    ontbijtspek and vegaspekreepjes, and long enough not to join everything. It
+    is a suggestion either way: the person is shown what it would hide and
+    confirms, so the bluntness is visible and chosen rather than silent.
+    """
+    a, b = a.lower(), b.lower()
+    if len(a) < length or len(b) < length:
+        return a == b
+    return any(a[i : i + length] in b for i in range(len(a) - length + 1))
+
+
+def read_blocked_concepts(_engine, account_id: int) -> pd.DataFrame:
+    """What this person has said they do not eat.
+
+    Uncached, like the dismissal filter and for the same reason: it changes the
+    moment the button is pressed, and a cached answer would mean the exclusion
+    waits a quarter of an hour.
+    """
+    sql = text(
+        "SELECT concept_id, label_at_block FROM public.account_ingredient_blocks "
+        "WHERE account_id = :aid ORDER BY label_at_block"
+    )
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"aid": int(account_id)})
+
+
+def block_ingredients(_engine, account_id: int, concepts: list[dict]) -> int:
+    """Record that this person does not eat these. Returns how many are new."""
+    if not concepts:
+        return 0
+    with _engine.begin() as conn:
+        before = conn.execute(
+            text(
+                "SELECT count(*) FROM public.account_ingredient_blocks "
+                "WHERE account_id = :aid"
+            ),
+            {"aid": int(account_id)},
+        ).scalar()
+        conn.execute(
+            text("""
+                INSERT INTO public.account_ingredient_blocks
+                    (account_id, concept_id, label_at_block)
+                VALUES (:aid, :cid, :label)
+                ON CONFLICT (account_id, concept_id) DO NOTHING
+            """),
+            [
+                {
+                    "aid": int(account_id),
+                    "cid": int(c["concept_id"]),
+                    "label": str(c["label"]),
+                }
+                for c in concepts
+            ],
+        )
+        after = conn.execute(
+            text(
+                "SELECT count(*) FROM public.account_ingredient_blocks "
+                "WHERE account_id = :aid"
+            ),
+            {"aid": int(account_id)},
+        ).scalar()
+    return int(after or 0) - int(before or 0)
+
+
+def unblock_ingredient(_engine, account_id: int, concept_id: int) -> None:
+    """Let them eat it again. A dislike is not a trap either."""
+    with _engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM public.account_ingredient_blocks "
+                "WHERE account_id = :aid AND concept_id = :cid"
+            ),
+            {"aid": int(account_id), "cid": int(concept_id)},
+        )
+
+
+def read_recipes_with_concepts(
+    _engine, store_id: int, concept_ids: tuple[int, ...]
+) -> set[int]:
+    """Which recipes contain any of these ingredients, for this shop.
+
+    Bounded by the concepts asked about rather than fetching every line and
+    filtering afterwards, which the spec requires of a page showing a limited
+    view.
+    """
+    if not concept_ids:
+        return set()
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT DISTINCT recipe_id
+        FROM "{schema}"."fct_recipe_opportunity_items"
+        WHERE store_id = :store_id AND concept_id = ANY(:cids)
+    """)
+    with _engine.begin() as conn:
+        rows = conn.execute(
+            sql, {"store_id": store_id, "cids": list(concept_ids)}
+        ).fetchall()
+    return {int(r[0]) for r in rows}
+
+
+@st.cache_data(ttl=_CACHE_TTL_S)
+def read_known_concepts(_engine, store_id: int, built_at: str = "") -> pd.DataFrame:
+    """Every ingredient this shop's recipes mention, once each.
+
+    The pool the sibling suggestion is drawn from. Cached per build: it changes
+    when the warehouse does, not when somebody presses a button.
+    """
+    schema = _get_schema()
+    sql = text(f"""
+        SELECT DISTINCT concept_id, item_label
+        FROM "{schema}"."fct_recipe_opportunity_items"
+        WHERE store_id = :store_id AND concept_id IS NOT NULL
+        ORDER BY item_label
+    """)
+    with _engine.begin() as conn:
+        return pd.read_sql_query(sql, conn, params={"store_id": store_id})
+
+
 def read_rejected_recipe_ids(_engine, account_id: int) -> set[int]:
     """Recipes this person has dismissed.
 
