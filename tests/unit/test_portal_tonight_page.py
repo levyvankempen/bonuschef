@@ -848,24 +848,38 @@ class TestTheCard:
     of the order the decision is made in.
     """
 
-    def test_the_picture_comes_before_any_text(self, wired, monkeypatch):
+    @staticmethod
+    def _with_images(monkeypatch):
+        """Two ranked recipes, both with a stored image."""
         df = _opportunity()
-        df.loc[0, "image_url"] = (
-            "https://static.ah.nl/static/recepten/img_1_220x162_JPG.jpg"
-        )
+        df["image_url"] = [
+            "https://static.ah.nl/static/recepten/img_1_220x162_JPG.jpg",
+            "https://static.ah.nl/static/recepten/img_2_220x162_JPG.jpg",
+        ]
+        df.loc[1, "opportunity_rank"] = 2.0
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+
+    def test_an_alternative_is_led_by_its_picture(self, wired, monkeypatch):
+        """Recognising a dish by sight is what makes a row of cards scannable,
+        and the alternatives are the cards being scanned."""
+        self._with_images(monkeypatch)
         at = run_app(page.render_tonight).run()
-        assert at.get("imgs"), "the card must carry its picture"
-        titles = [m for m in at.markdown if "Zuurkoolstamppot" in m.value]
-        assert titles, "and its title"
+        assert at.get("imgs"), "the alternatives must carry their pictures"
+        assert [m for m in at.markdown if "Quiche met broccoli" in m.value]
+
+    def test_the_lead_has_no_hero_image(self, wired, monkeypatch):
+        """It is the answer rather than one of a set to recognise among, and a
+        440-pixel hero above it pushed every alternative off the first screen to
+        say what the title says in four words."""
+        self._with_images(monkeypatch)
+        at = run_app(page.render_tonight).run()
+        urls = " ".join(str(i.proto) for i in at.get("imgs"))
+        assert "img_1_" not in urls, "the lead's own picture is not rendered"
+        assert "img_2_" in urls, "while the alternative's is"
 
     def test_the_image_is_the_larger_variant(self, wired, monkeypatch):
         """220x162 is what is stored and 440x324 is all AH publishes above it."""
-        df = _opportunity()
-        df.loc[0, "image_url"] = (
-            "https://static.ah.nl/static/recepten/img_1_220x162_JPG.jpg"
-        )
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        self._with_images(monkeypatch)
         at = run_app(page.render_tonight).run()
         urls = " ".join(str(i.proto) for i in at.get("imgs"))
         assert "440x324" in urls

@@ -619,10 +619,16 @@ notes, and the result SHALL be what that person sees everywhere afterwards.
 
 ### Requirement: A recommendation is recognised before it is read
 
-Where the portal recommends a recipe, the recommendation SHALL be presented as a
-card whose image is its first and widest element, and whose largest text is the
-saving. The dish is identified by sight in less than a second; the saving is the
-reason to act. Neither is served by a thumbnail beside a paragraph.
+Where the portal shows recommendations to be chosen between, each SHALL be
+presented as a card whose image is its first and widest element, and whose
+largest text is the saving. The dish is identified by sight in less than a
+second; the saving is the reason to act. Neither is served by a thumbnail beside
+a paragraph.
+
+A recommendation that is itself the answer - the one the page has already chosen
+- MAY omit its image. Recognition is what makes a set of cards scannable, and a
+single card is not being scanned; a full-width picture above it pushes the
+alternatives off the first screen to say what the title says in four words.
 
 The card SHALL also name the discounted ingredients that produce the saving,
 rather than only counting them. A person in the shop is standing in front of one
@@ -630,8 +636,13 @@ of them.
 
 #### Scenario: A recommended recipe on a phone
 
-- **WHEN** a recipe is recommended
-- **THEN** its image spans the width of the card and appears before any text, and the saving is the largest text on the card
+- **WHEN** recipes are recommended to be chosen between
+- **THEN** each one's image spans the width of its card and appears before any text, and the saving is the largest text on the card
+
+#### Scenario: The recommendation that is the answer
+
+- **WHEN** one recommendation is presented as the answer rather than as one of a set
+- **THEN** it may be shown without an image, so that the alternatives are reachable without scrolling past a picture
 
 #### Scenario: Why this recipe is cheap
 
