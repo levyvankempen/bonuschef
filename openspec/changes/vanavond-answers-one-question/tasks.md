@@ -25,12 +25,12 @@
 
 ## 4. The two prices on the card face
 
-- [ ] 4.1 Render the driving ingredient's current and ordinary price on the card,
+- [x] 4.1 Render the driving ingredient's current and ordinary price on the card,
       from the row the badge already reads. No new query.
-- [ ] 4.2 Say the reference's age when it is no longer fresh.
-- [ ] 4.3 One shared was/now renderer beside `offers.euro`, so Vanavond and
+- [x] 4.2 Say the reference's age when it is no longer fresh.
+- [x] 4.3 One shared was/now renderer beside `offers.euro`, so Vanavond and
       Recepten cannot render one fact two ways.
-- [ ] 4.4 Test both prices appear without opening the list, that a stale
+- [x] 4.4 Test both prices appear without opening the list, that a stale
       reference is marked, and that no new query is issued.
 
 ## 5. Excluding food

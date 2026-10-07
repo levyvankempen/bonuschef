@@ -32,6 +32,29 @@ def euro(value) -> str:
     return f"\u20ac{float(value):.2f}"
 
 
+def was_now(now, before=None) -> str:
+    """What it costs and what it cost, as one string.
+
+    The pair escaped the discipline this module's `euro` exists for. The same
+    fact was rendered as a heading with "normaal" beside it on Vanavond and as
+    plain body text with a middot on Recepten, and the per-ingredient version
+    said "i.p.v." in a third place - three spellings of "this is cheaper than
+    usual".
+
+    The before-price is dropped rather than struck through when it is not
+    actually higher: a strike-through on an equal or larger number claims a
+    saving that is not there.
+    """
+    import pandas as pd
+
+    if now is None or pd.isna(now):
+        return ""
+    current = euro(now)
+    if before is None or pd.isna(before) or float(before) <= float(now):
+        return current
+    return f"{current} · ~~{euro(before)}~~"
+
+
 def snapshot_of(df: pd.DataFrame):
     """When the clearance behind these rows was captured."""
     if df.empty or "clearance_scraped_at" not in df:

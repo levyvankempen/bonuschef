@@ -99,3 +99,57 @@ def test_the_card_image_is_sized_by_css_rather_than_by_measurement():
         assert "width" not in passed, (
             "stretch is the measured path that rendered the picture tiny"
         )
+
+
+# --- the pair of prices on the card face ------------------------------------
+
+
+def test_the_pair_is_one_formatter():
+    """It escaped the discipline offers.euro exists for. The same fact was a
+    heading with "normaal" on Vanavond, body text with a middot on Recepten, and
+    "i.p.v." on an ingredient line - three spellings of "cheaper than usual"."""
+    from bonuschef.portal.offers import was_now
+
+    assert was_now(2.19, 4.88) == "€2.19 · ~~€4.88~~"
+
+
+def test_a_before_price_that_is_not_higher_is_dropped():
+    """A strike-through on an equal or larger number claims a saving that is not
+    there."""
+    from bonuschef.portal.offers import was_now
+
+    assert was_now(2.19, 2.19) == "€2.19"
+    assert was_now(2.19, 1.00) == "€2.19"
+    assert was_now(2.19, None) == "€2.19"
+
+
+def test_no_current_price_is_no_string_at_all():
+    from bonuschef.portal.offers import was_now
+
+    assert was_now(None, 4.88) == ""
+
+
+def test_an_offer_line_carries_the_prices_not_only_the_delta():
+    """ "kipfilet − €2.69" is a difference, and a difference cannot be checked
+    against anything in the shop - which is what somebody is doing when they
+    read it."""
+    from bonuschef.portal.ui import OfferLine
+
+    line = OfferLine(
+        label="kipfilet", saving="− €2.69", colour="green", prices="€2.19 · ~~€4.88~~"
+    )
+    assert line.prices and "2.19" in line.prices and "4.88" in line.prices
+
+
+def test_an_offer_line_may_carry_the_reference_age():
+    """A "was" price observed a week ago is decorative rather than a
+    comparison."""
+    from bonuschef.portal.ui import OfferLine
+
+    line = OfferLine(
+        label="kipfilet",
+        saving="− €2.69",
+        colour="green",
+        reference_note="normale prijs van 6 dagen geleden",
+    )
+    assert "6 dagen" in line.reference_note

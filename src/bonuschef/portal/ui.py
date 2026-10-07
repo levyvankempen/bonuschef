@@ -1,6 +1,7 @@
 """Streamlit UI helper functions."""
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 import pandas as pd
@@ -51,6 +52,23 @@ _CARD_IMAGE_KEY = "bc-card-image"
 BadgeColour = Literal["red", "orange", "green", "blue", "violet", "gray"]
 
 
+@dataclass(frozen=True)
+class OfferLine:
+    """One discounted ingredient as the card shows it.
+
+    A named tuple of four strings would do, and did; it grew a fifth field and
+    the call sites stopped being readable. The prices and the note are
+    pre-formatted by the caller because the formatting lives in offers.py, which
+    exists so two pages cannot render one price two ways.
+    """
+
+    label: str
+    saving: str
+    colour: BadgeColour
+    prices: str = ""
+    reference_note: str = ""
+
+
 def bigger_image(url: object) -> str:
     """The larger of AH's two recipe-image variants.
 
@@ -89,7 +107,7 @@ def render_recipe_card(
     saving: str | None = None,
     lead: bool = False,
     urgency: tuple[str, BadgeColour] | None = None,
-    offers: Sequence[tuple[str, str, BadgeColour]] = (),
+    offers: Sequence[OfferLine] = (),
     more_offers: int = 0,
     price: Callable[[], None] | None = None,
     rating: Callable[[], None] | None = None,
@@ -145,23 +163,36 @@ def render_recipe_card(
             actions()
 
 
-def _render_offer_badges(
-    offers: Sequence[tuple[str, str, BadgeColour]], more_offers: int
-) -> None:
-    """Which ingredients make this cheap, by name.
+def _render_offer_badges(offers: Sequence[OfferLine], more_offers: int) -> None:
+    """Which ingredients make this cheap, named, with what they cost.
 
-    The card used to say "2x bonus", which is a count. In a shop the person is
-    standing in front of one particular discounted thing, and the noun is the
-    whole answer. The largest savings are the ones named, so the remainder can
-    be a count without hiding the biggest number.
+    The card used to say "2x bonus", which is a count: in a shop the person is
+    standing in front of one particular discounted thing and the noun is the
+    whole answer. Naming it was the first half.
+
+    The second half is the pair of prices. "kipfilet - EUR 2,69" is a difference,
+    and a difference cannot be checked against anything in the shop - while
+    checking it against the sticker is exactly what somebody is doing when they
+    read it. The recipe total cannot be checked either: nobody will ever see
+    EUR 12,59 anywhere. So the line carries what the product costs now and what
+    it ordinarily costs, which are the two numbers on the shelf.
+
+    Both were already in hand. The row the saving is taken from carries
+    price_today and price_ordinary; only the delta was read.
     """
     if not offers and not more_offers:
         return
-    with st.container(horizontal=True):
-        for label, amount, colour in offers:
-            st.badge(f"{label} {amount}", color=colour)
-        if more_offers > 0:
-            st.badge(f"+{more_offers} meer", color="gray")
+    for line in offers:
+        with st.container(horizontal=True, vertical_alignment="center"):
+            st.badge(f"{line.label} {line.saving}", color=line.colour)
+            if line.prices:
+                st.markdown(f":gray[{line.prices}]")
+        if line.reference_note:
+            # A "was" price observed a week ago is decorative rather than a
+            # comparison, and the page already has the vocabulary for saying so.
+            st.caption(f":gray[{line.reference_note}]")
+    if more_offers > 0:
+        st.badge(f"+{more_offers} meer", color="gray")
 
 
 def _top_movers(data: pd.DataFrame, n: int = 10) -> list[str]:

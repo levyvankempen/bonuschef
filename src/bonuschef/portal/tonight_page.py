@@ -28,6 +28,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from bonuschef.portal import freshness, offers
 from bonuschef.portal.ui import (
     BadgeColour,
+    OfferLine,
     bigger_image,
     inject_card_styles,
     render_recipe_card,
@@ -190,7 +191,7 @@ def _render_price(row) -> None:
 
 def _offer_badges(
     engine, recipe_id: int, row, clearance_counts: bool, limit: int = 3
-) -> tuple[list[tuple[str, str, BadgeColour]], int]:
+) -> tuple[list[OfferLine], int]:
     """Which ingredients make this recipe cheap, by name.
 
     The card used to say "2x bonus", which is a count. The person is standing in
@@ -215,7 +216,8 @@ def _offer_badges(
     if discounted.empty:
         return [], 0
 
-    named: list[tuple[str, str, BadgeColour]] = []
+    price_column = "price_today" if clearance_counts else "price_today_bonus_only"
+    named: list[OfferLine] = []
     for _, item in discounted.head(limit).iterrows():
         # A clearance line is orange and a promotion green, matching the
         # vocabulary the ingredient list below already uses.
@@ -223,9 +225,42 @@ def _offer_badges(
             "orange" if item.get("offer_kind") == "clearance" else "green"
         )
         named.append(
-            (str(item["item_label"]), f"− {_euro(item[saving_column])}", colour)
+            OfferLine(
+                label=str(item["item_label"]),
+                saving=f"− {_euro(item[saving_column])}",
+                colour=colour,
+                # The two numbers on the shelf. Same row the saving came from,
+                # so nothing extra is fetched to show them.
+                prices=offers.was_now(
+                    item.get(price_column), item.get("price_ordinary")
+                ),
+                reference_note=_reference_note(item.get("ordinary_price_age_days")),
+            )
         )
     return named, max(len(discounted) - len(named), 0)
+
+
+# A "was" price older than this is reported with its age. Chosen to be short:
+# the comparison is to what the shop charged recently, and a week-old reference
+# is a different claim from a yesterday-old one.
+_REFERENCE_FRESH_DAYS = 3
+
+
+def _reference_note(age_days) -> str:
+    """Say how old the ordinary price is, when it is old enough to matter.
+
+    ordinary_price_age_days has been selected by the reader all along and
+    rendered nowhere. The difference between a trustworthy "was" price and a
+    decorative one is exactly this number, and the page already withholds a
+    saving outright when the reference is too stale to compare against - this is
+    the same honesty one notch earlier.
+    """
+    if age_days is None or pd.isna(age_days):
+        return ""
+    days = int(age_days)
+    if days <= _REFERENCE_FRESH_DAYS:
+        return ""
+    return f"normale prijs van {days} dagen geleden"
 
 
 @st.fragment
