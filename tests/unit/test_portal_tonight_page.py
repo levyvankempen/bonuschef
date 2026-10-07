@@ -137,6 +137,8 @@ def wired(monkeypatch):
     monkeypatch.setattr(
         page, "read_recipes_using_ingredient", lambda e, s, term, *_: ()
     )
+    # Nothing dismissed by default, so the ranking is the case most tests want.
+    monkeypatch.setattr(page, "read_rejected_recipe_ids", lambda e, a: set())
     monkeypatch.setattr(
         page, "read_rejected_recipes", lambda e, a, built_at="": pd.DataFrame()
     )
@@ -1166,3 +1168,79 @@ class TestAMarkdownThatIsNotCheaper:
         at = _open_items(run_app(page.render_tonight).run())
         badges = " ".join(m.value for m in at.markdown if "-badge[" in m.value)
         assert "laatste kans" in badges
+
+
+class TestADismissalActuallyDismisses:
+    """ "Niet voor mij" wrote a row and changed nothing on the page.
+
+    The exclusion used to live in int_pool_recipes_available and was removed
+    when accounts arrived, because it was global - one person dismissing hid the
+    recipe from everybody. That model's note says it "moved to the portal, which
+    knows who is asking", and a reader was written for the purpose. Nothing ever
+    called it, so the recipe came back on the very next render while appearing
+    in the "Niet voor mij" list - which the spec forbids in as many words.
+    """
+
+    def test_a_dismissed_recipe_leaves_the_ranking(self, wired, monkeypatch):
+        df = _opportunity()
+        df.loc[1, "opportunity_rank"] = 2.0
+        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
+        monkeypatch.setattr(page, "read_rejected_recipe_ids", lambda e, a: {1})
+        body = _texts(run_app(page.render_tonight).run())
+        assert "Zuurkoolstamppot" not in body, "it must not return"
+        assert "Quiche met broccoli" in body, "and the rest still ranks"
+
+    def test_dismissing_everything_is_an_answer_not_a_blank(self, wired, monkeypatch):
+        monkeypatch.setattr(page, "read_rejected_recipe_ids", lambda e, a: {1, 2})
+        at = run_app(page.render_tonight).run()
+        assert not at.exception
+        assert at.info, "an empty ranking says so rather than rendering nothing"
+
+    def test_the_filter_is_not_cached(self):
+        """A cached answer would mean the button waits a quarter of an hour,
+        which is the shape of the bug rather than a fix for it."""
+        import ast
+
+        tree = ast.parse(Path("src/bonuschef/portal/db.py").read_text())
+        fn = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "read_rejected_recipe_ids"
+        )
+        decorators = " ".join(ast.unparse(d) for d in fn.decorator_list)
+        assert "cache_data" not in decorators, decorators
+
+    def test_it_hides_dismissals_only_not_what_was_saved(self):
+        """read_hidden_recipe_ids also counts adopted recipes. Using it here
+        would silently retire the "Bewaard" badge, which exists to say a
+        recommendation is already in your collection - and a recipe you saved
+        that is cheap today is still worth cooking tonight."""
+        import ast
+
+        tree = ast.parse(Path("src/bonuschef/portal/db.py").read_text())
+        fn = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "read_rejected_recipe_ids"
+        )
+        sql = " ".join(
+            n.value
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        )
+        assert "ah_recipe_verdicts" in sql
+        assert "account_recipes" not in sql, "adopted recipes are not dismissals"
+
+    def test_an_unreadable_verdict_table_does_not_blank_the_page(
+        self, wired, monkeypatch
+    ):
+        """The ranking is the answer; losing the dismissal list must not lose
+        it."""
+
+        def boom(e, a):
+            raise ProgrammingError("x", {}, Exception("no table"))
+
+        monkeypatch.setattr(page, "read_rejected_recipe_ids", boom)
+        at = run_app(page.render_tonight).run()
+        assert not at.exception
+        assert "Zuurkoolstamppot" in _texts(at)

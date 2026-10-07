@@ -53,6 +53,7 @@ from bonuschef.portal.db import (
     read_recipe_opportunity,
     read_recipe_opportunity_items,
     read_recipes_using_ingredient,
+    read_rejected_recipe_ids,
     read_rejected_recipes,
     reinstate_recipe,
     reject_recipe,
@@ -801,6 +802,23 @@ def _render_answer(
 ) -> None:
     """The recipes themselves, filtered by ingredient if one was named."""
     ranked = df[df["opportunity_rank"].notna()].sort_values("opportunity_rank")
+
+    # "Niet voor mij" wrote a row and changed nothing here.
+    #
+    # The exclusion used to live in int_pool_recipes_available and was removed
+    # when accounts arrived, because it was global - one person dismissing a
+    # recipe hid it from everybody. The note there says it "moved to the portal,
+    # which knows who is asking", and read_rejected_recipe_ids' sibling was
+    # written for exactly this call. Nothing ever made it. So a dismissal
+    # produced an entry in the "Niet voor mij" list and the recipe came straight
+    # back on the next render, which the spec forbids in as many words: it
+    # leaves the ranking immediately and does not return.
+    try:
+        dismissed = read_rejected_recipe_ids(engine, account.account_id)
+    except (ProgrammingError, SQLAlchemyError):
+        dismissed = set()
+    if dismissed:
+        ranked = ranked[~ranked["recipe_id"].astype(int).isin(dismissed)]
     matching = _apply_ingredient_filter(engine, ranked, term)
 
     if term and matching.empty:
