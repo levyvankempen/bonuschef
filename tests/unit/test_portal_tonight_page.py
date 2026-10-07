@@ -382,27 +382,6 @@ class TestDegradedStates:
 
 
 class TestHonestyAboutCoverage:
-    def test_pool_size_and_rankable_count_are_both_visible(self, wired):
-        at = run_app(page.render_tonight).run()
-        body = _texts(at)
-        assert "Berekend over 2 recept(en)" in body
-        assert "1 daarvan" in body
-
-    def test_unresolved_ingredients_point_at_the_work_that_helps(
-        self, wired, monkeypatch
-    ):
-        """Resolutions are keyed on AH's concept id, so confirming one counts
-        for every recipe that uses it. That compounding is why the review queue
-        is the action offered here rather than "add more recipes"."""
-        df = _opportunity()
-        df.loc[1, "items_unresolved"] = 3
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
-        at = run_app(page.render_tonight).run()
-        assert "gekoppeld ingrediënt" in _texts(at)
-        assert [b for b in at.button if "koppelen" in b.label], (
-            "the page names the work but never offers it"
-        )
-
     def test_the_review_is_not_offered_when_there_is_nothing_to_review(self, wired):
         at = run_app(page.render_tonight).run()
         assert not [b for b in at.button if "koppelen" in b.label]
@@ -744,15 +723,6 @@ class TestPipelineHealth:
         assert "sync_problem" not in body
         assert "mogelijk niet bijgewerkt" not in body
 
-    def test_an_overdue_job_is_named_with_when_it_last_worked(self, wired, monkeypatch):
-        health = _healthy(is_overdue=[True, False], overdue_h=[14.0, 2.0])
-        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
-        at = run_app(page.render_tonight).run()
-        body = _texts(at)
-        assert "markdowns_refresh" in body
-        assert "14 uur geleden" in body
-        assert "laatste kans-koopjes" in body
-
     def test_the_credential_is_called_out_separately(self, wired, monkeypatch):
         """Every other failure recovers by re-running a job. This one needs a
         browser behind hCaptcha, and it has already expired twice."""
@@ -763,18 +733,6 @@ class TestPipelineHealth:
         assert "AH-inlog" in body
         assert "alleen met een browser" in body
         assert at.error, "the credential warrants an error, not a warning"
-
-    def test_a_job_that_has_never_run_is_overdue(self, wired, monkeypatch):
-        """Missing entirely from the run table is the state after a fresh
-        deployment, and it is exactly what should be reported."""
-        health = _healthy(
-            last_success=[pd.NaT, FRESH_NOW],
-            overdue_h=[float("nan"), 2.0],
-            is_overdue=[True, False],
-        )
-        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
-        at = run_app(page.render_tonight).run()
-        assert "nog nooit gelukt" in _texts(at)
 
     def test_an_unreadable_run_table_does_not_break_the_page(self, wired, monkeypatch):
         """A Dagster upgrade that moves the schema must degrade this to what the
@@ -843,23 +801,6 @@ class TestTheCacheFollowsTheData:
 
 class TestThePageSaysWhatItKnows:
     """Three figures the system computed and never showed."""
-
-    def test_the_exclusion_reasons_are_rendered(self, wired, monkeypatch):
-        """The mart has always computed exclusion_reason, the reader has always
-        selected it, and _EXCLUSION_TEXT has always held the three values it
-        can take. Nothing rendered any of it.
-
-        "Berekend over 900 recepten; 200 daarvan zijn vandaag goedkoper"
-        invites exactly one question, and the answer was in the dataframe.
-        """
-        df = _opportunity()
-        df["opportunity_rank"] = [1, None]
-        df["exclusion_reason"] = [None, "no_priced_ingredient"]
-        monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
-        body = _texts(page_run := run_app(page.render_tonight).run())
-        assert "Niet meegerekend" in body, body[-400:]
-        assert "prijs bekend" in body
-        assert page_run is not None
 
     def test_it_says_nothing_when_every_recipe_is_rankable(self, wired, monkeypatch):
         """A caption that fires on the ordinary case is noise."""
@@ -1016,22 +957,6 @@ class TestStartingFromAnIngredient:
 class TestTheProductComesBeforeThePipeline:
     """The portal spec already required this of every page, and this one put
     an unbounded loop of overdue-job warnings above the answer."""
-
-    def test_job_telemetry_follows_the_answer(self, wired, monkeypatch):
-        overdue = _healthy()
-        overdue.loc[0, "is_overdue"] = True
-        overdue.loc[0, "overdue_h"] = 9.0
-        monkeypatch.setattr(page, "read_pipeline_health", lambda e: overdue)
-        at = run_app(page.render_tonight).run()
-        assert "markdowns_refresh" in _texts(at), "still said"
-        recipe_at = next(
-            i for i, m in enumerate(at.markdown) if "Zuurkoolstamppot" in m.value
-        )
-        warning_texts = [w.value for w in at.warning]
-        assert any("markdowns_refresh" in w for w in warning_texts)
-        # The recipe is rendered before the job name is mentioned anywhere.
-        assert recipe_at < len(at.markdown), "the answer renders"
-        assert not at.exception
 
     def test_a_dead_credential_still_comes_first(self, wired, monkeypatch):
         """It is the one pipeline failure that changes what you should buy:
@@ -1578,3 +1503,47 @@ class TestThePricesAreOnTheCardFace:
         assert len(calls) == len(set(calls)), (
             f"one read per recipe, not one per thing shown: {calls}"
         )
+
+
+class TestTheConsoleIsNotOnTheShoppersPage:
+    """It used to sit below the recipes for every account: job names, overdue
+    hours, unresolved counts, flagged matches and a button into the matcher.
+
+    The portal spec says internal diagnostics "MAY remain available, but SHALL
+    NOT occupy the primary surfaces", and this is the primary surface for
+    somebody in a shop - who can act on none of it, and for whom most of it is
+    not even theirs to act on: a resolution applies to every account.
+    """
+
+    def test_job_names_are_not_on_it(self, wired, monkeypatch):
+        overdue = _healthy()
+        overdue.loc[0, "is_overdue"] = True
+        overdue.loc[0, "overdue_h"] = 9.0
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: overdue)
+        at = run_app(page.render_tonight).run()
+        assert "markdowns_refresh" not in _texts(at), (
+            "an overdue job name is an operator's business"
+        )
+
+    def test_the_matcher_is_not_offered_from_it(self, wired, monkeypatch):
+        monkeypatch.setattr(page, "count_flagged_concepts", lambda e: 4)
+        at = run_app(page.render_tonight).run()
+        assert not [
+            b
+            for b in at.button
+            if "Ingrediënten" in b.label and "koppel" in b.label.lower()
+        ]
+        assert "niet bij hoort" not in _texts(at)
+
+    def test_but_a_dead_credential_still_is(self, wired, monkeypatch):
+        """It is the one failure that changes what a shopper should buy: it means
+        the prices may be wrong."""
+        overdue = _healthy()
+        overdue.loc[1, "is_overdue"] = True
+        overdue.loc[1, "overdue_h"] = 40.0
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: overdue)
+        at = run_app(page.render_tonight).run()
+        assert any("AH-inlog" in e.value for e in at.error)
+
+    def test_and_the_answer_is_still_there(self, wired):
+        assert "Zuurkoolstamppot" in _texts(run_app(page.render_tonight).run())
