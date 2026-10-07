@@ -22,11 +22,14 @@ import streamlit as st
 
 from bonuschef.portal.accounts import SINGLE_USER, Account
 from bonuschef.portal.db import (
+    count_flagged_concepts,
     get_engine,
+    read_pipeline_health,
     read_account_overview,
     read_account_saved_recipes,
 )
 from bonuschef.portal.freshness import describe_age, now as freshness_now
+from bonuschef.portal.review import open_review
 
 
 def _describe_last_seen(row) -> str:
@@ -81,6 +84,66 @@ def render_monitor(account: Account | None = None) -> None:
 
     for _, row in accounts.iterrows():
         _render_account(engine, row)
+
+    st.divider()
+    _render_pipeline(engine)
+
+
+def _render_pipeline(engine) -> None:
+    """The machinery behind the answers, and the matcher's outstanding work.
+
+    This used to be on Vanavond, below the recipes, for every account. The portal
+    spec says internal diagnostics "MAY remain available, but SHALL NOT occupy
+    the primary surfaces" - and a person in a shop can act on none of it, while
+    most of it is not theirs to act on at all: a resolution applies to every
+    account, so only an operator may set one.
+
+    Moved rather than deleted. Taking it off a shopper's page only works if the
+    operator can still see it, and the credential failure deliberately stays
+    where the prices are, because it is the one that means they may be wrong.
+    """
+    st.subheader("De machinerie")
+
+    try:
+        health = read_pipeline_health(engine)
+    except Exception as e:  # noqa: BLE001 - reported, not swallowed
+        st.caption(f"Kon de pijplijn niet lezen: {e}")
+        health = pd.DataFrame()
+
+    if health.empty:
+        st.caption("Geen gegevens over de jobs.")
+    else:
+        overdue = health[health["is_overdue"]]
+        if overdue.empty:
+            st.success("Alle jobs zijn op tijd gelukt.", icon=":material/check:")
+        for _, row in overdue.iterrows():
+            when = (
+                "nog nooit gelukt"
+                if pd.isna(row["last_success"])
+                else f"{int(row['overdue_h'])} uur geleden voor het laatst gelukt"
+            )
+            st.warning(
+                f"**{row['job_name']}** is {when} — {row['what']} is mogelijk "
+                "niet bijgewerkt.",
+                icon=":material/sync_problem:",
+            )
+
+    try:
+        flagged = count_flagged_concepts(engine)
+    except Exception:  # noqa: BLE001
+        flagged = 0
+    if flagged:
+        # A flagged concept already has a price; it is just wrong. That reads as
+        # nothing being amiss, so it has to be said out loud.
+        st.warning(
+            f"{flagged} ingrediënt(en) zijn gekoppeld aan een product dat er "
+            "waarschijnlijk niet bij hoort. Die recepten hebben nu een prijs "
+            "die niet klopt.",
+            icon=":material/report:",
+        )
+
+    if st.button("Ingrediënten nakijken", icon=":material/link:"):
+        open_review(engine, SINGLE_USER)
 
 
 def _render_account(engine, row) -> None:

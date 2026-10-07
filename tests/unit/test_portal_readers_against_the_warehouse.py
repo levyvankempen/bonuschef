@@ -110,6 +110,9 @@ PAGE_READERS: dict[str, tuple[tuple[str, tuple], ...]] = {
     "monitor_page.py": (
         ("read_account_overview", ()),
         ("read_account_saved_recipes", (1,)),
+        # The operator's console moved here off Vanavond, bringing the job
+        # health columns with it.
+        ("read_pipeline_health", ()),
     ),
 }
 

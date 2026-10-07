@@ -953,8 +953,15 @@ def render_tonight(account: Account | None = None) -> None:
     _render_ingredient_answer(engine, account, df, clearance_current)
 
     # Below the answer, where an operator's measures belong.
-    _render_pipeline_health(engine)
-    _render_coverage(engine, df, account)
+    # Job names, overdue hours, unresolved counts and the way into the matcher
+    # moved to Beheer. The portal spec says internal diagnostics "MAY remain
+    # available, but SHALL NOT occupy the primary surfaces", and this page is
+    # the primary surface for somebody standing in a shop - for whom none of it
+    # is actionable, and most of it is not even theirs to act on.
+    #
+    # The credential failure stays, above the answer, because it is the one
+    # failure that changes what a shopper should buy: it means the prices may be
+    # wrong. It is rendered earlier in this function for that reason.
     _render_rejected(engine, account)
 
 

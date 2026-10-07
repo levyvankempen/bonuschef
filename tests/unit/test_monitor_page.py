@@ -84,6 +84,8 @@ def wired(monkeypatch):
     monkeypatch.setattr(page, "read_account_overview", lambda e: _overview())
     monkeypatch.setattr(page, "read_account_saved_recipes", lambda e, a: _saved())
     monkeypatch.setattr(page, "freshness_now", lambda: NOW)
+    monkeypatch.setattr(page, "read_pipeline_health", lambda e: pd.DataFrame())
+    monkeypatch.setattr(page, "count_flagged_concepts", lambda e: 0)
 
 
 def _texts(at) -> str:
@@ -228,3 +230,97 @@ class TestTheReadersCarryWhatThePageNeeds:
         sql = self._sql("read_account_overview")
         assert "FROM public.accounts" in sql
         assert "WHERE" not in sql.split("ORDER BY")[0].split("FROM public.accounts")[1]
+
+
+class TestTheConsoleMovedHereRatherThanBeingDeleted:
+    """Taking the diagnostics off a shopper's page only works if the operator
+    can still see them. The spec's argument that this portal is "the only
+    surface on which a failure can be noticed" is what makes that a move rather
+    than a removal."""
+
+    def test_an_overdue_job_is_named_with_when_it_last_worked(self, wired, monkeypatch):
+        health = pd.DataFrame(
+            {
+                "job_name": ["markdowns_refresh"],
+                "last_success": [NOW - pd.Timedelta(hours=9)],
+                "failures_today": [0],
+                "overdue_h": [9.0],
+                "tolerance_h": [3.0],
+                "what": ["de laatste kans-koopjes"],
+                "is_overdue": [True],
+            }
+        )
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_monitor, OPERATOR).run()
+        body = _texts(at) + " ".join(w.value for w in at.warning)
+        assert "markdowns_refresh" in body
+        assert "9 uur geleden" in body
+
+    def test_a_job_that_has_never_run_says_so(self, wired, monkeypatch):
+        health = pd.DataFrame(
+            {
+                "job_name": ["github_products"],
+                "last_success": [pd.NaT],
+                "failures_today": [0],
+                "overdue_h": [99.0],
+                "tolerance_h": [24.0],
+                "what": ["de prijsgeschiedenis"],
+                "is_overdue": [True],
+            }
+        )
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert "nog nooit gelukt" in " ".join(w.value for w in at.warning)
+
+    def test_everything_on_time_is_said_too(self, wired, monkeypatch):
+        """A health indicator that only ever appears when broken leaves the
+        operator unable to tell "fine" from "not loaded" - which are different
+        states and are reported differently."""
+        health = pd.DataFrame(
+            {
+                "job_name": ["markdowns_refresh"],
+                "last_success": [NOW],
+                "failures_today": [0],
+                "overdue_h": [1.0],
+                "tolerance_h": [3.0],
+                "what": ["de laatste kans-koopjes"],
+                "is_overdue": [False],
+            }
+        )
+        monkeypatch.setattr(page, "read_pipeline_health", lambda e: health)
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert at.success, "say that the jobs are on time"
+
+    def test_no_data_at_all_is_a_different_state(self, wired):
+        """The fixture returns nothing, which is not the same as nothing being
+        wrong."""
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert not at.success
+        assert "Geen gegevens over de jobs" in _texts(at)
+
+    def test_flagged_matches_are_surfaced(self, wired, monkeypatch):
+        """A flagged concept already has a price; it is just wrong, which reads
+        as nothing being amiss."""
+        monkeypatch.setattr(page, "count_flagged_concepts", lambda e: 4)
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert any("niet bij hoort" in w.value for w in at.warning)
+
+    def test_the_way_into_the_matcher_is_here(self, wired):
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert [b for b in at.button if "nakijken" in b.label]
+
+    def test_a_friend_sees_none_of_it(self, wired):
+        """The page refuses as a whole, so the console cannot leak through it."""
+        at = run_app(page.render_monitor, FRIEND).run()
+        assert at.error
+        assert not at.warning
+        assert not [b for b in at.button if "nakijken" in b.label]
+
+    def test_an_unreadable_pipeline_does_not_break_the_page(self, wired, monkeypatch):
+        def boom(e):
+            raise RuntimeError("no run table")
+
+        monkeypatch.setattr(page, "read_pipeline_health", boom)
+        at = run_app(page.render_monitor, OPERATOR).run()
+        assert not at.exception
+        assert "levy" in _texts(at), "the accounts still render"

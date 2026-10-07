@@ -51,10 +51,10 @@
 
 ## 6. The console moves to Beheer
 
-- [ ] 6.1 Move pipeline detail, flagged concepts, the unresolved count and the
+- [x] 6.1 Move pipeline detail, flagged concepts, the unresolved count and the
       review entry to Beheer.
-- [ ] 6.2 Keep the credential failure on Vanavond.
-- [ ] 6.3 Test that Vanavond's first element after its title is a recipe or a
+- [x] 6.2 Keep the credential failure on Vanavond.
+- [x] 6.3 Test that Vanavond's first element after its title is a recipe or a
       control, and that the operator can still reach every moved number.
 
 ## 7. Honesty about the shortlist
@@ -64,7 +64,7 @@
 
 ## 8. Verify
 
-- [ ] 8.1 Full suite, ruff, ty clean.
-- [ ] 8.2 Mutate each new rule and confirm a test fails.
+- [x] 8.1 Full suite, ruff, ty clean.
+- [x] 8.2 Mutate each new rule and confirm a test fails.
 - [ ] 8.3 After deploy, check on the running container that the shortlist is
       diverse for a real store and that a non-operator cannot correct a match.
