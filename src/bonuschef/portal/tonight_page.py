@@ -313,7 +313,17 @@ def _render_items_on_request(
 
 
 def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
-    """The best option, in full, with the ingredients responsible named."""
+    """The best option, in full, with the ingredients responsible named.
+
+    No picture, deliberately, where the alternatives below all have one.
+
+    Recognising a dish by sight is what makes a row of cards scannable, and it
+    is why the alternatives are led by their images. The lead is not being
+    scanned: it is the answer, already chosen for the reader, and a 440-pixel
+    hero above it pushes every alternative off the first screen to say something
+    the title says in four words. Removing it is how the page shows more than
+    one answer at once.
+    """
     recipe_id = int(row["recipe_id"])
     offers_named, more, blockable = _offer_badges(
         engine, recipe_id, row, clearance_counts
@@ -321,7 +331,6 @@ def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
     render_recipe_card(
         key=f"lead-{recipe_id}",
         title=str(row["recipe_name"]),
-        image_url=bigger_image(row.get("image_url")),
         saving=f"{_saving_phrase(row)} dan normaal",
         lead=True,
         urgency=_urgency(row),
