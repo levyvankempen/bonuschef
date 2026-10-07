@@ -194,3 +194,84 @@ def test_a_failed_cookie_write_is_reported_rather_than_swallowed():
     source = inspect.getsource(gate.flush_cookie)
     body = source[source.index("except") :]
     assert "pass" not in body, "a silent failure here is invisible for weeks"
+
+
+# --- the cookie has to outlive the tab ---------------------------------------
+
+
+class TestTheCookieOutlivesTheTab:
+    """Reported after the portal was published: still signing in every time.
+
+    Everything around the cookie was already right - written at the end of the
+    run, read natively so it is there on the first script run, failures
+    reported. The cookie itself was written with neither expires_at nor
+    max_age, which the library treats as a session cookie: the browser
+    discarded it on closing the tab while the server's session stayed valid for
+    a fortnight. The server remembered and the browser forgot.
+    """
+
+    @staticmethod
+    def _set_call() -> dict:
+        """The keyword arguments the write actually passes."""
+        import ast
+        import inspect
+
+        tree = ast.parse(inspect.getsource(gate.flush_cookie).lstrip())
+        call = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and ast.unparse(n.func).endswith(".set")
+        )
+        return {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+
+    def test_the_write_asks_the_browser_to_keep_it(self):
+        passed = self._set_call()
+        assert "max_age" in passed or "expires_at" in passed, (
+            "without either, the library writes a session cookie and the "
+            "browser drops it when the tab closes"
+        )
+
+    def test_the_lifetime_is_derived_from_the_session_not_chosen_again(self):
+        """Two numbers would drift, and the shorter one wins silently."""
+        from bonuschef.portal.accounts import IDLE_LIFETIME
+
+        assert gate._COOKIE_MAX_AGE_S == int(IDLE_LIFETIME.total_seconds())
+        assert "IDLE_LIFETIME" in Path(gate.__file__).read_text(), (
+            "it must be derived, not copied"
+        )
+
+    def test_same_site_is_lax_so_a_link_from_a_chat_app_works(self):
+        """Strict withholds the cookie on a cross-site navigation, which is
+        exactly how somebody opens a link that was sent to them."""
+        assert self._set_call().get("same_site") == "'lax'"
+
+    def test_secure_follows_the_scheme_rather_than_being_hardcoded(self):
+        """True always would stop the cookie being stored on the tailnet and
+        ssh-tunnel paths, which are plain HTTP and documented. False always
+        would put a session token in the clear."""
+        assert self._set_call().get("secure") == "_served_over_https()"
+
+    def test_https_is_detected_from_the_page_url(self, monkeypatch):
+        import streamlit as st
+
+        monkeypatch.setattr(
+            st, "context", SimpleNamespace(url="https://bonuschef.example.ts.net/")
+        )
+        assert gate._served_over_https() is True
+        monkeypatch.setattr(
+            st, "context", SimpleNamespace(url="http://bonuschef:8501/")
+        )
+        assert gate._served_over_https() is False
+
+    def test_an_unknowable_scheme_does_not_mark_it_secure(self, monkeypatch):
+        """Outside a Streamlit runtime there is no url. Guessing Secure there
+        would mean the cookie is silently never stored."""
+        import streamlit as st
+
+        class _Boom:
+            @property
+            def url(self):
+                raise RuntimeError("no runtime")
+
+        monkeypatch.setattr(st, "context", _Boom())
+        assert gate._served_over_https() is False
