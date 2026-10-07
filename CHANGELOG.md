@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.37.0 (2026-10-07)
+
+### Features
+
+- **portal**: The operator's console lives on Beheer, not under the recipes
+  ([#137](https://github.com/levyvankempen/bonuschef/pull/137),
+  [`5682551`](https://github.com/levyvankempen/bonuschef/commit/56825514afffde5e88372c720d4a5d726c2c7a7a))
+
+
 ## v1.36.0 (2026-10-07)
 
 ### Features
