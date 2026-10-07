@@ -10,6 +10,7 @@ from bonuschef.portal.ui import (
     IMAGE_CAP_PX,
     _CARD_IMAGE_KEY,
     _CARD_STYLES,
+    _GRID_KEY,
     _top_movers,
     bigger_image,
 )
@@ -62,7 +63,7 @@ def test_the_card_never_asks_for_more_pixels_than_the_source_has():
     """Streamlit's own reset sets img { max-width: none }, so without a cap a
     440px source would be stretched across a wider desktop column."""
     assert IMAGE_CAP_PX == 440, "440x324 is the largest variant AH publishes"
-    styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY)
+    styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY, grid_prefix=_GRID_KEY)
     assert f"max-width: {IMAGE_CAP_PX}px" in styles
     assert _CARD_IMAGE_KEY in styles, "the cap must be scoped to the card"
 
@@ -80,7 +81,7 @@ def test_the_card_image_is_sized_by_css_rather_than_by_measurement():
     width:100% resolves against the parent's real box at paint time, so there
     is no measurement to race.
     """
-    styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY)
+    styles = _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY, grid_prefix=_GRID_KEY)
     assert "width: 100% !important" in styles, "fluid without being measured"
     assert "height: auto" in styles, "and never distorted"
 
@@ -153,3 +154,96 @@ def test_an_offer_line_may_carry_the_reference_age():
         reference_note="normale prijs van 6 dagen geleden",
     )
     assert "6 dagen" in line.reference_note
+
+
+# --- the grid that reflows ---------------------------------------------------
+
+
+class TestTwoAcrossWhereTwoFit:
+    """st.columns do not stack: a two-column desktop grid is a two-column 170px
+    phone grid, which is why this project rendered one card per row and wrote it
+    down as a requirement.
+
+    The reason was real; the conclusion was too strong. A flex row allowed to
+    wrap, with a minimum column width, gives two columns where two fit and one
+    where they do not - without a media query, and without asking Streamlit for
+    a viewport width it cannot report.
+    """
+
+    @staticmethod
+    def _styles() -> str:
+        return _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY, grid_prefix=_GRID_KEY)
+
+    def test_the_row_is_allowed_to_wrap(self):
+        assert "flex-wrap: wrap" in self._styles()
+
+    def test_a_column_has_a_floor_so_a_phone_gets_one(self):
+        """Below the floor the card's own contents wrap badly, so a 358px phone
+        must fall to a single column rather than halving the image."""
+        styles = self._styles()
+        assert "min-width: 320px" in styles
+        assert "flex: 1 1 320px" in styles
+
+    def test_the_grid_rules_are_scoped_to_the_grid(self):
+        """Streamlit lays every horizontal container out as a flex row. Unscoped,
+        these rules would reflow the action rows and the price rows too."""
+        styles = self._styles()
+        for rule in ("flex-wrap", "min-width: 320px"):
+            line = next(ln for ln in styles.splitlines() if rule in ln)
+            block = styles[: styles.index(line)]
+            assert _GRID_KEY in block.rsplit("[class*=", 1)[-1] or _GRID_KEY in block
+
+    def test_the_card_image_cap_still_applies(self):
+        """Both rule sets share one stylesheet; adding the grid must not drop
+        the cap that keeps a 440px source from being stretched."""
+        assert f"max-width: {IMAGE_CAP_PX}px" in self._styles()
+
+
+def test_a_compact_card_puts_the_rest_behind_one_tap():
+    """A card carrying the coverage caption, the rating, the ingredient list and
+    four buttons shows one recipe at a time, which is the complaint this
+    answers."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(ui.__file__).read_text())
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "render_recipe_card"
+    )
+    body = ast.unparse(fn)
+    assert "if not compact:" in body, "full cards keep everything inline"
+    assert "_render_details_on_request" in body
+
+
+def test_the_detail_toggle_is_a_fragment_without_a_rerun():
+    """Opening a card must not re-run the page or move it, the same rule the
+    ingredient list already follows."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(ui.__file__).read_text())
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_render_details_on_request"
+    )
+    assert any("st.fragment" in ast.unparse(d) for d in fn.decorator_list)
+    calls = {ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}
+    assert "st.rerun" not in calls
+
+
+def test_the_detail_is_not_a_dialog():
+    """The ingredient list can open the correction dialog, and Streamlit dialogs
+    do not nest - which this repo has already been bitten by."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(ui.__file__).read_text())
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_render_details_on_request"
+    )
+    assert not any("dialog" in ast.unparse(d) for d in fn.decorator_list)

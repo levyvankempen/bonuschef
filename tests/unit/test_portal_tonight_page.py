@@ -517,8 +517,14 @@ class TestPricesAndIngredients:
         monkeypatch.setattr(page, "read_recipe_opportunity", lambda e, *_: df)
         at = run_app(page.render_tonight).run()
         body = _texts(at)
-        assert "€10.60" in body, "the runner-up's own price"
-        assert len([b for b in at.button if "Ingrediënten" in b.label]) == 2
+        assert "€10.60" in body, "the runner-up's own price, on its face"
+        # The lead keeps its ingredient button; a runner-up is compact and puts
+        # the list behind "Meer", so two cards no longer mean two list buttons.
+        assert [b for b in at.button if "Ingrediënten" in b.label], "the lead's"
+        opened = [b for b in at.button if b.label == "Meer"][0].click().run()
+        assert len([b for b in opened.button if "Ingrediënten" in b.label]) == 2, (
+            "and the runner-up's, once opened"
+        )
 
 
 class TestTheIngredientList:
