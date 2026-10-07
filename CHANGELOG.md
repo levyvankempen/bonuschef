@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.36.0 (2026-10-07)
+
+### Features
+
+- **portal**: Say what you do not eat, and stop being offered it
+  ([#136](https://github.com/levyvankempen/bonuschef/pull/136),
+  [`c01c823`](https://github.com/levyvankempen/bonuschef/commit/c01c8239ea027ffdd004b25ed6c3316cc4166334))
+
+
 ## v1.35.0 (2026-10-07)
 
 ### Features
