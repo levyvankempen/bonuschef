@@ -1345,6 +1345,32 @@ def save_recipe_line_overrides(
     read_recipe_lines_override.clear()
 
 
+def read_rejected_recipe_ids(_engine, account_id: int) -> set[int]:
+    """Recipes this person has dismissed.
+
+    Rejected only, deliberately, where read_hidden_recipe_ids below also counts
+    what has been adopted. The spec requires a dismissal to leave the ranking
+    immediately; it asks nothing about adopted recipes, and hiding those would
+    silently retire the "Bewaard" badge that exists to say a recommendation is
+    already in your collection. A recipe you saved and that is cheap today is
+    still worth cooking tonight.
+
+    Not cached, for the same reason the other one is not: it changes the moment
+    the button is pressed, and a cached answer would mean "Niet voor mij" waits
+    a quarter of an hour to take effect - which is the shape of the bug this
+    fixes, not an improvement on it.
+    """
+    with _engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT recipe_id FROM public.ah_recipe_verdicts "
+                "WHERE account_id = :aid AND verdict = 'rejected'"
+            ),
+            {"aid": int(account_id)},
+        ).fetchall()
+    return {int(r[0]) for r in rows}
+
+
 def read_hidden_recipe_ids(_engine, account_id: int) -> set[int]:
     """Recipes this person has already adopted or rejected.
 
