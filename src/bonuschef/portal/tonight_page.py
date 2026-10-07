@@ -229,7 +229,7 @@ def _offer_badges(
 
 @st.fragment
 def _render_items_on_request(
-    engine, recipe_id: int, row, clearance_counts: bool
+    engine, recipe_id: int, row, clearance_counts: bool, account=None
 ) -> None:
     """The ingredient list, and nothing at all until it is asked for.
 
@@ -259,7 +259,7 @@ def _render_items_on_request(
         st.session_state[open_key] = opened
 
     if opened:
-        _render_items(engine, recipe_id, row, clearance_counts)
+        _render_items(engine, recipe_id, row, clearance_counts, account)
 
 
 def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
@@ -278,7 +278,7 @@ def _render_lead(engine, account, row, clearance_counts: bool = True) -> None:
         price=lambda: _render_price(row),
         rating=lambda: _render_rating(row),
         extra=lambda: _render_items_on_request(
-            engine, recipe_id, row, clearance_counts
+            engine, recipe_id, row, clearance_counts, account
         ),
         actions=lambda: _render_verdict_controls(engine, account, row),
     )
@@ -296,7 +296,9 @@ def _render_rating(row) -> None:
     st.caption(f"★ {float(average):.1f} · {votes} beoordelingen")
 
 
-def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) -> None:
+def _render_items(
+    engine, recipe_id: int, row, clearance_counts: bool = True, account=None
+) -> None:
     """Every ingredient, not only the discounted ones.
 
     Showing only what got cheaper made an expander labelled "Ingrediënten (9)"
@@ -311,7 +313,7 @@ def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) ->
         return
 
     for _, item in items.iterrows():
-        _render_item(engine, recipe_id, item, clearance_counts)
+        _render_item(engine, recipe_id, item, clearance_counts, account)
 
     withheld = items[items["offer_withheld_stale_reference"]]
     if not withheld.empty:
@@ -321,7 +323,9 @@ def _render_items(engine, recipe_id: int, row, clearance_counts: bool = True) ->
         )
 
 
-def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) -> None:
+def _render_item(
+    engine, recipe_id: int, item, clearance_counts: bool = True, account=None
+) -> None:
     """One ingredient: what it costs, what it is matched to, and a way to say
     that match is wrong.
 
@@ -399,7 +403,9 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     f"{item['conditional_mechanism']} — telt niet mee in het bedrag"
                 )
 
-        if pd.notna(item.get("concept_id")):
+        # Offered to an operator only. The correction applies to every account,
+        # so a non-operator would be shown a control that is refused.
+        if pd.notna(item.get("concept_id")) and getattr(account, "is_operator", False):
             with st.container(horizontal_alignment="right"):
                 # Keyed on recipe AND line: item_key is "c:<concept_id>", so
                 # two recipes both containing onions would otherwise produce the
@@ -411,7 +417,10 @@ def _render_item(engine, recipe_id: int, item, clearance_counts: bool = True) ->
                     help="Kies zelf het juiste product voor dit ingrediënt",
                 ):
                     open_single(
-                        engine, int(item["concept_id"]), str(item["item_label"])
+                        engine,
+                        int(item["concept_id"]),
+                        str(item["item_label"]),
+                        account,
                     )
 
 
@@ -473,7 +482,7 @@ def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
         more_offers=more,
         price=lambda: _render_price(row),
         extra=lambda: _render_items_on_request(
-            engine, recipe_id, row, clearance_counts
+            engine, recipe_id, row, clearance_counts, account
         ),
         actions=lambda: _render_verdict_controls(engine, account, row),
     )
@@ -543,7 +552,7 @@ def _render_rejected(engine, account) -> None:
                         st.rerun()
 
 
-def _render_coverage(engine, df: pd.DataFrame) -> None:
+def _render_coverage(engine, df: pd.DataFrame, account=None) -> None:
     """How much the page can see, and the one action that widens it.
 
     The gap between the two numbers is the honest state of the system, and the
@@ -601,7 +610,7 @@ def _render_coverage(engine, df: pd.DataFrame) -> None:
     if unresolved or flagged:
         label = "Ingrediënten nakijken" if flagged else "Ingrediënten koppelen"
         if st.button(label, icon=":material/link:"):
-            open_review(engine)
+            open_review(engine, account)
 
 
 def _render_pipeline_health(engine, credential_only: bool = False) -> None:
@@ -777,7 +786,7 @@ def render_tonight(account: Account | None = None) -> None:
 
     # Below the answer, where an operator's measures belong.
     _render_pipeline_health(engine)
-    _render_coverage(engine, df)
+    _render_coverage(engine, df, account)
     _render_rejected(engine, account)
 
 

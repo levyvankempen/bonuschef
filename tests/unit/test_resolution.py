@@ -15,12 +15,27 @@ from typing import Any, cast
 import pytest
 from sqlalchemy import create_engine, text
 
+from bonuschef.portal.accounts import Account
+
+
 from bonuschef.portal.db import (
     add_resolution_products,
     confirm_resolution,
     ensure_catalogue_tables,
     propose_products,
 )
+
+# A resolution applies to every account, so the write takes an operator. These
+# tests are about what gets stored, not about who may store it - that is
+# TestOnlyAnOperatorMayChangeAMatch below.
+OPERATOR = Account(
+    account_id=1,
+    username="levy",
+    store_id=1876,
+    is_operator=True,
+    must_change_password=False,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -114,7 +129,7 @@ def test_a_decision_survives_the_matcher(engine):
             },
         ],
     )
-    confirm_resolution(engine, _CONCEPT, ["a"])
+    confirm_resolution(engine, _CONCEPT, ["a"], account=OPERATOR)
     assert _attached(engine, _CONCEPT) == {"a": True}, "deselected product removed"
 
     # The matcher runs again, as it does on every adoption.
@@ -169,7 +184,7 @@ def test_choosing_nothing_records_that_nothing_satisfies_it(engine):
             {"concept_id": _CONCEPT, "product_link": "a", "product_name": "Wrong"},
         ],
     )
-    confirm_resolution(engine, _CONCEPT, [])
+    confirm_resolution(engine, _CONCEPT, [], account=OPERATOR)
     assert _attached(engine, _CONCEPT) == {}
     assert _review(engine, _CONCEPT) == "none_exists"
 
@@ -181,7 +196,7 @@ def test_choosing_products_records_it_as_resolved(engine):
             {"concept_id": _CONCEPT, "product_link": "a", "product_name": "Right"},
         ],
     )
-    confirm_resolution(engine, _CONCEPT, ["a"])
+    confirm_resolution(engine, _CONCEPT, ["a"], account=OPERATOR)
     assert _review(engine, _CONCEPT) == "resolved"
 
 
@@ -194,7 +209,7 @@ def test_several_products_can_satisfy_one_ingredient(engine):
             {"concept_id": _CONCEPT, "product_link": "b", "product_name": "B"},
         ],
     )
-    confirm_resolution(engine, _CONCEPT, ["a", "b"])
+    confirm_resolution(engine, _CONCEPT, ["a", "b"], account=OPERATOR)
     assert _attached(engine, _CONCEPT) == {"a": True, "b": True}
 
 
@@ -202,7 +217,7 @@ def test_a_person_can_attach_a_product_the_matcher_never_proposed(engine):
     add_resolution_products(
         engine, _CONCEPT, [{"product_link": "z", "product_name": "Found by hand"}]
     )
-    confirm_resolution(engine, _CONCEPT, ["z"])
+    confirm_resolution(engine, _CONCEPT, ["z"], account=OPERATOR)
     assert _attached(engine, _CONCEPT) == {"z": True}
 
 
@@ -1246,3 +1261,49 @@ class TestAdoptedRecipesAreNotSkipped:
             assert db._ALL_INGREDIENT_LINES.strip() in self._sql(query), (
                 f"{query} restates the line source instead of using it"
             )
+
+
+class TestOnlyAnOperatorMayChangeAMatch:
+    """A match applies to every account, so a stranger must not be able to set it.
+
+    ah_ingredient_products has no account column - deliberately: a match is
+    keyed on the retailer's ingredient concept so that confirming one serves
+    every recipe using it, which is what makes the review worth doing. It is
+    also the blast radius. The control was offered on two shopper-facing pages
+    and the dialogs behind it were gated by nothing, so any invited friend's
+    guess at what "ui" meant changed the price on everybody else's cards.
+    """
+
+    FRIEND = Account(
+        account_id=2,
+        username="sample",
+        store_id=1661,
+        is_operator=False,
+        must_change_password=False,
+    )
+
+    def test_a_friend_is_refused(self):
+        from bonuschef.portal.db import NotAnOperator, confirm_resolution
+
+        with pytest.raises(NotAnOperator):
+            confirm_resolution(object(), 1, ["a"], account=self.FRIEND)
+
+    def test_no_account_at_all_is_refused(self):
+        """Keyword-only and defaulting to None, so a caller that has not been
+        taught to pass one is refused rather than quietly allowed."""
+        from bonuschef.portal.db import NotAnOperator, confirm_resolution
+
+        with pytest.raises(NotAnOperator):
+            confirm_resolution(object(), 1, ["a"])
+
+    def test_the_refusal_happens_before_anything_is_written(self):
+        """Gated in the function, not only hidden in the page. A dialog that is
+        not offered is still reachable."""
+        from bonuschef.portal.db import NotAnOperator, confirm_resolution
+
+        class _Engine:
+            def begin(self):
+                raise AssertionError("the write must not be attempted")
+
+        with pytest.raises(NotAnOperator):
+            confirm_resolution(_Engine(), 1, ["a"], account=self.FRIEND)

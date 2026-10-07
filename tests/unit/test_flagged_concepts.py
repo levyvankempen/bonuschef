@@ -66,7 +66,9 @@ def test_confirming_clears_the_flag():
     cleared it from."""
     body = REVIEW.read_text()
     assert "clear_flag(engine, concept_id)" in body
-    assert body.index("confirm_resolution(engine, concept_id, links)") < body.index(
+    # Anchored on the call's name rather than its exact arguments, which gained
+    # an account when the write became an operator's act.
+    assert body.index("confirm_resolution(") < body.index(
         "clear_flag(engine, concept_id)"
     ), "the flag is cleared before the resolution is recorded"
 
