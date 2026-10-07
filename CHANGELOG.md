@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.35.0 (2026-10-07)
+
+### Features
+
+- **portal**: The two prices on the card, where the shelf can check them
+  ([#135](https://github.com/levyvankempen/bonuschef/pull/135),
+  [`c29c8f9`](https://github.com/levyvankempen/bonuschef/commit/c29c8f9a87333fdace0529edd570f88c53a3ccd8))
+
+
 ## v1.34.0 (2026-10-07)
 
 ### Features
