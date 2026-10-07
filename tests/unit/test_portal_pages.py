@@ -106,12 +106,12 @@ class TestRecipesPage:
 
     def test_a_recipe_never_made_says_so_rather_than_showing_a_date(self, monkeypatch):
         self._wire(monkeypatch)
-        at = run_app(recipes_page.render_recipes).run()
+        at = _open_card(run_app(recipes_page.render_recipes).run())
         assert any("Nog niet gemaakt" in c.value for c in at.caption)
 
     def test_what_made_it_cheap_is_on_the_card(self, monkeypatch):
         self._wire(monkeypatch)
-        at = run_app(recipes_page.render_recipes).run()
+        at = _open_card(run_app(recipes_page.render_recipes).run())
         rendered = " ".join(m.value for m in at.markdown)
         assert "bonus" in rendered and "laatste kans" in rendered
 
@@ -185,6 +185,18 @@ class TestRecipesPage:
         assert names and "Zalm uit de oven" in names[0], names
 
 
+def _open_card(at, which: int = 0):
+    """Open a compact card's detail.
+
+    The saved-recipe cards show the highlights and put the rest - badges, when
+    it was last made, the ingredient list and the actions - one tap away, so
+    that twice as many fit on a screen. Tests that read the rest open it first.
+    """
+    more = [b for b in at.button if b.label == "Meer"]
+    assert more, "a compact card must offer its detail"
+    return more[which].click().run()
+
+
 class TestTheIngredientsOnTheRecipesPage:
     """The page offered "Klopt niet" against a line naming only the ingredient.
 
@@ -222,7 +234,7 @@ class TestTheIngredientsOnTheRecipesPage:
             "read_recipe_lines_override",
             lambda e, a, r: pd.DataFrame(),
         )
-        at = run_app(recipes_page.render_recipes).run()
+        at = _open_card(run_app(recipes_page.render_recipes).run())
         button = [b for b in at.button if "Ingredi" in b.label]
         assert button, "the ingredient list must be reachable"
         return button[0].click().run()
@@ -327,7 +339,7 @@ class TestDeletingASavedRecipe:
             "unsave_recipe",
             lambda e, a, r: dropped.append(r),
         )
-        at = run_app(recipes_page.render_recipes).run()
+        at = _open_card(run_app(recipes_page.render_recipes).run())
         assert not [b for b in at.button if b.label == "Verwijderen"], (
             "the bare delete must not be a button any more"
         )
@@ -351,7 +363,7 @@ class TestDeletingASavedRecipe:
             "unsave_recipe",
             lambda e, a, r: dropped.append(r),
         )
-        at = run_app(recipes_page.render_recipes).run()
+        at = _open_card(run_app(recipes_page.render_recipes).run())
         confirm = [b for b in at.button if "Ja, verwijderen" in b.label]
         assert confirm, "the confirming step must be reachable"
         confirm[0].click().run()
@@ -674,3 +686,58 @@ class TestAddRecipeCatalogue:
         at = run_app(s["page"].render_add_recipe, default_timeout=10).run()
         assert "niet bereikbaar" in at.error[0].value
         assert not at.info
+
+
+class TestTheCollectionIsSeenTwoAtATime:
+    """Reported: "I'd like to see more at once. Perhaps cards also next to each
+    other so two columns. Make it phone readable as well as laptop visible."
+    """
+
+    def test_cards_are_laid_out_in_a_grid(self, monkeypatch):
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert at.get("column"), "two saved recipes go side by side"
+        assert not at.exception
+
+    def test_both_recipes_are_still_shown(self, monkeypatch):
+        """A grid that drops a card is worse than a list that keeps them."""
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Zalm uit de oven" in rendered and "Quiche" in rendered
+
+    def test_an_odd_number_does_not_lose_the_last_one(self, monkeypatch):
+        """Pairing is how the rows are built, so the tail is the case to check."""
+        priced = pd.concat(
+            [TestRecipesPage.PRICED, TestRecipesPage.PRICED.iloc[[0]]],
+            ignore_index=True,
+        )
+        priced["recipe_id"] = [1, 2, 3]
+        priced["recipe_name"] = ["Zalm uit de oven", "Quiche", "Derde recept"]
+        saved = pd.concat(
+            [TestRecipesPage.SAVED, TestRecipesPage.SAVED.iloc[[0]]],
+            ignore_index=True,
+        )
+        saved["recipe_id"] = [1, 2, 3]
+        TestRecipesPage()._wire(monkeypatch, saved=saved, priced=priced)
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Derde recept" in rendered, "the odd card must still render"
+
+    def test_the_card_leads_with_the_highlights(self, monkeypatch):
+        """Name, price and what makes it cheap. The rest is one tap away."""
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        rendered = " ".join(m.value for m in at.markdown)
+        assert "Zalm uit de oven" in rendered, "the name"
+        assert "€4.50" in rendered, "the price"
+        assert [b for b in at.button if b.label == "Meer"], "and a way to the rest"
+
+    def test_the_detail_is_not_rendered_until_asked_for(self, monkeypatch):
+        """Which is what makes two-up worth having: a card carrying four
+        buttons and a coverage caption shows one recipe at a time."""
+        TestRecipesPage()._wire(monkeypatch)
+        at = run_app(recipes_page.render_recipes).run()
+        assert not [b for b in at.button if "Gemaakt vandaag" in b.label]
+        opened = _open_card(at)
+        assert [b for b in opened.button if "Gemaakt vandaag" in b.label]

@@ -38,6 +38,7 @@ from bonuschef.portal.freshness import describe_age, now as freshness_now
 from bonuschef.portal.review import open_single
 from bonuschef.portal.ui import (
     bigger_image,
+    card_grid,
     inject_card_styles,
     render_recipe_card,
 )
@@ -105,8 +106,17 @@ def render_recipes(account: Account | None = None) -> None:
     if st.session_state.get(_EDIT_KEY):
         _open_edit(engine, account, int(st.session_state[_EDIT_KEY]))
 
-    for _, row in _sorted(shown, sort_key).iterrows():
-        _render_card(engine, account, row)
+    # Two across where two fit, one where they do not. The collection is read
+    # to choose between, so seeing twice as many at once is most of the
+    # usefulness - and the grid reflows on width rather than on a guess about
+    # the device.
+    rows = list(_sorted(shown, sort_key).iterrows())
+    for pair_start in range(0, len(rows), _PER_ROW):
+        pair = rows[pair_start : pair_start + _PER_ROW]
+        with card_grid(_PER_ROW, key=f"recipes-{pair_start}") as columns:
+            for column, (_, row) in zip(columns, pair):
+                with column:
+                    _render_card(engine, account, row)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +172,7 @@ def _render_card(engine, account: Account, row) -> None:
     recipe_id = int(row["recipe_id"])
     render_recipe_card(
         key=f"saved-{recipe_id}",
+        compact=True,
         title=str(row.get("recipe_name") or "Naamloos recept"),
         image_url=bigger_image(row.get("image_url")),
         lead=False,
@@ -212,6 +223,9 @@ def _render_card_actions(engine, account: Account, row, recipe_id: int) -> None:
             unsave_recipe(engine, account.account_id, recipe_id)
             st.rerun()
 
+
+# Cards per row where the width allows it; the grid falls back to one.
+_PER_ROW = 2
 
 _OPEN_KEY = "recipes_open_card"
 _EDIT_KEY = "recipes_edit_id"

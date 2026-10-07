@@ -498,6 +498,33 @@ The portal SHALL show whether the work that produces its answers is still runnin
 - **WHEN** no notification channel is subscribed
 - **THEN** the page still reports the failure, because it is then the only surface on which it can be noticed
 
+### Requirement: A card shows the highlights and keeps the rest one tap away
+
+Where cards are shown to choose between, each SHALL lead with what the choice
+turns on - what it is, what it costs, what it saves, and which product the
+saving comes from - and SHALL put the remainder behind a single deliberate act.
+
+A card carrying every fact it has is a page that shows one recipe at a time,
+which is the opposite of choosing between them.
+
+The remainder SHALL NOT be rendered until it is asked for, and asking SHALL NOT
+move the page.
+
+#### Scenario: Arriving at a page of cards
+
+- **WHEN** a person opens a page of recipes to choose between
+- **THEN** each card shows its name, its price, its saving and the product that saving rests on, and nothing else by default
+
+#### Scenario: Wanting the rest of one card
+
+- **WHEN** a person opens a card's detail
+- **THEN** the ingredients, the ratings and the actions appear, and the page does not move under them
+
+#### Scenario: A card nobody opened
+
+- **WHEN** a card is shown closed
+- **THEN** its detail is not built
+
 ### Requirement: Saved recipes are presented as a dashboard, not a list
 
 The page that shows a person's recipes SHALL present them as cards carrying
@@ -626,10 +653,15 @@ of them.
 - **WHEN** the source provides no image for a recommended recipe
 - **THEN** the card still renders, led by its title, without a gap where the image would be
 
-#### Scenario: One recommendation per row
+#### Scenario: Laying out more than one recommendation
 
 - **WHEN** recommendations are laid out
-- **THEN** each occupies the full width available, because a column that is split does not narrow on a phone and would halve the image instead
+- **THEN** as many are placed side by side as the width allows, falling to one where it does not, so the image is never halved on a phone
+
+#### Scenario: The lead keeps the width
+
+- **WHEN** one recommendation is the best answer and the rest are alternatives
+- **THEN** the best one keeps the full width, because it is the answer rather than one of a set to compare
 
 ### Requirement: A person can start from an ingredient
 

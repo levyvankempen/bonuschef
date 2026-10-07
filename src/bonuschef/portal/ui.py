@@ -1,6 +1,7 @@
 """Streamlit UI helper functions."""
 
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal
 
@@ -37,13 +38,35 @@ _LARGER_VARIANT = "_440x324_"
 #
 # Scoped to the container key below rather than applied to every image, so none
 # of this can reach the clearance thumbnails.
+# The grid reflows on available width rather than on a breakpoint.
+#
+# st.columns do not stack on a narrow screen - a two-column desktop grid is a
+# two-column 170px phone grid - which is why this project rendered one card per
+# row and wrote that down as a requirement. The reason was real and the
+# conclusion was too strong: a flex row that is allowed to wrap, with a minimum
+# column width, gives two columns where two fit and one where they do not. No
+# media query and no viewport query, which Streamlit cannot answer anyway.
+#
+# 320px is the floor: below it the card's own contents start wrapping badly, and
+# a phone at 358px therefore gets exactly one column.
+_GRID_MIN_PX = 320
+
 _CARD_STYLES = f"""<style>
 [class*="st-key-{{key_prefix}}"] img {{{{
   width: 100% !important;
   height: auto !important;
   max-width: {IMAGE_CAP_PX}px;
 }}}}
+[class*="st-key-{{grid_prefix}}"] [data-testid="stHorizontalBlock"] {{{{
+  flex-wrap: wrap;
+}}}}
+[class*="st-key-{{grid_prefix}}"] [data-testid="stColumn"] {{{{
+  flex: 1 1 {_GRID_MIN_PX}px;
+  min-width: {_GRID_MIN_PX}px;
+}}}}
 </style>"""
+
+_GRID_KEY = "bc-card-grid"
 
 _CARD_IMAGE_KEY = "bc-card-image"
 
@@ -96,7 +119,22 @@ def inject_card_styles() -> None:
     capping here is the combination that satisfies both halves: it fills 358px
     on a phone and stops at 440 on the desktop's centred column.
     """
-    st.markdown(_CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY), unsafe_allow_html=True)
+    st.markdown(
+        _CARD_STYLES.format(key_prefix=_CARD_IMAGE_KEY, grid_prefix=_GRID_KEY),
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def card_grid(columns: int = 2, key: str = "cards"):
+    """A row of cards that becomes a column when there is no room for a row.
+
+    Yields the column containers. Use it per row of cards; Streamlit has no
+    masonry, so the caller chunks its list and the shortest card sets the row
+    height - which is a fair trade for seeing twice as many at once.
+    """
+    with st.container(key=f"{_GRID_KEY}-{key}"):
+        yield st.columns(columns, gap="medium")
 
 
 def render_recipe_card(
@@ -106,6 +144,7 @@ def render_recipe_card(
     image_url: object = None,
     saving: str | None = None,
     lead: bool = False,
+    compact: bool = False,
     urgency: tuple[str, BadgeColour] | None = None,
     offers: Sequence[OfferLine] = (),
     more_offers: int = 0,
@@ -155,12 +194,47 @@ def render_recipe_card(
 
         _render_offer_badges(offers, more_offers)
 
-        if lead and rating is not None:
-            rating()
-        if extra is not None:
-            extra()
-        if actions is not None:
-            actions()
+        if not compact:
+            if lead and rating is not None:
+                rating()
+            if extra is not None:
+                extra()
+            if actions is not None:
+                actions()
+            return
+
+        # Compact: the highlights are above, and everything else is one tap
+        # away. A card carrying the coverage caption, the rating, the ingredient
+        # list and four buttons is a page that shows one recipe at a time -
+        # which is the complaint this answers.
+        #
+        # In place rather than in a dialog, because the ingredient list can open
+        # the correction dialog and Streamlit dialogs do not nest. The toggle is
+        # a fragment, so opening one card does not re-run the page or move it.
+        _render_details_on_request(key, rating, extra, actions)
+
+
+@st.fragment
+def _render_details_on_request(key, rating, extra, actions) -> None:
+    """The rest of the card, and nothing until it is asked for."""
+    open_key = f"card_open_{key}"
+    opened = bool(st.session_state.get(open_key))
+    if st.button(
+        "Minder" if opened else "Meer",
+        key=f"card_toggle_{key}",
+        icon=":material/expand_less:" if opened else ":material/expand_more:",
+        width="stretch",
+    ):
+        opened = not opened
+        st.session_state[open_key] = opened
+    if not opened:
+        return
+    if rating is not None:
+        rating()
+    if extra is not None:
+        extra()
+    if actions is not None:
+        actions()
 
 
 def _render_offer_badges(offers: Sequence[OfferLine], more_offers: int) -> None:

@@ -28,6 +28,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from bonuschef.portal import freshness, offers
 from bonuschef.portal.ui import (
     BadgeColour,
+    card_grid,
     OfferLine,
     bigger_image,
     inject_card_styles,
@@ -524,6 +525,7 @@ def _render_brief(engine, account, row, clearance_counts: bool = True) -> None:
     )
     render_recipe_card(
         key=f"brief-{recipe_id}",
+        compact=True,
         title=str(row["recipe_name"]),
         image_url=bigger_image(row.get("image_url")),
         saving=_saving_phrase(row),
@@ -985,6 +987,9 @@ def _render_ingredient_answer(
 
 _SHORTLIST = 6
 
+# Alternatives per row where the width allows it; the grid falls back to one.
+_PER_ROW = 2
+
 
 def _choose_shortlist(
     ranked: pd.DataFrame, drivers: dict[int, str], want: int = _SHORTLIST
@@ -1114,8 +1119,16 @@ def _render_answer(
     _render_lead(engine, account, shortlist.iloc[0], clearance_current)
     if len(shortlist) > 1:
         st.subheader("Ook de moeite waard")
-        for _, row in shortlist.iloc[1:].iterrows():
-            _render_brief(engine, account, row, clearance_current)
+        # The lead keeps the full width - it is the answer. The alternatives go
+        # two across where two fit, because they are read to compare rather than
+        # to decide on, and comparing is easier side by side.
+        rest = list(shortlist.iloc[1:].iterrows())
+        for pair_start in range(0, len(rest), _PER_ROW):
+            pair = rest[pair_start : pair_start + _PER_ROW]
+            with card_grid(_PER_ROW, key=f"tonight-{pair_start}") as columns:
+                for column, (_, row) in zip(columns, pair):
+                    with column:
+                        _render_brief(engine, account, row, clearance_current)
 
     _render_shortlist_note(len(matching), len(shortlist), passed_over, blocked_count)
 
