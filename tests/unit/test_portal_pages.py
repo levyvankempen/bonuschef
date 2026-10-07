@@ -242,9 +242,15 @@ class TestTheIngredientsOnTheRecipesPage:
         assert "2.19" in captions, captions
 
     def test_a_discounted_line_says_what_it_was(self, monkeypatch):
+        """Both prices, through the shared formatter. "i.p.v." was a third
+        spelling of a fact Vanavond rendered as a heading with "normaal" and
+        this page rendered with a middot."""
         at = self._open(monkeypatch)
         captions = " ".join(c.value for c in at.caption)
-        assert "i.p.v." in captions and "4.88" in captions
+        assert "2.19" in captions, captions
+        assert "~~" in captions and "4.88" in captions, (
+            "the ordinary price is struck through beside the current one"
+        )
 
     def test_a_pack_price_says_it_is_the_pack(self, monkeypatch):
         """100 g of a 300 g pack is costed at the pack, because that is what

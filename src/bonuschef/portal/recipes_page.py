@@ -394,15 +394,14 @@ def _render_item_match(item) -> None:
     bits = [str(item.get("product_name") or "")]
     price = item.get("price_today")
     if pd.notna(price):
-        shown = offers.euro(price)
-        ordinary = item.get("price_ordinary")
-        if (
-            pd.notna(ordinary)
-            and pd.notna(item.get("item_saving"))
-            and float(item["item_saving"]) > 0
-        ):
-            shown = f"{shown} i.p.v. {offers.euro(ordinary)}"
-        bits.append(shown)
+        # "i.p.v." was a third spelling of the same fact. One formatter.
+        ordinary = (
+            item.get("price_ordinary")
+            if pd.notna(item.get("item_saving"))
+            and float(item.get("item_saving") or 0) > 0
+            else None
+        )
+        bits.append(offers.was_now(price, ordinary))
     pack = item.get("sales_unit_size")
     if pack and str(pack).strip():
         # A recipe wanting 100 g of a 500 g pack is costed at the pack, because
@@ -420,19 +419,16 @@ def _render_price(row) -> None:
     """
     cost = row.get("cost_today")
     if pd.notna(cost):
-        ordinary = row.get("cost_ordinary")
-        was = (
-            f" · ~~{offers.euro(ordinary)}~~"
-            if pd.notna(ordinary) and ordinary > cost
-            else ""
-        )
-        st.markdown(f"{offers.euro(cost)}{was}")
+        # One formatter for the pair, like offers.euro is for one price. This
+        # page spelled it with a middot in body text while Vanavond spelled it
+        # as a heading with "normaal", for the same fact.
+        st.markdown(f"### {offers.was_now(cost, row.get('cost_ordinary'))}")
         return
 
     partial = row.get("partial_cost_today")
     priced, total = row.get("items_priced"), row.get("items_total")
     if pd.notna(partial) and pd.notna(priced) and pd.notna(total):
-        st.markdown(f"±{offers.euro(partial)}")
+        st.markdown(f"### ±{offers.euro(partial)}")
         st.caption(f"Schatting over {int(priced)} van {int(total)} ingrediënten")
         return
     st.caption("Van geen enkel ingrediënt is de prijs bekend.")

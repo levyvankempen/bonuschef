@@ -1515,3 +1515,57 @@ class TestTheIngredientControlIsTheTableOfContents:
         )
         calls = [ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)]
         assert "st.popover" in calls, calls
+
+
+class TestThePricesAreOnTheCardFace:
+    """A saving expressed only as a difference cannot be checked against a
+    shelf, and checking it against the shelf is what somebody is doing while
+    reading it. The recipe total cannot be checked either - nobody will ever see
+    EUR 12,59 anywhere."""
+
+    def test_the_driving_ingredient_shows_both_prices(self, wired):
+        at = run_app(page.render_tonight).run()
+        body = _texts(at)
+        assert "0.79" in body, "what it costs now"
+        assert "1.59" in body, "and what it ordinarily costs"
+
+    def test_without_opening_the_ingredient_list(self, wired):
+        """The one or two lines needed in the aisle were the hidden ones, while
+        the nine not needed were what the tap revealed."""
+        at = run_app(page.render_tonight).run()
+        assert not [b for b in at.button if "Verbergen" in b.label], (
+            "the list is still closed"
+        )
+        assert "0.79" in _texts(at), "and the prices are already there"
+
+    def test_a_stale_reference_is_marked(self, wired, monkeypatch):
+        """ordinary_price_age_days was selected by the reader all along and
+        rendered nowhere. It is the difference between a trustworthy "was" price
+        and a decorative one."""
+        items = _items()
+        items.loc[0, "ordinary_price_age_days"] = 9
+        monkeypatch.setattr(
+            page, "read_recipe_opportunity_items", lambda e, r, *_: items
+        )
+        body = _texts(run_app(page.render_tonight).run())
+        assert "9 dagen geleden" in body, body[:300]
+
+    def test_a_fresh_reference_is_not_remarked_on(self, wired):
+        """The fixture's reference is three days old, which is a comparison
+        rather than a caveat."""
+        assert "dagen geleden" not in _texts(run_app(page.render_tonight).run())
+
+    def test_no_extra_query_is_issued_for_them(self, wired, monkeypatch):
+        """Both numbers were already on the row the saving came from. Showing
+        them must not cost a read, which the spec forbids."""
+        calls: list[int] = []
+
+        def counting(engine, recipe_id, *rest):
+            calls.append(int(recipe_id))
+            return _items()
+
+        monkeypatch.setattr(page, "read_recipe_opportunity_items", counting)
+        run_app(page.render_tonight).run()
+        assert len(calls) == len(set(calls)), (
+            f"one read per recipe, not one per thing shown: {calls}"
+        )
