@@ -17,6 +17,14 @@ from sqlalchemy import create_engine, text
 
 from bonuschef.portal.accounts import Account
 
+
+from bonuschef.portal.db import (
+    add_resolution_products,
+    confirm_resolution,
+    ensure_catalogue_tables,
+    propose_products,
+)
+
 # A resolution applies to every account, so the write takes an operator. These
 # tests are about what gets stored, not about who may store it - that is
 # TestOnlyAnOperatorMayChangeAMatch below.
@@ -28,12 +36,6 @@ OPERATOR = Account(
     must_change_password=False,
 )
 
-from bonuschef.portal.db import (
-    add_resolution_products,
-    confirm_resolution,
-    ensure_catalogue_tables,
-    propose_products,
-)
 
 ROOT = Path(__file__).resolve().parents[2]
 
