@@ -12,6 +12,7 @@ from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
 from bonuschef.portal import freshness
 from bonuschef.portal import tonight_page as page
+from bonuschef.portal.accounts import Account
 from tests.conftest import run_app
 
 SCRAPED_AT = "2026-09-07T12:00:00Z"  # 14:00 local
@@ -539,12 +540,17 @@ class TestTheIngredientList:
 
     def test_every_matched_line_can_be_corrected(self, wired, monkeypatch):
         calls = []
-        monkeypatch.setattr(page, "open_single", lambda e, c, n: calls.append((c, n)))
+        # The account is passed now: the correction applies to every account, so
+        # the dialog must be able to establish who is asking.
+        monkeypatch.setattr(
+            page, "open_single", lambda e, c, n, a=None: calls.append((c, n, a))
+        )
         at = _open_items(run_app(page.render_tonight).run())
         buttons = [b for b in at.button if "Klopt niet" in b.label]
         assert len(buttons) == 2, "one per ingredient, not one per discount"
         buttons[0].click().run()
         assert calls, "the correction dialog must open"
+        assert calls[0][2] is not None, "and it must know who is asking"
 
     def test_an_unresolved_line_says_so_rather_than_vanishing(self, wired, monkeypatch):
         items = _items()
@@ -1244,3 +1250,40 @@ class TestADismissalActuallyDismisses:
         at = run_app(page.render_tonight).run()
         assert not at.exception
         assert "Zuurkoolstamppot" in _texts(at)
+
+
+class TestTheCorrectionIsNotOfferedToEveryone:
+    """It was offered on two shopper-facing pages with nothing gating it.
+
+    A match is keyed on the retailer's concept so one confirmation serves every
+    recipe using it - which is what makes the review worth doing, and what made
+    an invited friend's guess able to change the price on everybody's card.
+    """
+
+    FRIEND = Account(
+        account_id=2,
+        username="sample",
+        store_id=1876,
+        is_operator=False,
+        must_change_password=False,
+    )
+
+    def test_a_friend_is_not_offered_it(self, wired):
+        at = _open_items(run_app(page.render_tonight, self.FRIEND).run())
+        assert not [b for b in at.button if "Klopt niet" in b.label], (
+            "a control that would be refused must not be shown"
+        )
+
+    def test_the_ingredient_list_is_still_useful_to_them(self, wired):
+        """Removing the control must not remove the information. They still need
+        to see which product the price rests on."""
+        at = _open_items(run_app(page.render_tonight, self.FRIEND).run())
+        body = _texts(at)
+        assert "AH Zuurkool" in body
+        assert "zuurkool" in body
+
+    def test_an_operator_still_gets_it(self, wired):
+        at = _open_items(run_app(page.render_tonight).run())
+        assert [b for b in at.button if "Klopt niet" in b.label], (
+            "SINGLE_USER is an operator and must keep the control"
+        )

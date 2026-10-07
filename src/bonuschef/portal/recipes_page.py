@@ -358,7 +358,10 @@ def _render_ingredients(engine, account: Account, row) -> None:
             with st.container():
                 st.markdown(str(item.get("item_label") or "?"))
                 _render_item_match(item)
-            if pd.notna(item.get("concept_id")):
+            # Operator only: the correction applies to every account.
+            if pd.notna(item.get("concept_id")) and getattr(
+                account, "is_operator", False
+            ):
                 # Keyed on recipe AND line: item_key is "c:<concept_id>", so
                 # two recipes both containing onions would otherwise collide.
                 if st.button(
@@ -368,7 +371,10 @@ def _render_ingredients(engine, account: Account, row) -> None:
                     help="Kies zelf het juiste product voor dit ingrediënt",
                 ):
                     open_single(
-                        engine, int(item["concept_id"]), str(item["item_label"])
+                        engine,
+                        int(item["concept_id"]),
+                        str(item["item_label"]),
+                        account,
                     )
 
 

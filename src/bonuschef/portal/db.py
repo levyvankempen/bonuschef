@@ -561,13 +561,37 @@ def ensure_catalogue_tables(_engine) -> None:
         )
 
 
-def confirm_resolution(_engine, concept_id: int, product_links: list[str]) -> None:
+class NotAnOperator(PermissionError):
+    """Raised when an account without the operator flag tries a shared write."""
+
+
+def confirm_resolution(
+    _engine, concept_id: int, product_links: list[str], *, account=None
+) -> None:
     """Record a person's decision about which products satisfy an ingredient.
 
     Chosen products are marked confirmed; anything they deselected is removed.
     An empty choice is a legitimate answer - "nothing in the catalogue
     satisfies this" - and is recorded as such rather than rejected.
+
+    Operators only, and refused here rather than merely not offered.
+
+    This writes ah_ingredient_products, which has no account column: a match is
+    keyed on the retailer's ingredient concept precisely so that confirming one
+    serves every recipe using it. That is what makes the review worth doing, and
+    it is also the blast radius - an invited friend's guess at what "ui" means
+    silently changed the price on every other account's cards. The control was
+    offered on two shopper-facing pages and the dialogs behind it were gated by
+    nothing.
+
+    The account is keyword-only and defaults to None so a caller that has not
+    been taught to pass one is refused rather than quietly allowed.
     """
+    if not getattr(account, "is_operator", False):
+        raise NotAnOperator(
+            "changing which products an ingredient means applies to every "
+            "account, so only an operator may do it"
+        )
     state = "resolved" if product_links else "none_exists"
     with _engine.begin() as conn:
         conn.execute(

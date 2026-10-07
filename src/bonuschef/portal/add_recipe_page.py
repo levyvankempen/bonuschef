@@ -19,7 +19,6 @@ from bonuschef.portal.db import (
 from bonuschef.portal.manual_recipe import render_manual_entry
 from bonuschef.portal.matching import propose_for
 from bonuschef.portal.rebuild import start_recipe_rebuild
-from bonuschef.portal.review import open_review
 from bonuschef.utils.ah_recipes import (
     AHRecipeNotFound,
     facet_values,
@@ -268,7 +267,15 @@ def _render_added(added: dict) -> None:
                 "recept met dat ingrediënt is meteen compleet."
             )
             if st.button("Nakijken", width="stretch"):
-                open_review(_engine_for_review())
+                # This page is handed no account, so it cannot establish that
+                # the person is an operator - and the review writes a table
+                # shared by every account. Routed through Vanavond's entry
+                # point instead of guessing.
+                st.info(
+                    "Koppelen kan op **Vanavond**, onderaan de pagina. "
+                    "Alleen de beheerder kan het, omdat de keuze voor "
+                    "iedereen geldt."
+                )
         else:
             st.badge(
                 "alle ingrediënten herkend",

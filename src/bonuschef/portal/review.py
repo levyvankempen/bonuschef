@@ -139,7 +139,7 @@ def render_resolution_result() -> None:
         st.caption("De prijzen worden bij de volgende berekening bijgewerkt.")
 
 
-def _render_body(engine, concepts) -> None:
+def _render_body(engine, concepts, account) -> None:
     st.caption(
         "Wat je hier kiest geldt voor élk recept met dit ingrediënt en blijft "
         "bewaard. Meerdere producten mag: we rekenen met de goedkoopste van "
@@ -222,7 +222,7 @@ def _render_body(engine, concepts) -> None:
                 if r["product_link"] in picked_links
             ]
             add_resolution_products(engine, concept_id, new_products)
-            confirm_resolution(engine, concept_id, links)
+            confirm_resolution(engine, concept_id, links, account=account)
             # The person has dealt with it; the flag has served its purpose.
             # Leaving it would put the concept back at the head of the queue
             # they just cleared it from.
@@ -252,25 +252,45 @@ REVIEW_BATCH = 20
 
 
 @st.dialog("Ingrediënten koppelen", width="large")
-def open_review(engine, *, recipe_id: int | None = None) -> None:
-    """The most-used outstanding ingredients, settled by one button."""
+def open_review(engine, account, *, recipe_id: int | None = None) -> None:
+    """The most-used outstanding ingredients, settled by one button.
+
+    Takes the account because what it writes is shared: a match is keyed on the
+    retailer's concept so one confirmation serves every recipe using it, which
+    is also why a stranger's guess could change everybody's prices. The write
+    refuses a non-operator itself; this is where it is not offered.
+    """
+    if not getattr(account, "is_operator", False):
+        st.info(
+            "Alleen de beheerder kan ingrediënten koppelen, omdat zo'n keuze "
+            "voor iedereen geldt."
+        )
+        return
     concepts = read_unresolved_concepts(engine, recipe_id=recipe_id, limit=REVIEW_BATCH)
     if concepts.empty:
         st.success("Alles is al gekoppeld.")
         return
     if "uses" in concepts:
         st.caption("De meest gebruikte ingrediënten eerst — deze wegen het zwaarst.")
-    _render_body(engine, concepts)
+    _render_body(engine, concepts, account)
 
 
 @st.dialog("Ingrediënt koppelen", width="large")
-def open_single(engine, concept_id: int, concept_name: str) -> None:
+def open_single(engine, concept_id: int, concept_name: str, account=None) -> None:
     """The same thing scoped to one ingredient, for correcting a wrong match."""
     import pandas as pd
+
+    if not getattr(account, "is_operator", False):
+        st.info(
+            "Alleen de beheerder kan een koppeling wijzigen, omdat die voor "
+            "iedereen geldt."
+        )
+        return
 
     _render_body(
         engine,
         pd.DataFrame([{"concept_id": concept_id, "concept_name": concept_name}]),
+        account,
     )
 
 
