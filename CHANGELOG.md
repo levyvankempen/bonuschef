@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.39.0 (2026-10-07)
+
+### Features
+
+- **portal**: The lead loses its hero image
+  ([#139](https://github.com/levyvankempen/bonuschef/pull/139),
+  [`8fa9141`](https://github.com/levyvankempen/bonuschef/commit/8fa91410294ef0ff7925f420b7e4272ab73d5981))
+
+
 ## v1.38.0 (2026-10-07)
 
 ### Features
