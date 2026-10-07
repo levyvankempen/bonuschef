@@ -35,16 +35,16 @@
 
 ## 5. Excluding food
 
-- [ ] 5.1 Add `account_ingredient_blocks` to `schema.py`'s statements, keyed
+- [x] 5.1 Add `account_ingredient_blocks` to `schema.py`'s statements, keyed
       `(account_id, concept_id)`, cascading on account deletion so the invitee
       promise stays true.
-- [ ] 5.2 Readers: what this account excludes, and which recipes contain it.
+- [x] 5.2 Readers: what this account excludes, and which recipes contain it.
       Uncached, bounded.
-- [ ] 5.3 Exclude on the card, offering the sibling concepts by name before
+- [x] 5.3 Exclude on the card, offering the sibling concepts by name before
       confirming.
-- [ ] 5.4 Review and reverse on Profiel.
-- [ ] 5.5 Filter before ranking is consulted, in `_render_answer`.
-- [ ] 5.6 Test: an excluded ingredient's recipes disappear however cheap; one
+- [x] 5.4 Review and reverse on Profiel.
+- [x] 5.5 Filter before ranking is consulted, in `_render_answer`.
+- [x] 5.6 Test: an excluded ingredient's recipes disappear however cheap; one
       account's exclusion leaves others alone; siblings are offered; removal
       brings recipes back; excluding everything says why rather than reading as
       nothing on offer.

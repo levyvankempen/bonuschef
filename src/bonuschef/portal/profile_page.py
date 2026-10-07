@@ -21,6 +21,8 @@ from bonuschef.portal.db import (
     set_account_password,
     set_account_store,
     store_has_clearance,
+    read_blocked_concepts,
+    unblock_ingredient,
 )
 from bonuschef.portal.rebuild import start_store_first_scrape
 from bonuschef.portal.gate import forget, token_from_state
@@ -61,6 +63,8 @@ def render_profile(account: Account, *, forced: bool = False) -> None:
     st.caption(f"Aangemeld als **{account.username}**")
 
     _render_store(engine, account)
+    st.divider()
+    _render_blocked(engine, account)
     st.divider()
     _render_password(engine, account)
     st.divider()
@@ -122,6 +126,54 @@ def _render_store(engine, account: Account) -> None:
             st.rerun()
         else:
             st.error("Die winkel kennen we niet.")
+
+
+def _render_blocked(engine, account: Account) -> None:
+    """What this person does not eat, reviewable and reversible.
+
+    The exclusion is made on a card, where the dislike is felt. This is where it
+    is seen and undone, which is the half that keeps it from quietly
+    accumulating into an empty page - the same contract the dismissal list has:
+    a dislike is not a trap.
+
+    Above the password and below the shop, because it is about what the app
+    shows rather than about getting into it.
+    """
+    st.subheader("Wat je niet eet")
+
+    try:
+        blocked = read_blocked_concepts(engine, account.account_id)
+    except Exception as e:  # noqa: BLE001 - reported, not swallowed
+        st.caption(f"Kon je voorkeuren niet lezen: {e}")
+        return
+
+    if blocked.empty:
+        st.caption(
+            "Niets uitgesloten. Op **Vanavond** kun je bij een recept zeggen "
+            "dat je iets nooit meer wilt zien."
+        )
+        return
+
+    st.caption(
+        f"{len(blocked)} ingrediënt(en) blijven weg uit je suggesties. "
+        "Klik om er weer wél recepten mee te zien."
+    )
+    for _, row in blocked.iterrows():
+        concept_id = int(row["concept_id"])
+        if st.button(
+            str(row["label_at_block"]),
+            key=f"unblock_{concept_id}",
+            icon=":material/undo:",
+        ):
+            unblock_ingredient(engine, account.account_id, concept_id)
+            # The readers are per account and uncached, but the ranking's own
+            # frames are cached per store and must be rebuilt to include what
+            # has just come back.
+            st.cache_data.clear()
+            st.session_state[_SAVED] = (
+                f"**{row['label_at_block']}** mag weer in je suggesties."
+            )
+            st.rerun()
 
 
 def _render_password(engine, account: Account) -> None:
