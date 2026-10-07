@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.34.0 (2026-10-07)
+
+### Features
+
+- **portal**: Six cards, six decisions ([#134](https://github.com/levyvankempen/bonuschef/pull/134),
+  [`695bda6`](https://github.com/levyvankempen/bonuschef/commit/695bda66788b004c739ad69c480a988c9ab74b07))
+
+
 ## v1.33.10 (2026-10-07)
 
 ### Bug Fixes
