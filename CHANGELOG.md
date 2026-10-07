@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.33.9 (2026-10-07)
+
+### Bug Fixes
+
+- **portal**: "Niet voor mij" now actually removes the recipe
+  ([#132](https://github.com/levyvankempen/bonuschef/pull/132),
+  [`467e4e3`](https://github.com/levyvankempen/bonuschef/commit/467e4e36d0ef148d6573de33d53cb47ff06b5ec5))
+
+
 ## v1.33.8 (2026-10-07)
 
 ### Bug Fixes
