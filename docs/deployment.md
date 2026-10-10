@@ -235,35 +235,88 @@ the point where somebody would be tempted to undo them.
 
 ### Setting it up
 
-It needs real disk. The 500 GB SSD is the intended home, and it is not
-provisioned yet — `/dev/sda` is wiped and nothing from it is mounted into the
-container. Until it is, the only space available is production's 16 GiB rootfs
-with ~6 GiB free, and a 1.1 GB restore plus a 1.1 GB dump beside it is how a
-test environment takes production down. So `BONUSCHEF_TEST_DATA_DIR` has **no
-default** and the stack refuses to start without it.
+Done. This records what was built, so it can be rebuilt.
 
-On the Proxmox host:
+The 500 GB SATA SSD (`/dev/sda`) is an LVM-thin pool called `ssd`, 456 GiB,
+providing three 100 GiB volumes to CT 101:
 
-```bash
-# a filesystem on the SSD, and a mountpoint into the container
-# (this stops CT 101 briefly - production goes down for the restart)
-pvesm add dir bulk --path /mnt/bulk     # after formatting /dev/sda
-pct set 101 -mp0 /mnt/bulk,mp=/mnt/bulk
+| mount | holds | in backups |
+|---|---|---|
+| `/var/lib/docker` | Docker volumes, **including production's database** | **yes** |
+| `/var/lib/containerd` | images and snapshots | no — rebuildable |
+| `/mnt/ssd/bonuschef-test` | the test database and its dumps | no — a copy |
+
+Created entirely through the Proxmox API, since there is no host shell:
+
+```
+POST /nodes/proxmox/disks/lvmthin   device=/dev/sda name=ssd add_storage=1
+
+PUT  /nodes/proxmox/lxc/101/config  mp0=ssd:100,mp=/var/lib/docker,backup=1
+PUT  /nodes/proxmox/lxc/101/config  mp1=ssd:100,mp=/mnt/ssd/bonuschef-test,backup=0
+PUT  /nodes/proxmox/lxc/101/config  mp2=ssd:100,mp=/var/lib/containerd,backup=0
+```
+
+Attaching a volume **hot-plugs** — no restart. Changing an existing
+mountpoint's *path* afterwards does need one, and sits in `pending` until then.
+
+**`backup=1` on mp0 is load-bearing.** The Postgres volume lives there, and it
+used to be inside the rootfs where `vzdump` caught it for free. A mountpoint
+defaults to being excluded, so moving it without this flag silently stops
+backing up the one thing that cannot be rebuilt. The task log says so outright,
+and is worth reading after any change here:
+
+```
+INFO: including mount point mp0 ('/var/lib/docker') in backup
+```
+
+Check the flag is *current* rather than pending. `GET .../config` merges
+pending values and will cheerfully report a setting that is not in effect:
+
+```
+GET /nodes/proxmox/lxc/101/config?current=1
+GET /nodes/proxmox/lxc/101/pending
 ```
 
 Then in the container:
 
 ```bash
 cd /opt/bonuschef
-cp .env.test.example .env.test          # fill in; it must NOT get an AH token
-mkdir -p /mnt/bulk/bonuschef-test
+cp .env.test.example .env.test   # fill in; it must NOT get an AH token
+# BONUSCHEF_TEST_DATA_DIR=/mnt/ssd/bonuschef-test
 
 BONUSCHEF_VERSION=$(git describe --tags --abbrev=0) docker compose \
     -f docker-compose.test.yml --env-file .env.test up -d
 ```
 
 The portal is then on `127.0.0.1:8502` (production stays on 8501), reachable
-over the tailnet or `ssh -L`.
+over the tailnet or `ssh -L`, and refused on every other interface.
+
+### Why production's data is on the SATA SSD and not the NVMe
+
+Because the NVMe is slower at writing, which is the opposite of what this
+document assumed before it was measured. Same filesystem layer, `dd` with
+`oflag=direct`:
+
+| | NVMe PM991 (rootfs) | SATA 860 EVO |
+|---|---|---|
+| sequential write | 88.6 MB/s | **461 MB/s** |
+| 8k sync writes (commits) | 1.0 MB/s | **3.6 MB/s** |
+| sequential read | **982 MB/s** | 469 MB/s |
+
+The PM991 is a DRAM-less OEM part. Reads favour it and are mostly served from
+page cache anyway; writes are what the nightly dbt build and the dlt loads do,
+and there the SATA drive is 3.6–5× quicker. It also moves the database off a
+128 GB disk shared with the host, the other guest and the backups, onto 92 GB
+of headroom.
+
+The rootfs went from 11 GB used of 16 (74%) to 1.5 GB (10%), which is the
+pressure that had already forced an emergency image reclaim.
+
+If the mounts are ever detached, docker comes up on an **empty**
+`/var/lib/docker` rather than a stale one: the originals were deleted after the
+move, deliberately. A stale copy is worse than wasted space — it would serve
+out-of-date prices as though they were current.
+
 
 ### Getting data into it
 

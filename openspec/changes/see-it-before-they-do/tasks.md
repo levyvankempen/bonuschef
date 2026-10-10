@@ -122,17 +122,19 @@
   `bonuschef_pg_data`; 6 accounts, 3 saved recipes, 115,194 markdowns, 3,776
   opportunities; portal HTTP 200; `BONUSCHEF_ENVIRONMENT` unset so no banner.
   Took three attempts - see the deploy-loop fixes, which this exposed.
-- [ ] 8.3 One copy taken end to end, and the test portal opened against it.
-  **Blocked on the SSD.** `/dev/sda` is wiped and nothing from it is mounted
-  into CT 101, which has only its 16 GiB rootfs. Provisioning needs a
-  Proxmox host operation and a container restart, which is the operator's
-  to authorise; `docs/deployment.md` carries the commands. What could be
-  checked without it has been: the stack refuses to start with no
-  `BONUSCHEF_TEST_DATA_DIR`, and given one it resolves to project
-  `bonuschef-test`, ports 5456/8502, `BONUSCHEF_ENVIRONMENT=test`, data on
-  the SSD path, and only postgres and streamlit - no dagster at all.
-- [ ] 8.4 Confirm from a device outside the tailnet that the test environment is
-  unreachable, and that production still is. **Production half done**: the
-  Funnel serves only `https://bonuschef.forest-palermo.ts.net -> 127.0.0.1:8501`
-  and every container port is on loopback (3000, 8501, 5455), unchanged by this
-  work. The test half waits on 8.3, since there is nothing running to probe.
+- [x] 8.3 One copy taken end to end, and the test portal opened against it.
+  The SSD is provisioned — LVM-thin pool `ssd`, three volumes; see
+  docs/deployment.md. `copy-to-test.sh` runs clean: a 112 MB dump with
+  production serving throughout, restore, retention, portal restarted. The test
+  database then matches production exactly — 6 accounts, 3 saved recipes, 116k
+  markdowns, 3,776 opportunities — and the portal reports "Gegevens gekopieerd
+  minder dan een uur oud." Took three fixes to get there: the portal rewrote
+  schema mid-restore, the drop list named only the two schemas the portal reads
+  and missed `public_staging`, and the stop added to prevent the first failed
+  silently on a missing `BONUSCHEF_VERSION`.
+- [x] 8.4 Confirm from a device outside the tailnet that the test environment is
+  unreachable, and that production still is. Probed from a machine on the LAN:
+  8501, 8502, 3000, 5455 and 5456 all **refused** on 192.168.1.144 and on every
+  Docker bridge — only loopback answers. The Funnel carries exactly one route,
+  `/ -> 127.0.0.1:8501`, so there is no path to the test environment at all;
+  `https://bonuschef.forest-palermo.ts.net` answers 200 and reaches production.
