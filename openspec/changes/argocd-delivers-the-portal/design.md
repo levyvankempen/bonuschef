@@ -39,35 +39,66 @@ Dockerfile; nothing in CI publishes anywhere.
 
 ## Decisions
 
-### Storage: the 500 GB M.2 is a prerequisite, not an improvement
+### Storage: the 500 GB M.2 is in, and it changed where things belong
 
-A k3s VM needs an OS, containerd's image store and etcd. The images here are
-Python with uv, pandas, dbt and Dagster - the three app images share a base but
-still land in the low tens of gigabytes once a few versions accumulate, because
-a GitOps rollback is only real if the previous image is still on disk.
+*This decision was written before the disk existed, and two of its premises
+turned out to be wrong once measured. Corrected in place, with the numbers,
+rather than left to mislead whoever implements it.*
 
-Budget: 8 GiB OS, 20 GiB images across a handful of retained versions, 2 GiB
-etcd and logs, headroom - **64 GiB**, and 32 GiB would be the floor.
+A k3s VM needs an OS, containerd's image store, and its datastore. The images
+here are Python with uv, pandas, dbt and Dagster. Measured rather than
+estimated: six images sharing a base occupy **13 GiB** of `/var/lib/containerd`
+on the compose host, so roughly 2.2 GiB marginal per retained version — and a
+GitOps rollback is only real if the previous image is still on disk.
 
-`local-lvm` has 26 GiB free. A 64 GiB volume does not fit, and thin-provisioning
-it onto a disk that also holds Postgres means the database's writes and the
-cluster's image pulls compete for the same 119 GiB consumer NVMe. etcd is
-fsync-latency-sensitive and Postgres is the thing that must not be slowed.
+Budget: 8 GiB OS, 20 GiB images (about eight retained versions at the measured
+marginal size), 2 GiB datastore and logs, headroom — **64 GiB**, with 32 GiB
+the floor.
 
-So:
+The pool exists now: LVM-thin `ssd`, **456.3 GiB**, with 300 GiB thin-provisioned
+to LXC 101 and **427.7 GiB** actually free.
 
-| on the new 500 GB M.2 | |
+| on the 500 GB M.2 (`ssd`) | |
 |---|---|
-| new LVM-thin pool | the whole device |
+| LXC 101 `/var/lib/docker` — Postgres volume lives here | 100 GiB, 1.3 used |
+| LXC 101 `/var/lib/containerd` — image store | 100 GiB, 13 used |
+| LXC 101 `/mnt/ssd/bonuschef-test` — test data and dumps | 100 GiB, 2.4 used |
 | k3s VM | 64 GiB |
-| LXC 101 rootfs, grown | 16 → 48 GiB |
-| reserve | the remainder, for backups and a second node's images |
+| remainder | backups, a second node's images |
 
-Growing LXC 101 is not scope creep: it is at 67% with 4.9 GiB free, against a
-documented 4.5 GiB after build, and the cluster will not reduce what it holds.
+**Correction 1: LXC 101's rootfs does not need growing.** This said 16 → 48 GiB
+because it was "at 67% with 4.9 GiB free and the cluster will not reduce that".
+The pressure was the image store, and the image store moved: the rootfs is now
+**1.5 GiB of 16, at 10%**, because `/var/lib/docker` and `/var/lib/containerd`
+are volumes on the M.2. Growing it would reserve 32 GiB to hold nothing.
 
-Postgres stays on the original NVMe, alone with Home Assistant, which is the
-better outcome for it than sharing with image pulls.
+**Correction 2: Postgres is on the M.2, not the NVMe, and that is the right way
+round.** This said it would stay on the original NVMe, "which is the better
+outcome for it than sharing with image pulls". That was an assumption about
+which disk is faster, and it is backwards. Measured on the host, same
+filesystem layer, `dd oflag=direct`:
+
+| | NVMe PM991 | SATA 860 EVO |
+|---|---|---|
+| sequential write | 88.6 MB/s | **461 MB/s** |
+| 8k sync writes | 1.0 MB/s | **3.6 MB/s** |
+| sequential read | **982 MB/s** | 469 MB/s |
+
+The PM991 is a DRAM-less OEM part. Reads favour it and are largely served from
+page cache; writes are what the dbt build, the dlt loads and every commit do.
+
+That inverts the separation argument. Keeping the cluster's datastore away from
+Postgres was worth something when they would share a 119 GiB consumer NVMe
+under contention; it is worth little now, and buying it would mean putting the
+fsync-sensitive thing on the disk that manages **1.0 MB/s of 8k sync writes**.
+So the k3s VM goes on the M.2 as well, beside Postgres, and the separation is
+dropped deliberately rather than by oversight.
+
+Two things make that comfortable. The pool has 427.7 GiB free and the host sits
+at **load 0.36 on four cores**. And single-node k3s uses SQLite through kine by
+default, not etcd — so the datastore is far less fsync-brutal than this decision
+originally assumed. If the cluster ever grows a second node and real etcd, the
+NVMe is free by then and the question can be reopened with numbers.
 
 ### A VM, not an LXC, for k3s
 
@@ -100,6 +131,12 @@ than loopback, which is a real widening - so it is bound to the host-only bridge
 and reachable from the cluster VM, never from the wider network, and the
 existing requirement that published ports are reachable only from the host still
 binds.
+
+Its storage moved since this was written, but not its home: it is still a
+volume in LXC 101, now backed by the M.2 rather than the NVMe, and measurably
+better off for it. See the storage decision above. The reasons for leaving it
+out of the cluster are unchanged - there is nowhere to reschedule it to, and a
+push to GitHub does not update a database.
 
 ### Images: GHCR, tagged by version, built once in CI
 
