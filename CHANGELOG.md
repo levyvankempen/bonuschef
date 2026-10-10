@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.41.4 (2026-10-10)
+
+### Bug Fixes
+
+- **copy**: Restore into a database nothing is writing schema to
+  ([#149](https://github.com/levyvankempen/bonuschef/pull/149),
+  [`5bbd89a`](https://github.com/levyvankempen/bonuschef/commit/5bbd89a5a7395d2bf10a620331873c20b76f8996))
+
+
 ## v1.41.3 (2026-10-10)
 
 ### Bug Fixes
