@@ -434,15 +434,66 @@ class TestTheReaderOnlyReadsOneWay:
 
         assert read_test_environment_state() is None
 
-    def test_an_unreachable_url_reports_rather_than_raises(self):
+    # The driver the application actually uses. Named once, because getting
+    # this wrong is how the test below came to pass for the wrong reason.
+    DRIVER = "postgresql+psycopg2"
+
+    def test_the_url_in_these_tests_uses_an_installed_driver(self):
+        """This test exists because its absence hid a real bug.
+
+        The unreachability test below named `postgresql+psycopg` - psycopg 3,
+        which is not installed. `create_engine` therefore raised
+        ModuleNotFoundError before any connection was attempted, the outer
+        handler caught it, and the test saw `reachable: False` and passed
+        without ever exercising a refused connection. Meanwhile the real code
+        reported an unreachable database as *running*.
+        """
+        import sqlalchemy
+
+        sqlalchemy.create_engine(f"{self.DRIVER}://postgres:x@127.0.0.1:9/x")
+
+    def test_an_unreachable_database_is_reported_as_unreachable(self):
+        """Not as "running but empty", which is what it used to say.
+
+        `read_environment_copy` swallows every failure and returns None -
+        correct for its own job - so inferring reachability from it reported a
+        database that was not listening as reachable and merely empty. The
+        Beheer panel then told the operator the test environment was fine.
+        """
         from bonuschef.portal.db import read_test_environment_state
 
-        # Port 1 on loopback: nothing listens, and the refusal is immediate.
+        # Port 9 (discard) on loopback: nothing listens, refusal is immediate.
         state = read_test_environment_state(
-            "postgresql+psycopg://postgres:x@127.0.0.1:1/postgres"
+            f"{self.DRIVER}://postgres:x@127.0.0.1:9/postgres"
         )
         assert state is not None
-        assert state["reachable"] is False
+        assert state["reachable"] is False, (
+            f"an unreachable database reported {state}, so the panel would "
+            "call a dead environment healthy"
+        )
+        assert state.get("error"), "it must say what went wrong"
+
+    def test_reachability_is_probed_rather_than_inferred(self):
+        """Read the function: the connection must be made here, not deduced
+        from whether another reader happened to return a row."""
+        import ast
+        from pathlib import Path as _Path
+
+        tree = ast.parse(_Path("src/bonuschef/portal/db.py").read_text())
+        fn = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef)
+            and n.name == "read_test_environment_state"
+        )
+        source = ast.unparse(fn)
+        assert "SELECT 1" in source, (
+            "nothing establishes reachability; it is being inferred from the "
+            "copy row, which is None for a database that is simply down"
+        )
+        assert source.index("SELECT 1") < source.index("read_environment_copy"), (
+            "the probe must come before the copy is read"
+        )
 
     def test_the_reader_issues_no_writes(self):
         """Production reads the test environment; data moves the other way

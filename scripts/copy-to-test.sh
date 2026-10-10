@@ -72,6 +72,17 @@ container_for() {
 PROD_DB="$(container_for "$PROD_PROJECT")"
 [ -n "$PROD_DB" ] || die "production's database is not running; nothing to copy from"
 
+# The network production's portal and the test environment's database share.
+#
+# Declared `external` in both compose files, because two projects cannot both
+# own one network - so something has to create it, and that something must be
+# whatever runs first. Created here and in deploy.sh, both idempotently: a test
+# environment started before any deploy still comes up, and a host that has
+# never seen the test environment does too.
+#
+# `|| true` because "already exists" is the normal case, not a failure.
+"$DOCKER" network create bonuschef-monitor >/dev/null 2>&1 || true
+
 TEST_DB="$(container_for "$TEST_PROJECT")"
 if [ -z "$TEST_DB" ]; then
     echo "test database not running; starting it" >&2

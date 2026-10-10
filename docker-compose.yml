@@ -150,6 +150,22 @@ services:
 
   streamlit:
     image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION, or deploy with scripts/deploy.sh}
+    # The only service on both networks, and the asymmetry is the point.
+    #
+    # `default` is this project's own network, where postgres and the Dagster
+    # webserver live. `monitor` is shared with the test environment's database
+    # so the Beheer page can report whether it is running and how old its copy
+    # is - which is the whole reason that panel exists.
+    #
+    # Listing networks explicitly means a service joins ONLY those, so what is
+    # absent here matters as much as what is present: production's postgres is
+    # not on `monitor`, and the test environment's portal is not either. The
+    # route therefore runs one way, from here to the test database, and there
+    # is no path back. tests/unit/test_monitoring_both_environments.py asserts
+    # all four halves of that.
+    networks:
+      - default
+      - monitor
     restart: unless-stopped
     logging: *default-logging
     command:
@@ -227,6 +243,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+networks:
+  default:
+  # Created by scripts/deploy.sh before anything starts, so a host that has
+  # never run the test environment still comes up. External rather than
+  # compose-managed because two projects cannot both own one network.
+  monitor:
+    name: bonuschef-monitor
+    external: true
 
 volumes:
   pg_data:
