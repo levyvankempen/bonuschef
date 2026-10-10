@@ -100,6 +100,44 @@ fi
 # Stopped rather than paused, and restarted by a trap so that a failed restore
 # does not leave the test environment down - the whole point of it is to be
 # there when somebody wants to look.
+# Compose interpolates at parse time, and the test stack names
+# `bonuschef:${BONUSCHEF_VERSION:?}`, so EVERY compose command against that
+# file needs the variable - `stop` and `start` included, neither of which
+# resolves an image. Without it:
+#
+#   error while interpolating services.streamlit.image:
+#   required variable BONUSCHEF_VERSION is missing a value
+#
+# This is the same trap scripts/compose.sh exists to absorb for production, and
+# the answer is the same: read it off a running container's OCI label.
+if [ -z "${BONUSCHEF_VERSION:-}" ]; then
+    BONUSCHEF_VERSION="$(
+        "$DOCKER" ps -q --filter "label=com.docker.compose.project=${TEST_PROJECT}" \
+                       --filter "label=com.docker.compose.service=streamlit" 2>/dev/null |
+            head -1 |
+            xargs -r "$DOCKER" inspect \
+                --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+                2>/dev/null
+    )"
+fi
+if [ -z "${BONUSCHEF_VERSION:-}" ]; then
+    # No test stack running yet: whatever production runs is the right default,
+    # since that is the version this copy is being made for.
+    BONUSCHEF_VERSION="$(
+        "$DOCKER" ps -q --filter "label=com.docker.compose.project=${PROD_PROJECT}" \
+                       --filter "label=com.docker.compose.service=streamlit" 2>/dev/null |
+            head -1 |
+            xargs -r "$DOCKER" inspect \
+                --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+                2>/dev/null
+    )"
+fi
+case "${BONUSCHEF_VERSION:-}" in
+    ""|"<no value>"|unknown)
+        die "cannot determine which version to run; set BONUSCHEF_VERSION" ;;
+esac
+export BONUSCHEF_VERSION
+
 compose_test() {
     "$DOCKER" compose -f "$TEST_COMPOSE" --env-file "$TEST_ENV_FILE" "$@"
 }
@@ -108,8 +146,24 @@ restart_app() {
     compose_test start streamlit >/dev/null 2>&1 || true
 }
 
+# Checked, not hoped for.
+#
+# This was `|| true` with its output discarded, and the stop failed silently on
+# the missing variable above - so the restore ran against a live portal and
+# died on the index that portal had just recreated. A step the correctness of
+# the restore depends on must not be allowed to fail quietly.
 echo "stopping the test portal while its database is replaced" >&2
-compose_test stop streamlit >/dev/null 2>&1 || true
+compose_test stop streamlit >&2 \
+    || die "could not stop the test portal; refusing to restore underneath it"
+
+# And verified, because the exit status is exactly what was trusted last time.
+still_up="$(
+    "$DOCKER" ps -q --filter "label=com.docker.compose.project=${TEST_PROJECT}" \
+                   --filter "label=com.docker.compose.service=streamlit" 2>/dev/null | wc -l
+)"
+[ "${still_up:-0}" -eq 0 ] \
+    || die "the test portal is still running; it would recreate schema mid-restore"
+
 trap restart_app EXIT
 
 # --- take the dump ----------------------------------------------------------
