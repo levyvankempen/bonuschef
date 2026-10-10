@@ -1,13 +1,31 @@
-## 0. Blocked until the M.2 is in
+## 0. Storage — done
 
-- [ ] 0.1 Install the 500 GB M.2 and confirm Proxmox sees it.
-- [ ] 0.2 Create an LVM-thin pool on it. Nothing below fits on `local-lvm`'s
-      26 GiB free, and putting it there would make etcd and Postgres compete for
-      one consumer NVMe.
-- [ ] 0.3 Grow LXC 101's rootfs 16 → 48 GiB on the new pool. It is at 67% with
-      4.9 GiB free and the cluster will not reduce that.
-- [ ] 0.4 Confirm Postgres still starts and the portal still serves after the
-      move, before anything cluster-shaped exists.
+*The disk is in and provisioned. Kept rather than deleted, because what it
+assumed and what turned out to be true differ, and the difference matters to
+whoever implements the rest.*
+
+- [x] 0.1 Install the 500 GB M.2 and confirm Proxmox sees it. `/dev/sda`,
+      Samsung 860 EVO M.2 500GB via an M.2-to-SATA adapter.
+- [x] 0.2 Create an LVM-thin pool on it. Pool `ssd`, 456.3 GiB, created through
+      the Proxmox API (`POST /nodes/proxmox/disks/lvmthin`) since there is no
+      host shell. 427.7 GiB free.
+- [x] 0.3 ~~Grow LXC 101's rootfs 16 → 48 GiB.~~ **Not needed, and not done.**
+      The reason given was "at 67% with 4.9 GiB free"; the pressure was the
+      image store, and the image store moved. `/var/lib/docker` and
+      `/var/lib/containerd` are now volumes on the M.2, so the rootfs is at
+      **1.5 GiB of 16, 10%**. Growing it would reserve 32 GiB to hold nothing.
+- [x] 0.4 Confirm Postgres still starts and the portal still serves after the
+      move, before anything cluster-shaped exists. Done the hard way: the move
+      recreated every container. Production reports v1.42.0, the portal answers
+      200, and the data is intact — 6 accounts, 3 saved recipes, 116k markdowns,
+      3,776 opportunities.
+- [x] 0.5 Restore the backup coverage the move broke. The Postgres volume used
+      to sit inside the rootfs, where `vzdump` caught it for free; a mountpoint
+      defaults to excluded, so moving it silently stopped backing up the one
+      thing that cannot be rebuilt. `mp0` carries `backup=1` and a real backup
+      was taken to confirm — `including mount point mp0`, archive 579 → 765 MB.
+      Verify with `?current=1`: the plain config endpoint merges pending values
+      and will report a flag that is not in effect.
 
 ## 1. Publish images, because a cluster cannot build them
 
