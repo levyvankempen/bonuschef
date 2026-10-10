@@ -114,9 +114,25 @@
 
 ## 8. Before calling it done
 
-- [ ] 8.1 Full `nox` run; the suite stays free of database and network.
-- [ ] 8.2 Production deployed from the new image path and confirmed unchanged -
-  same version reported, same data, no environment banner.
+- [x] 8.1 Full `nox` run; the suite stays free of database and network. All
+  six sessions pass, `warehouse` included, against a throwaway Postgres
+  (189 dbt nodes, 48 warehouse tests).
+- [x] 8.2 Production deployed from the new image path and confirmed unchanged.
+  Running `bonuschef:v1.41.1` from the built image; volume still
+  `bonuschef_pg_data`; 6 accounts, 3 saved recipes, 115,194 markdowns, 3,776
+  opportunities; portal HTTP 200; `BONUSCHEF_ENVIRONMENT` unset so no banner.
+  Took three attempts - see the deploy-loop fixes, which this exposed.
 - [ ] 8.3 One copy taken end to end, and the test portal opened against it.
+  **Blocked on the SSD.** `/dev/sda` is wiped and nothing from it is mounted
+  into CT 101, which has only its 16 GiB rootfs. Provisioning needs a
+  Proxmox host operation and a container restart, which is the operator's
+  to authorise; `docs/deployment.md` carries the commands. What could be
+  checked without it has been: the stack refuses to start with no
+  `BONUSCHEF_TEST_DATA_DIR`, and given one it resolves to project
+  `bonuschef-test`, ports 5456/8502, `BONUSCHEF_ENVIRONMENT=test`, data on
+  the SSD path, and only postgres and streamlit - no dagster at all.
 - [ ] 8.4 Confirm from a device outside the tailnet that the test environment is
-  unreachable, and that production still is.
+  unreachable, and that production still is. **Production half done**: the
+  Funnel serves only `https://bonuschef.forest-palermo.ts.net -> 127.0.0.1:8501`
+  and every container port is on loopback (3000, 8501, 5455), unchanged by this
+  work. The test half waits on 8.3, since there is nothing running to probe.
