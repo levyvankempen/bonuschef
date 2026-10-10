@@ -399,3 +399,64 @@ class TestTheTwoFilesDoNotDrift:
             "production must carry no marker; an invited person has one "
             "environment and labelling it is noise"
         )
+
+
+class TestNoEnvFileCanBeCommitted:
+    """`.env` in .gitignore matches that exact name and nothing else.
+
+    So `.env.test`, which carries the test environment's database password, was
+    committable. Found by running `git check-ignore` before creating the file
+    rather than after - which is the only reason this is a test and not an
+    incident.
+
+    The templates are the exception: they are the documentation of what has to
+    be set, and they carry placeholders.
+    """
+
+    SECRET_FILES = (".env", ".env.test", ".env.production", ".env.local")
+    TEMPLATES = (".env.example", ".env.test.example")
+
+    @staticmethod
+    def _ignored(name: str) -> bool:
+        import subprocess
+
+        return (
+            subprocess.run(
+                ["git", "check-ignore", "-q", name],
+                cwd=REPO_ROOT,
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+
+    @pytest.mark.parametrize("name", SECRET_FILES)
+    def test_a_real_env_file_is_ignored(self, name: str):
+        assert self._ignored(name), (
+            f"{name} would be committed. It holds a database password."
+        )
+
+    @pytest.mark.parametrize("name", TEMPLATES)
+    def test_the_templates_are_not_ignored(self, name: str):
+        """They are how a deployment knows what to set. Ignoring them would
+        make the repo unable to describe its own configuration."""
+        assert not self._ignored(name), f"{name} must stay tracked"
+
+    def test_the_templates_exist(self):
+        for name in self.TEMPLATES:
+            assert (REPO_ROOT / name).exists(), name
+
+    def test_no_env_file_is_actually_tracked_right_now(self):
+        """The rule above is about what git would do. This is about what git
+        has already done - a file committed before the rule existed stays
+        tracked, and .gitignore has no opinion about it."""
+        import subprocess
+
+        tracked = subprocess.run(
+            ["git", "ls-files", ".env*"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        ).stdout.split()
+        assert set(tracked) <= set(self.TEMPLATES), (
+            f"these env files are committed: {sorted(set(tracked) - set(self.TEMPLATES))}"
+        )

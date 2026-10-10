@@ -1,5 +1,16 @@
 .venv
+# Every env file, not just the one named `.env`.
+#
+# `.env` matches that exact name and nothing else, so `.env.test` - which
+# carries the test environment's database password - was committable. Found by
+# running `git check-ignore` before creating it rather than after.
+#
+# The templates are the exception: they are the documentation of what has to be
+# set, and they carry placeholders.
 .env
+.env.*
+!.env.example
+!.env.test.example
 **/sql/logs
 **/sql/target
 **/sql/dbt_packages
