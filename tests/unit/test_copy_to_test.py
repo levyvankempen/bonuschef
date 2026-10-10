@@ -223,10 +223,51 @@ class TestTheCopyItself:
         """`pg_restore --clean` alone leaves anything the dump does not mention
         - a table from a version since rolled back, say - which is how a test
         environment comes to hold rows that exist nowhere else."""
-        text = SCRIPT.read_text()
-        assert "DROP SCHEMA IF EXISTS public CASCADE" in text
-        assert "DROP SCHEMA IF EXISTS public_marts CASCADE" in text
+        text = _code(SCRIPT)
+        assert "DROP SCHEMA IF EXISTS %I CASCADE" in text
         assert text.index("DROP SCHEMA") < text.index("pg_restore -U postgres")
+
+    def test_it_drops_every_schema_rather_than_a_hardcoded_list(self):
+        """It named `public` and `public_marts` - what the portal reads - and
+        missed `public_staging`, so the restore failed on `CREATE SCHEMA
+        public_staging` with the schema already there.
+
+        dbt creates one schema per model folder, so any hardcoded list goes
+        stale the next time somebody adds a folder.
+        """
+        text = _code(SCRIPT)
+        assert "FROM pg_namespace" in text, (
+            "the schemas to drop are still a hardcoded list"
+        )
+        for hardcoded in (
+            "DROP SCHEMA IF EXISTS public CASCADE",
+            "DROP SCHEMA IF EXISTS public_marts CASCADE",
+            "DROP SCHEMA IF EXISTS public_staging CASCADE",
+        ):
+            assert hardcoded not in text, f"still names {hardcoded!r} explicitly"
+
+    def test_it_leaves_the_system_schemas_alone(self):
+        """Dropping pg_catalog would end the database rather than the copy."""
+        text = _code(SCRIPT)
+        enumeration = text[text.index("FROM pg_namespace") :][:400]
+        assert "information_schema" in enumeration
+        assert "^pg_" in enumeration, "system schemas are not excluded"
+
+    def test_the_exclusion_does_not_rely_on_like_escaping(self):
+        """`\\` is LIKE's own escape character, so `'pg\\_%'` needs escaping that
+        then has to survive a heredoc as well. A regex has no such ambiguity,
+        and getting it wrong means either dropping nothing or dropping
+        pg_catalog."""
+        text = _code(SCRIPT)
+        enumeration = text[text.index("FROM pg_namespace") :][:400]
+        assert "LIKE" not in enumeration
+
+    def test_public_is_recreated_so_the_restore_has_somewhere_to_land(self):
+        text = _code(SCRIPT)
+        assert "CREATE SCHEMA IF NOT EXISTS public" in text
+        assert text.index("CREATE SCHEMA IF NOT EXISTS public") < text.index(
+            "pg_restore -U postgres"
+        )
 
     def test_it_records_when_the_copy_was_taken(self):
         text = SCRIPT.read_text()
