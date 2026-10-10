@@ -88,6 +88,39 @@
       can fail without anywhere to reschedule to, and the doc should say so
       rather than let a reader infer resilience from the word Kubernetes.
 
+## 7b. Both environments, and one place to see them
+
+- [ ] 7b.1 One chart, two value files. Production and test differ by values -
+      ports, database, the environment marker, which version is described - and
+      not by a second copy of the templates, so a fix cannot land in one and be
+      forgotten in the other. The duplication that
+      `tests/unit/test_the_test_environment.py` currently guards against stops
+      being possible, and that guard is replaced by one asserting the values
+      differ only where they are meant to.
+- [ ] 7b.2 Carry the test environment's rules into its values, and assert each:
+      no retailer credential and no scheduled job that could use one; no
+      internet-facing address; `BONUSCHEF_ENVIRONMENT=test`; its own database,
+      with production's unreachable from it. None of these is a property of
+      Compose, so none of them survives the migration by itself.
+- [ ] 7b.3 Make the ArgoCD application set describe both environments, so the
+      second is not something an operator remembers to create.
+- [ ] 7b.4 Confirm one surface reports version, converged-or-not, and healthy
+      for both environments, and that it is not either of them. Converged and
+      healthy must read as different states: they fail independently and have
+      different fixes.
+- [ ] 7b.5 Remove the cross-environment route this replaces: the
+      `bonuschef-monitor` network, production's `BONUSCHEF_TEST_DATABASE_URL`,
+      `read_test_environment_state`, and the Beheer panel that uses it. Keep
+      Beheer's own panels - accounts, pipeline health, flagged ingredients -
+      which are production reporting on itself.
+      `tests/unit/test_monitoring_both_environments.py` goes with the network it
+      describes; the one-way-route assertions in
+      `test_the_test_environment.py` stay, because the rule outlives the
+      mechanism.
+- [ ] 7b.6 Note in docs/deployment.md that the monitoring question was
+      deliberately deferred to here, with the numbers that made a metrics stack
+      premature, so it is not re-litigated from scratch.
+
 ## 8. Verify
 
 - [ ] 8.1 Full suite, ruff, ty and sqlfluff clean. No application code changes
