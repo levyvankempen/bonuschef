@@ -3,15 +3,22 @@ Description=Check for a new bonuschef release
 Documentation=https://github.com/levyvankempen/bonuschef/blob/main/docs/deployment.md
 
 [Timer]
-# Every ten minutes. A tick is one `git fetch` against a public repository
-# when there is nothing to do, so the cost of checking often is negligible,
-# and it keeps the gap between "released" and "running" small.
-OnBootSec=5min
-OnUnitActiveSec=10min
+# Every minute. A tick is one `git fetch` against a public repository when
+# there is nothing to do, so checking often costs almost nothing - and the wait
+# for it was the largest part of the gap between merging and seeing the change.
+#
+# Measured before changing it: of roughly fifteen minutes from merge to live,
+# the checks took two, the release workflow three, the deploy itself seconds,
+# and this timer accounted for everything from zero to twelve. It was the only
+# segment that was both large and variable, and it was one line.
+OnBootSec=1min
+OnUnitActiveSec=1min
 
 # Without this, every machine running this timer would hit GitHub on the same
-# ten-minute boundary. There is only one machine today, but the habit is free.
-RandomizedDelaySec=2min
+# boundary. There is only one machine today, but the habit is free. Scaled down
+# with the interval: two minutes of jitter on a one-minute timer would be most
+# of the delay this change exists to remove.
+RandomizedDelaySec=10s
 
 # Run a missed tick after a reboot or a suspend rather than waiting for the
 # next boundary, so a server that was off during a release catches up.

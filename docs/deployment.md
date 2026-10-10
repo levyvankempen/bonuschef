@@ -95,7 +95,7 @@ rebuild while a run is in flight (§ below), and refuses to start without `.env`
 
 ### Deploying automatically
 
-A systemd timer checks for a newer release every ten minutes and deploys it:
+A systemd timer checks for a newer release every minute and deploys it:
 
 ```bash
 install -m 0755 scripts/auto-deploy.sh /usr/local/bin/bonuschef-autodeploy
