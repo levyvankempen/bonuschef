@@ -440,6 +440,29 @@ the duplication that `tests/unit/test_the_test_environment.py` currently guards
 against goes away. What does not: the credential rule, the publication rule,
 one image per version, and the marker.
 
+**Monitoring is deliberately deferred to it.** The question "where do I see what
+prod and test are doing" has a right answer — one surface showing version,
+converged-or-not and healthy for both — and the cluster is where that answer
+lives naturally, as the ArgoCD application view. Standing something up now
+would be a second thing to keep correct and then retire.
+
+A metrics stack was considered and declined, with numbers rather than taste:
+six containers on a four-core host at load 0.36, 10 GB of 16 GB unallocated,
+Proxmox already graphing host and guest CPU, RAM and disk, and the pipeline
+already alerting to a phone through ntfy. Prometheus and Grafana answer a
+different question — trends and post-mortem — and would cost ~700 MB and four
+containers to duplicate graphs that exist. If the cluster makes restarts and
+scheduling worth watching, `kube-prometheus-stack` is the answer then.
+
+What exists in the meantime is listed above, and one piece of it is knowingly
+the wrong shape: production's Beheer page reads the test environment's database
+over a network that exists for no other reason. The observer is one of the
+observed, so production being down takes the view of test down with it, and it
+cost a route between two environments that are otherwise deliberately unable to
+reach each other. It is kept because the alternative today is a third thing to
+run, and task 7b.5 of that change deletes it — the network, the URL, the reader
+and the panel — once the cluster can answer the same question from outside both.
+
 ## 4. Data that cannot be rebuilt
 
 **Stop the app services before restoring. This is the step that bites.**

@@ -37,6 +37,19 @@ bulk of the work:
   portal, the systemd timer stops managing it. Both reconciling toward different
   ideas of "current" is how a rollback becomes a fight.
 
+- **Both environments, or neither.** This was written when there was one.
+  There are two, and the test environment is where a change is watched before
+  anybody else sees it. Delivering only production would leave the second
+  environment on the mechanism this change retires - two delivery paths for one
+  application, which this change forbids a paragraph above. One chart, two sets
+  of values.
+- **One surface that answers for both.** The thing an operator actually wants
+  is "what are prod and test running, and are they well", in one place. Today
+  that is production's operator page reading the test environment's database
+  over a route that exists for no other reason: the observer is one of the
+  observed, and it cost a hole in the isolation rule to build. When the cluster
+  can answer it, that route and that panel go.
+
 And the deliberate exclusions:
 
 - **Postgres stays out of the cluster**, in LXC 101 where it is today. Its data
@@ -46,6 +59,12 @@ And the deliberate exclusions:
 - **Dagster's UI and ArgoCD's UI are not published.** Neither authenticates, and
   Dagster can start and terminate pipeline runs. The portal remains the only
   interface on the internet.
+- **No metrics stack.** Prometheus and Grafana answer a different question -
+  trends and post-mortem - and the platform already graphs the host and its
+  guests. Measured first: six containers on a four-core host at load 0.36, with
+  the pipeline already alerting to a phone. If the cluster makes restarts and
+  scheduling worth watching, that is the moment to revisit it, and
+  `kube-prometheus-stack` is the answer then rather than four containers now.
 
 ## Capabilities
 
