@@ -134,10 +134,28 @@ echo "  $(du -h "$DUMP" | cut -f1) -> ${DUMP}" >&2
 # that has since been rolled back, say - which is how a test environment comes
 # to hold rows that exist nowhere else.
 echo "restoring into ${TEST_PROJECT}" >&2
+# Every schema, enumerated rather than listed.
+#
+# This named `public` and `public_marts`, which is what the portal reads - and
+# missed `public_staging`, so the restore failed on `CREATE SCHEMA
+# public_staging` with the schema already there. dbt creates one schema per
+# model folder, so any hardcoded list is a list that goes stale the next time
+# somebody adds a folder.
+#
+# Safe to be this broad because of the guard at the top: this only ever runs
+# against a project whose name is not production's and contains "test".
 "$DOCKER" exec -i "$TEST_DB" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q <<'PSQL'
-DROP SCHEMA IF EXISTS public CASCADE;
-DROP SCHEMA IF EXISTS public_marts CASCADE;
-CREATE SCHEMA public;
+DO $$
+DECLARE victim text;
+BEGIN
+    FOR victim IN
+        SELECT nspname FROM pg_namespace
+        WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'
+    LOOP
+        EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', victim);
+    END LOOP;
+END $$;
+CREATE SCHEMA IF NOT EXISTS public;
 PSQL
 
 # --no-owner/--no-acl: the roles are not guaranteed to match, and a role error
