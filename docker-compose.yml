@@ -6,6 +6,18 @@
 #   - 127.0.0.1 port bindings  -> neither web UI authenticates its callers and the
 #     Dagster UI can launch and kill jobs, so nothing answers on a routable
 #     interface. Reach them over Tailscale or `ssh -L`.
+# The project name is pinned rather than taken from the directory.
+#
+# Compose defaults it to the directory basename, which is `bonuschef` on the
+# deployment host (/opt/bonuschef) and the repository name locally - so the
+# volume names `bonuschef_pg_data` and `bonuschef_dagster_home` are an accident
+# of where somebody cloned it. A second environment on this host needs its own
+# project, which makes the first one's name worth stating rather than inheriting.
+#
+# This is exactly the name the host already uses, so nothing is renamed and no
+# data moves. Verified against the running deployment before it was written down.
+name: bonuschef
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -15,11 +27,10 @@ x-logging: &default-logging
 services:
   postgres:
     image: postgres:16
-    container_name: pg_bonuschef
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "127.0.0.1:5455:5432"
+      - "127.0.0.1:${BONUSCHEF_PG_PORT:-5455}:5432"
     environment:
       POSTGRES_USER: postgres
       # No working default: a missing secret must fail loudly, not silently
@@ -43,12 +54,7 @@ services:
       retries: 5
 
   dagster-webserver:
-    build:
-      context: .
-      args:
-        BONUSCHEF_VERSION: ${BONUSCHEF_VERSION:-unknown}
-        BONUSCHEF_COMMIT: ${BONUSCHEF_COMMIT:-unknown}
-    container_name: dagster_webserver
+    image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION, or deploy with scripts/deploy.sh}
     restart: unless-stopped
     logging: *default-logging
     command:
@@ -62,7 +68,7 @@ services:
       - -m
       - bonuschef.dags.definitions
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${BONUSCHEF_DAGSTER_PORT:-3000}:3000"
     env_file: .env
     environment:
       # The venv is not on PATH when the binaries are invoked directly rather
@@ -111,12 +117,7 @@ services:
         condition: service_healthy
 
   dagster-daemon:
-    build:
-      context: .
-      args:
-        BONUSCHEF_VERSION: ${BONUSCHEF_VERSION:-unknown}
-        BONUSCHEF_COMMIT: ${BONUSCHEF_COMMIT:-unknown}
-    container_name: dagster_daemon
+    image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION, or deploy with scripts/deploy.sh}
     restart: unless-stopped
     logging: *default-logging
     command:
@@ -148,12 +149,7 @@ services:
         condition: service_healthy
 
   streamlit:
-    build:
-      context: .
-      args:
-        BONUSCHEF_VERSION: ${BONUSCHEF_VERSION:-unknown}
-        BONUSCHEF_COMMIT: ${BONUSCHEF_COMMIT:-unknown}
-    container_name: streamlit_portal
+    image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION, or deploy with scripts/deploy.sh}
     restart: unless-stopped
     logging: *default-logging
     command:
@@ -165,7 +161,7 @@ services:
       - --server.port
       - "8501"
     ports:
-      - "127.0.0.1:8501:8501"
+      - "127.0.0.1:${BONUSCHEF_PORTAL_PORT:-8501}:8501"
     env_file: .env
     environment:
       PG_HOST: postgres

@@ -1,0 +1,124 @@
+# The test environment: somewhere to watch a change work before the people who
+# were invited see it.
+#
+# Run it with its own file and its own env file, never together with the
+# production one:
+#
+#   ./scripts/compose.sh --help          # production
+#   BONUSCHEF_VERSION=v1.40.2 docker compose \
+#       -f docker-compose.test.yml --env-file .env.test up -d
+#
+# Three things about this file are requirements rather than preferences, and
+# each has a failure mode that lands on production rather than here.
+#
+# 1. STANDALONE, NOT AN OVERRIDE. Compose merges overrides, and a merge cannot
+#    remove a service. The pipeline has to be *absent* here, not present and
+#    switched off, so this cannot be `-f docker-compose.yml -f this`. The cost
+#    is duplication, and tests/unit/test_the_test_environment.py compares the
+#    two files field by field so the drift is caught rather than discovered.
+#
+# 2. NO PIPELINE AND NO CREDENTIAL. There is no dagster-daemon and no
+#    dagster-webserver. One Albert Heijn credential exists, and refreshing it
+#    may rotate the refresh token - the code persists the rotated one - so a
+#    second environment refreshing it would invalidate production's. The
+#    symptom is not a broken test environment; it is production's prices
+#    quietly ceasing to update. Dropping the daemon also drops the 467 MiB that
+#    makes this environment nearly free.
+#
+#    The webserver is gone too, which the design had kept. Its run history here
+#    is empty by construction - nothing ever runs - and its presence leaves a
+#    live path from the portal's "Refresh now" button towards launching a
+#    pipeline. An unreachable Dagster is handled: dagster_client.py wraps every
+#    call in `except Exception`.
+#
+# 3. NOT PUBLISHED. Loopback only, like production's other interfaces, and
+#    deliberately not behind the Tailscale Funnel. Unfinished work is what this
+#    holds, and the data is a copy of production's - real accounts included.
+name: bonuschef-test
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      # A different port from production's 5455, on loopback. Both databases
+      # are on this host and confusing them is the expensive mistake here.
+      - "127.0.0.1:${BONUSCHEF_TEST_PG_PORT:-5456}:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.test (see .env.test.example)}
+      POSTGRES_DB: postgres
+    volumes:
+      # A bind mount with no default, rather than a named volume.
+      #
+      # No default because the only space available without one is production's
+      # 16 GiB rootfs, which has 6.2 GiB free - and a 1.1 GB restore plus a
+      # 1.1 GB dump file beside it is how a test environment takes production
+      # down. Refusing to start is the correct behaviour until somebody has
+      # pointed this at real space.
+      #
+      # The intended target is the 500 GB SSD. See docs/deployment.md: the
+      # disk needs provisioning on the Proxmox host and a mountpoint adding to
+      # the container, which is a deliberate operator step.
+      - ${BONUSCHEF_TEST_DATA_DIR:?set BONUSCHEF_TEST_DATA_DIR to a directory on the SSD (see docs/deployment.md)}/pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  streamlit:
+    image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION to the version you want to watch}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - /app/.venv/bin/streamlit
+      - run
+      - src/bonuschef/portal/app.py
+      - --server.address
+      - "0.0.0.0"
+      - --server.port
+      - "8501"
+    ports:
+      - "127.0.0.1:${BONUSCHEF_TEST_PORTAL_PORT:-8502}:8501"
+    env_file: .env.test
+    environment:
+      # Its own database, named as a service inside this project's network.
+      # Production's Postgres is published on 127.0.0.1:5455 of the *host*,
+      # which is not reachable from inside this container at all - so
+      # production's data is unreachable here rather than merely unused.
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      # What makes the banner appear. Absent in production by design: an
+      # invited person has one environment and labelling it is noise.
+      BONUSCHEF_ENVIRONMENT: test
+      # Deliberately no AH_TOKEN_FILE and no dagster_home volume. In production
+      # the portal shares the daemon's token file; here there is no daemon, no
+      # token, and nothing to share. The portal reads no credential because
+      # .env.test carries none.
+      #
+      # Deliberately no DAGSTER_HOST either. "Refresh now" has nothing to call,
+      # which is the intended behaviour: this environment's data changes only
+      # when somebody copies it.
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - 'import urllib.request,sys; urllib.request.urlopen("http://127.0.0.1:8501/_stcore/health", timeout=5); import bonuschef.portal.app_health as h; sys.exit(0 if h.ready() else 1)'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy

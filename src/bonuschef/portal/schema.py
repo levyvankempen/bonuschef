@@ -250,6 +250,25 @@ _STATEMENTS: tuple[str, ...] = (
     CREATE UNIQUE INDEX IF NOT EXISTS ah_recipe_verdicts_account_recipe
         ON public.ah_recipe_verdicts (account_id, recipe_id)
     """,
+    # When this database was copied from another one, for the environment
+    # banner to report.
+    #
+    # The age has to be the copy's age rather than the data's. Taking it from
+    # the newest row in any data table would conflate "this copy is a week
+    # old" with "production's pipeline was down when I copied", which are
+    # different problems and read identically.
+    #
+    # One row, enforced by the primary key: a boolean column that may only be
+    # true. Production has this table and never a row in it, which is the
+    # correct answer there - production's data was not copied from anywhere.
+    """
+    CREATE TABLE IF NOT EXISTS public.environment_copy (
+        only_row    boolean PRIMARY KEY DEFAULT true CHECK (only_row),
+        copied_at   timestamptz NOT NULL,
+        source      text,
+        dump_file   text
+    )
+    """,
 )
 
 

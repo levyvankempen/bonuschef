@@ -10,6 +10,7 @@ from bonuschef.portal.add_recipe_page import render_add_recipe
 from bonuschef.portal.db import get_engine
 from bonuschef.portal.profile_page import render_profile
 from bonuschef.portal.recipes_page import render_recipes
+from bonuschef.portal.ui import render_environment_banner
 from bonuschef.portal.monitor_page import render_monitor
 from bonuschef.version import describe, get_commit
 
@@ -20,6 +21,23 @@ st.set_page_config(
     # stretches content on the laptop.
     layout="centered",
 )
+
+# Which environment this is, above everything - the wall included.
+#
+# Above the wall because a sign-in page is a page: somebody typing a password
+# into the test environment believing it to be the real one is exactly the
+# confusion this prevents, and it happens before any page function runs.
+#
+# Once, here, rather than again lower down. Two calls would stack two banners
+# in the test environment, and the second would sit between the navigation and
+# the page where it reads as part of the content.
+#
+# It resolves its own engine, defensively: this runs before the wall, which is
+# before the engine is otherwise touched, and the mistake described below -
+# resolving it unconditionally - turned a missing variable into a blank
+# application. A failed read degrades to the environment name without the
+# copy's age, which is the half that matters most anyway.
+render_environment_banner()
 
 # The wall, above the navigation and ending in st.stop().
 #

@@ -50,6 +50,42 @@ def is_stamped() -> bool:
     return bool(stamped) and stamped != UNKNOWN
 
 
+# Production is the unnamed case.
+#
+# An invited person has one environment, and labelling it would be noise on
+# every page they ever see. So the absence of a value means production, and any
+# value other than "production" means somewhere that must say so.
+PRODUCTION = "production"
+
+
+def get_environment() -> str:
+    """Which environment this process is, lowercased.
+
+    ``"production"`` when nothing says otherwise - including when the variable
+    is set to an empty string, which is what an env file with a bare
+    ``BONUSCHEF_ENVIRONMENT=`` produces.
+    """
+    named = os.environ.get("BONUSCHEF_ENVIRONMENT", "").strip().lower()
+    return named or PRODUCTION
+
+
+def is_production() -> bool:
+    """Whether this is the deployment the invited people use.
+
+    Defaults to True on purpose. A misconfigured environment that believes it
+    is production shows no banner, which is the quiet failure; one that
+    believes it is a test environment shows a banner on production, which the
+    invited people would see and ask about. Neither is good, and the first is
+    recoverable by reading a config file while the second is a page everybody
+    is looking at.
+
+    The reason it is still the default: every other value here comes from a
+    deployment that deliberately set one, and production is the deployment
+    that sets nothing.
+    """
+    return get_environment() == PRODUCTION
+
+
 def get_commit() -> str:
     """The commit this process was built from, or ``"unknown"``."""
     return os.environ.get("BONUSCHEF_COMMIT", "").strip() or UNKNOWN
