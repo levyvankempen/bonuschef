@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.41.3 (2026-10-10)
+
+### Bug Fixes
+
+- .gitignore covered one env file, not every env file
+  ([#148](https://github.com/levyvankempen/bonuschef/pull/148),
+  [`f58813f`](https://github.com/levyvankempen/bonuschef/commit/f58813fa4fed16ba872195b4fe8356830ffc9456))
+
+
 ## v1.41.2 (2026-10-10)
 
 ### Bug Fixes
