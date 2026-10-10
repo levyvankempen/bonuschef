@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.42.0 (2026-10-10)
+
+### Documentation
+
+- **deploy**: Record the SSD as built, and why the database moved to it
+  ([#152](https://github.com/levyvankempen/bonuschef/pull/152),
+  [`2016ca1`](https://github.com/levyvankempen/bonuschef/commit/2016ca12d0a25b04cc968c140285dad28ebe86c3))
+
+### Features
+
+- **monitor**: One page that can see both environments
+  ([#153](https://github.com/levyvankempen/bonuschef/pull/153),
+  [`f151f01`](https://github.com/levyvankempen/bonuschef/commit/f151f017445c9bd171cba6f55e74b7219634821b))
+
+
 ## v1.41.6 (2026-10-10)
 
 ### Bug Fixes
