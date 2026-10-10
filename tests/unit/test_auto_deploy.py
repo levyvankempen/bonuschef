@@ -450,7 +450,36 @@ class TestTheTimerIsTheFeedbackLoop:
         script = Path("scripts/auto-deploy.sh").read_text()
         before_deploy = script[: script.index('log "deploying')]
         assert before_deploy.count("git fetch") == 1
-        for expensive in ("docker ", "dbt ", "curl "):
+
+        # `docker ps`/`docker inspect` are now on this path and have to be:
+        # deciding whether there is anything to do means knowing what is
+        # RUNNING, and the only honest answer to that is the label on the
+        # running container.
+        #
+        # Reading the checkout instead is what this script used to do, and it
+        # made a failed deploy permanent - deploy.sh moves HEAD before it
+        # builds, so a deploy failing after that point left HEAD at the new tag
+        # and every later tick compared the new tag with itself. Observed:
+        # production on v1.40.2, HEAD at v1.41.0, "up to date (v1.41.0)" once
+        # a minute, with no way to recover because the runner is only refreshed
+        # by a deploy that succeeds.
+        #
+        # Two calls on a local socket, a few milliseconds, once a minute. The
+        # thing the interval argument actually depends on is that a no-op tick
+        # does no BUILD and starts nothing, which is still asserted below.
+        for expensive in ("dbt ", "curl ", "docker build", "docker compose up"):
             assert expensive not in before_deploy, (
                 f"a no-op tick must not run {expensive.strip()}"
+            )
+
+        # And what docker IS used for here is reading, not changing anything.
+        docker_calls = [
+            line.strip()
+            for line in before_deploy.splitlines()
+            if "docker " in line and not line.lstrip().startswith("#")
+        ]
+        assert docker_calls, "expected the running version to be read"
+        for call in docker_calls:
+            assert any(read in call for read in ("docker ps", "docker inspect")), (
+                f"a no-op tick does more than read: {call}"
             )

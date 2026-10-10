@@ -53,7 +53,40 @@ if [ -z "$latest" ]; then
     exit 0
 fi
 
-current="$(git describe --tags --exact-match HEAD 2>/dev/null || echo none)"
+# What is RUNNING, not what is checked out.
+#
+# This read the checkout - `git describe --exact-match HEAD` - and that made a
+# failed deploy permanent. deploy.sh checks the tag out before it builds and
+# starts anything, so a deploy that fails after the checkout leaves HEAD at the
+# new tag while the old containers keep serving. Every tick afterwards compared
+# the new tag with the new tag, said "up to date", and did nothing. Production
+# stayed on the previous version with the mechanism that would have fixed it
+# reporting success once a minute.
+#
+# Observed exactly that: HEAD at v1.41.0, containers running v1.40.2, "up to
+# date (v1.41.0)" on every tick. It cannot self-heal either, because the runner
+# this script is is only refreshed by a deploy that succeeds.
+#
+# The OCI label on a running container is the authoritative answer, and it is
+# stamped at build time from the same `git describe` - so the comparison is
+# unchanged in the normal case and only differs when the two have diverged,
+# which is the case that was broken.
+current="$(
+    docker ps -q --filter "label=com.docker.compose.project=bonuschef" \
+                 --filter "label=com.docker.compose.service=streamlit" 2>/dev/null |
+        head -1 |
+        xargs -r docker inspect \
+            --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+            2>/dev/null
+)"
+case "${current:-}" in
+    ""|"<no value>"|unknown)
+        # Nothing running, or an image built before stamping existed. Fall back
+        # to the checkout, which is the best evidence available, and let the
+        # deploy below reconcile.
+        current="$(git describe --tags --exact-match HEAD 2>/dev/null || echo none)"
+        ;;
+esac
 
 if [ "$current" = "$latest" ]; then
     # Up to date with the newest TAG. That is not the same as up to date with
