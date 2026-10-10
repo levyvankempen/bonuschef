@@ -70,6 +70,22 @@ services:
       - ${BONUSCHEF_TEST_DATA_DIR:?set BONUSCHEF_TEST_DATA_DIR to a directory on the SSD (see docs/deployment.md)}/pgdata:/var/lib/postgresql/data
     shm_size: 256mb
     stop_grace_period: 60s
+    # Readable by production's portal, and by nothing else.
+    #
+    # This database is the only part of the test environment on the shared
+    # network, so production's Beheer page can say whether this environment is
+    # running and how old its data is. The portal below is deliberately NOT on
+    # it, which is what keeps the route one-way: there is no path from anything
+    # in this project back to production's database.
+    #
+    # The alias is stable where a container name is not - it does not change if
+    # the project or the service is renamed - so production's connection string
+    # can be written down.
+    networks:
+      default:
+      monitor:
+        aliases:
+          - test-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -78,6 +94,12 @@ services:
 
   streamlit:
     image: bonuschef:${BONUSCHEF_VERSION:?set BONUSCHEF_VERSION to the version you want to watch}
+    # This project's own network only. Not `monitor`: being on it would give
+    # this portal a route to whatever else is there, and the requirement is
+    # that production's database is unreachable from this environment rather
+    # than merely unused by it.
+    networks:
+      - default
     restart: unless-stopped
     logging: *default-logging
     command:
@@ -122,3 +144,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+networks:
+  default:
+  # Shared with production, which reads this environment's database to report
+  # its state. Created by scripts/deploy.sh and scripts/copy-to-test.sh, both
+  # idempotently, so neither stack can be blocked by its absence.
+  monitor:
+    name: bonuschef-monitor
+    external: true

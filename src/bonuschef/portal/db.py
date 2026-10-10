@@ -1912,15 +1912,32 @@ def read_test_environment_state(url: str | None = None) -> dict | None:
     )
     if not url:
         return None
+
+    # Reachability is established HERE, by connecting, and not inferred from
+    # whether the copy row came back.
+    #
+    # It used to be inferred, and it was wrong in the worst direction.
+    # `read_environment_copy` swallows every failure and returns None - correct
+    # for its own job, where a missing table means "no copy" - so a database
+    # that was not listening at all came back as None and this reported
+    # `reachable: True, copied_at: None`. The Beheer panel then said the test
+    # environment was running and merely empty, for an environment that was
+    # down. Observed against a URL whose port nothing listens on.
+    #
+    # That is the false-healthy shape the probes in this project have been
+    # bitten by twice: a check that passes while the thing cannot do its job is
+    # worse than no check, because an operator trusts it.
     try:
         engine = _test_environment_engine(url)
-        copy = read_environment_copy(engine)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
     except Exception as exc:  # noqa: BLE001 - reported on the page, not raised
         return {"reachable": False, "error": str(exc)[:200]}
+
+    # Reachable. An absent copy row now means what it says: running, with
+    # nothing copied into it yet - a real state, and a different one from down.
+    copy = read_environment_copy(engine)
     if copy is None:
-        # Reachable, but nothing has been copied into it - or its schema has
-        # not been applied. Both mean "running and empty", which is a real
-        # state and a different one from unreachable.
         return {"reachable": True, "copied_at": None, "source": None}
     return {"reachable": True, **copy}
 

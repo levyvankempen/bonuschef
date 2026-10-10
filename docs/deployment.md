@@ -357,28 +357,76 @@ The banner is driven by `BONUSCHEF_ENVIRONMENT`, which is unset in production.
 Absence means production — the honest reading, since production is the
 deployment that sets nothing.
 
-### Watching whether it still works
+### Monitoring both environments
 
-Optional. Set `BONUSCHEF_TEST_DATABASE_URL` in production's `.env` and the
-Beheer page gains a panel: running or not, how old the copy is, what produced
-it. Unset, the panel is omitted — a deployment with one environment is not
-broken.
+**The Beheer page is the one place that sees both.** It is in the production
+portal, operator-only, and shows:
 
-One catch before you set it: the URL is resolved from inside production's
-container, where `127.0.0.1` is the container's own loopback rather than the
-host's, so the test database's published `127.0.0.1:5456` is **not** reachable
-as written. Giving it a route means one of:
+- every account — shop, last opened, what they have saved;
+- pipeline job health, with anything overdue named and when it last worked;
+- ingredients matched to a product that contradicts them;
+- **the test environment** — running or not, how old its copy of the data is,
+  and which version produced it.
 
-- `extra_hosts: ["host.docker.internal:host-gateway"]` on production's
-  `streamlit` service, then pointing the URL at `host.docker.internal:5456`;
-- a shared Docker network that production's `streamlit` and the test
-  `postgres` both join — and nothing else, so the reverse direction stays
-  impossible;
-- running the portal outside Docker, where loopback is the host's.
+That last panel needs a route, because production's portal and the test
+database are in different Compose projects. Both ends are measured facts rather
+than guesses: from inside production's container, `127.0.0.1:5456` is its own
+loopback, and `172.17.0.1:5456` is refused because the test database publishes
+on the *host's* loopback only — which is the isolation that keeps the test
+environment unpublished, so widening it would be the wrong trade.
 
-None is done by default, because each widens production's network for a
-convenience. The panel is not part of the delivery path; the copy script and
-the banner are.
+So there is one shared network, `bonuschef-monitor`, joined by exactly two
+services:
+
+| service | on `bonuschef-monitor` | why |
+|---|---|---|
+| production `streamlit` | yes | reads the test environment's state |
+| test `postgres` | yes, as `test-postgres` | is read |
+| test `streamlit` | **no** | would give the environment a route back |
+| production `postgres` | **no** | nothing joining later can reach the real data |
+
+The two absences are the safety property, and three of the four checks in
+`tests/unit/test_monitoring_both_environments.py` are about them. Listing
+`networks:` on a service makes it join *only* those, so the asymmetry holds by
+construction — and would stop holding the moment somebody adds a line for
+convenience, which is why it is asserted as a count.
+
+The network is `external: true` in both files, since two projects cannot own
+one network. `deploy.sh` and `copy-to-test.sh` both create it idempotently, so
+whichever runs first on a fresh host succeeds.
+
+To switch the panel on, in production's `.env`:
+
+```
+BONUSCHEF_TEST_DATABASE_URL=postgresql+psycopg2://postgres:<test password>@test-postgres:5432/postgres
+```
+
+Unset, the panel is omitted — a deployment with one environment is not broken,
+and telling it something is missing is how a panel gets ignored.
+
+Read-only, and the reader is asserted to issue no writes: data moves from
+production to the test environment and only through `copy-to-test.sh`. The
+connection times out in 3 seconds, because this renders on the page holding the
+account list and a test environment that is down must not cost ten seconds of
+it.
+
+### What else there is to look at
+
+| what | where | covers |
+|---|---|---|
+| Beheer page | production portal, `/beheer` | both environments, accounts, pipeline |
+| environment banner | top of every test-environment page | which environment, copy age |
+| version | portal footer | what is actually running |
+| Dagster UI | `127.0.0.1:3000` | pipeline runs, in production only |
+| ntfy | your phone | pipeline failures, in production only |
+| `./scripts/compose.sh ps` | shell | container health, production |
+| `docker ps` | shell | both stacks at once |
+| Proxmox UI | `https://192.168.1.240:8006` | host and guest CPU, RAM, disk |
+| `journalctl -u bonuschef-autodeploy` | shell | every deploy decision, once a minute |
+
+The test environment deliberately has **no** Dagster UI and **no** alerting: it
+runs no pipeline, so there is nothing to watch and nothing that can fail. Its
+data changes only when somebody copies it.
 
 ### When the cluster arrives
 

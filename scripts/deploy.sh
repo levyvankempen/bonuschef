@@ -115,6 +115,17 @@ eval "$(bash ./scripts/version.sh)"
 export BONUSCHEF_VERSION="$version" BONUSCHEF_COMMIT="$commit"
 echo "deploying ${BONUSCHEF_VERSION} (${BONUSCHEF_COMMIT:0:12})"
 
+# The network production's portal and the test environment's database share.
+#
+# Declared `external` in both compose files, because two projects cannot both
+# own one network - so something has to create it, and that something must be
+# whatever runs first. Created here and in copy-to-test.sh, both idempotently:
+# a host that has never seen the test environment still comes up, and a test
+# environment started before any deploy still comes up.
+#
+# `|| true` because "already exists" is the normal case, not a failure.
+docker network create bonuschef-monitor >/dev/null 2>&1 || true
+
 # Build once, then run that image.
 #
 # This used to be `up -d --build`, which made every host and every deploy build
