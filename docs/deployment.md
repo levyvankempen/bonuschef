@@ -110,7 +110,7 @@ fortnight's gap bought a different Debian and CPython patch level with nothing
 in any diff to show it. The base is now pinned by digest; bumping it is a
 commit.
 
-Two consequences to know about:
+Three consequences to know about:
 
 - **`BONUSCHEF_VERSION` is mandatory.** Compose interpolates at parse time, so
   *every* command fails without it — `ps`, `logs` and `exec` included, none of
@@ -120,6 +120,11 @@ Two consequences to know about:
 - The version is deliberately **not** written into `.env`. The services read
   `.env` into their environment, so a value there would override the one baked
   into the image, and the portal would report a version it is not running.
+- **Each release leaves a 2.6 GB image behind**, and `docker image prune -f`
+  removes only *dangling* images, so none of them qualify. Measured: 7.6 GB
+  free before the first versioned deploy, 4.0 GB after. `deploy.sh` therefore
+  keeps the newest `BONUSCHEF_KEEP_IMAGES` (default 2 — the running one and a
+  rollback target) and removes the rest, never touching an image in use.
 
 ### Promoting a version
 

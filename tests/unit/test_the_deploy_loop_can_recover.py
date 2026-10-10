@@ -293,3 +293,117 @@ class TestAutoDeployComparesWhatIsRunning:
             f"running={running} latest={latest}: "
             f"{'should have deployed' if should_deploy else 'should not have deployed'}"
         )
+
+
+class TestTheImageStoreIsBounded:
+    """A consequence of naming the image by version, measured rather than
+    guessed.
+
+    Compose used to build the services under one tag each
+    (`bonuschef-streamlit:latest`), so every build replaced the last and the
+    image store never grew. A versioned tag leaves a 2.6 GB image behind on
+    every release, and `docker image prune -f` removes only DANGLING images, so
+    none of them qualify.
+
+    Right after the change: 7.6 GB free before the first deploy, 4.0 GB after.
+    Three more releases and the rootfs is full - which stops Postgres, not just
+    deploys.
+    """
+
+    def test_deploy_removes_old_versioned_images(self):
+        text = _code(DEPLOY)
+        assert "reference=bonuschef:v*" in text, (
+            "nothing bounds the versioned images, so each release leaks 2.6 GB"
+        )
+        assert "docker rmi" in text
+
+    def test_it_keeps_more_than_just_the_running_one(self):
+        """So a rollback is a tag away rather than a rebuild."""
+        text = _code(DEPLOY)
+        assert "BONUSCHEF_KEEP_IMAGES" in text
+        default = text[text.index("BONUSCHEF_KEEP_IMAGES") :][:40]
+        assert ":-2}" in default, f"expected a default of 2: {default!r}"
+
+    def test_it_never_removes_what_is_running(self):
+        """`docker rmi` refuses an image in use, so this cannot actually delete
+        what is serving - but relying on that would make this loop's
+        correctness depend on Docker's refusal rather than on the list."""
+        text = _code(DEPLOY)
+        assert "docker ps --format '{{.Image}}'" in text
+        removal = text[text.index("reference=bonuschef:v*") :]
+        removal = removal[: removal.index("for legacy")]
+        assert "in_use" in removal, "the removal loop does not consult what is running"
+
+    def test_the_superseded_compose_built_images_are_removed_too(self):
+        """They are unreachable now: the services name `bonuschef:<version>`,
+        so these are left over from before and will never be referenced."""
+        text = _code(DEPLOY)
+        for legacy in ("bonuschef-dagster-webserver", "bonuschef-streamlit"):
+            assert legacy in text
+
+    def test_the_cleanup_cannot_fail_a_deploy(self):
+        """The stack is already up by this point. A failure to reclaim disk is
+        not a failed deploy, and treating it as one would turn a full disk into
+        a rollback."""
+        text = _code(DEPLOY)
+        cleanup = text[text.index("reference=bonuschef:v*") :]
+        rmi_lines = [line for line in cleanup.splitlines() if "docker rmi" in line]
+        assert rmi_lines
+        for line in rmi_lines:
+            assert "|| true" in line, f"a failed removal would abort: {line.strip()}"
+
+    def test_the_cleanup_runs_after_the_stack_is_up(self):
+        text = _code(DEPLOY)
+        assert text.index("docker compose up") < text.index("reference=bonuschef:v*")
+
+    def test_it_removes_the_right_ones(self, tmp_path):
+        """The arithmetic, against a stub docker: five versions, keep two."""
+        import subprocess
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        removed = tmp_path / "removed"
+        # Newest first in CreatedAt order when sorted descending.
+        # Written to a file and cat'd, rather than embedded in the stub: a
+        # Python repr of a multi-line string carries literal backslash-n, which
+        # printf does not expand, and the stub then answers with one long line.
+        listing = tmp_path / "listing"
+        listing.write_text(
+            "".join(
+                f"2026-01-0{n} 10:00:00 +0000 UTC\tbonuschef:v1.4{n}.0\n"
+                for n in range(1, 6)
+            )
+        )
+        (bin_dir / "docker").write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$*" in\n'
+            "  ps*) echo bonuschef:v1.45.0 ;;\n"
+            f"  images*) cat {listing} ;;\n"
+            f'  rmi*) echo "$2" >> {removed} ;;\n'
+            "  *) exit 0 ;;\n"
+            "esac\n"
+        )
+        (bin_dir / "docker").chmod(0o755)
+
+        # Just the cleanup block, run on its own.
+        text = _code(DEPLOY)
+        block = text[text.index('KEEP_IMAGES="${BONUSCHEF_KEEP_IMAGES') :]
+        block = block[: block.index("for legacy")]
+        script = tmp_path / "cleanup.sh"
+        script.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + block)
+
+        subprocess.run(
+            ["bash", str(script)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path)},
+        )
+        gone = removed.read_text().split() if removed.exists() else []
+        assert "bonuschef:v1.45.0" not in gone, "it removed the running image"
+        assert "bonuschef:v1.44.0" not in gone, "it did not keep a rollback target"
+        assert set(gone) == {
+            "bonuschef:v1.41.0",
+            "bonuschef:v1.42.0",
+            "bonuschef:v1.43.0",
+        }, gone

@@ -171,6 +171,46 @@ docker compose up -d
 docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
 
+# Bound the versioned images, which `image prune` cannot touch.
+#
+# The services used to be built by Compose, which reuses one tag per service -
+# `bonuschef-streamlit:latest` and so on - so each build replaced the last and
+# the image store never grew. Naming the image by version means every release
+# leaves a new 2.6 GB tag behind, and `docker image prune -f` removes only
+# DANGLING images, so none of them qualify. Measured right after the change:
+# 7.6 GB free before the first deploy, 4.0 GB after. Three more and the rootfs
+# is full, which stops Postgres rather than merely stopping deploys.
+#
+# Two kept by default: the running one, and the one before it so a rollback is
+# a tag away rather than a rebuild.
+#
+# Belt and braces on the running image. `docker rmi` refuses an image in use by
+# a container, so this cannot actually delete what is serving - but relying on
+# that would make the correctness of this loop depend on Docker's refusal
+# rather than on the list being right.
+KEEP_IMAGES="${BONUSCHEF_KEEP_IMAGES:-2}"
+in_use="$(docker ps --format '{{.Image}}' | sort -u)"
+docker images --filter 'reference=bonuschef:v*' \
+    --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' 2>/dev/null |
+    sort -r | tail -n "+$((KEEP_IMAGES + 1))" | cut -f2 |
+    while IFS= read -r stale; do
+        [ -n "$stale" ] || continue
+        case "$in_use" in *"$stale"*) continue ;; esac
+        echo "removing old image ${stale} (keeping ${KEEP_IMAGES})"
+        docker rmi "$stale" >/dev/null 2>&1 || true
+    done
+
+# And the images Compose built under its own names, which nothing can reach any
+# more: the services name `bonuschef:<version>` now, so these are left over
+# from before this change and will never be referenced again.
+for legacy in bonuschef-dagster-webserver bonuschef-dagster-daemon bonuschef-streamlit; do
+    case "$in_use" in *"$legacy"*) continue ;; esac
+    if docker image inspect "${legacy}:latest" >/dev/null 2>&1; then
+        echo "removing superseded image ${legacy}:latest"
+        docker rmi "${legacy}:latest" >/dev/null 2>&1 || true
+    fi
+done
+
 # Refresh the auto-deployer's runner, which lives OUTSIDE this checkout.
 #
 # It used to be run straight from scripts/. That made the deployer part of the
