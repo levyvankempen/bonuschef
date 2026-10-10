@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.41.1 (2026-10-10)
+
+### Bug Fixes
+
+- **deploy**: The loop could not recover from a failed deploy
+  ([#145](https://github.com/levyvankempen/bonuschef/pull/145),
+  [`fdc3f6a`](https://github.com/levyvankempen/bonuschef/commit/fdc3f6a5c4035dd64a6a0ce581ec8eff89f6f926))
+
+
 ## v1.41.0 (2026-10-10)
 
 ### Documentation
