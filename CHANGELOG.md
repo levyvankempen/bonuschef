@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.41.5 (2026-10-10)
+
+### Bug Fixes
+
+- **copy**: Drop every schema, not the two the portal happens to read
+  ([#150](https://github.com/levyvankempen/bonuschef/pull/150),
+  [`d03bacf`](https://github.com/levyvankempen/bonuschef/commit/d03bacf53cfa36ed551bb89aff3128504e7cc02e))
+
+
 ## v1.41.4 (2026-10-10)
 
 ### Bug Fixes
