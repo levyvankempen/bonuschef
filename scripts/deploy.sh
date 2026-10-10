@@ -113,6 +113,39 @@ if [ -d "$(dirname "$RUNNER")" ] && [ -w "$(dirname "$RUNNER")" ]; then
     fi
 fi
 
+# And the units themselves, for the same reason one step further on.
+#
+# The runner was refreshed on every deploy; the systemd files beside it were
+# not. So deploy/systemd/ was a committed deployment path that never reached
+# the thing it describes: changing the timer's interval in the repository
+# changed nothing on the host until somebody remembered to copy it by hand.
+# Found by changing that interval and then asking whether it would take effect.
+#
+# Only on a change, and only when the unit directory is writable - the
+# developer case has neither. A daemon-reload while this very service is
+# running is safe: systemd applies the new definition at the next start, which
+# is the next tick.
+UNITS="${BONUSCHEF_SYSTEMD_DIR:-/etc/systemd/system}"
+if [ -d "$UNITS" ] && [ -w "$UNITS" ] && [ -d ./deploy/systemd ]; then
+    changed=0
+    for unit in ./deploy/systemd/bonuschef-*; do
+        [ -f "$unit" ] || continue
+        if ! cmp -s "$unit" "$UNITS/$(basename "$unit")" 2>/dev/null; then
+            install -m 0644 "$unit" "$UNITS/$(basename "$unit")"
+            echo "refreshed $UNITS/$(basename "$unit")"
+            changed=1
+        fi
+    done
+    if [ "$changed" = 1 ] && command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload
+        # Restart the timer so a changed interval applies now rather than
+        # after the next reboot. The service is deliberately not touched: it
+        # is what is running this script.
+        systemctl restart bonuschef-autodeploy.timer 2>/dev/null || true
+        echo "reloaded systemd units"
+    fi
+fi
+
 echo
 echo "deployed: ${BONUSCHEF_VERSION}"
 echo "the portal reports this version in its footer."

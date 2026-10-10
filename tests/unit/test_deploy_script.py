@@ -162,3 +162,67 @@ def test_a_failed_prune_does_not_fail_the_deploy():
     body = DEPLOY.read_text()
     line = next(row for row in body.splitlines() if "docker builder prune" in row)
     assert "|| true" in line, line
+
+
+class TestTheUnitsAreRefreshedToo:
+    """deploy/systemd/ was a committed deployment path that never applied.
+
+    The runner script was reinstalled on every deploy; the systemd files beside
+    it were not. So changing the timer's interval in the repository changed
+    nothing on the host until somebody copied it by hand - which is the same
+    shape as the account schema that was correct, idempotent and called by
+    nothing. Found by changing the interval and then asking whether it would
+    take effect.
+    """
+
+    SCRIPT = Path("scripts/deploy.sh")
+
+    def test_the_units_are_installed_on_a_deploy(self):
+        body = self.SCRIPT.read_text()
+        assert "deploy/systemd" in body
+        assert "daemon-reload" in body
+
+    def test_only_when_they_differ(self):
+        """A deploy that rewrites unchanged files churns systemd for nothing."""
+        body = self.SCRIPT.read_text()
+        units = body[body.index("UNITS=") :]
+        assert "cmp -s" in units
+
+    def test_the_timer_is_restarted_but_not_the_service(self):
+        """A changed interval must apply now rather than after a reboot - but
+        the service is what is running this script."""
+        body = self.SCRIPT.read_text()
+        units = body[body.index("UNITS=") :]
+        assert "restart bonuschef-autodeploy.timer" in units
+        assert "restart bonuschef-autodeploy.service" not in units
+
+    def test_it_does_nothing_where_it_cannot(self, tmp_path):
+        """The developer case has no /etc/systemd/system to write to, and a
+        deploy there must not fail on that."""
+        body = self.SCRIPT.read_text()
+        units = body[body.index("UNITS=") :]
+        assert '-w "$UNITS"' in units, "guarded on writability"
+        assert "BONUSCHEF_SYSTEMD_DIR" in body, "and overridable for a test"
+
+    def test_a_run_against_a_scratch_directory_installs_them(self, tmp_path):
+        """Exercised rather than asserted about: the guard is only worth having
+        if the copy underneath it works."""
+        import subprocess
+
+        units = tmp_path / "systemd"
+        units.mkdir()
+        script = f"""
+        set -euo pipefail
+        cd {Path.cwd()}
+        UNITS="{units}"
+        for unit in ./deploy/systemd/bonuschef-*; do
+            [ -f "$unit" ] || continue
+            if ! cmp -s "$unit" "$UNITS/$(basename "$unit")" 2>/dev/null; then
+                install -m 0644 "$unit" "$UNITS/$(basename "$unit")"
+            fi
+        done
+        """
+        subprocess.run(["bash", "-c", script], check=True)
+        installed = sorted(p.name for p in units.iterdir())
+        assert installed, "the units must actually land"
+        assert any(n.endswith(".timer") for n in installed), installed
