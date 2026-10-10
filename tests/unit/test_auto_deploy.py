@@ -387,3 +387,70 @@ def test_it_stays_quiet_when_main_and_the_tag_agree(server):
     r = _tick(server)
     assert "ahead of it" not in r.stdout
     assert "up to date" in r.stdout
+
+
+# --- how often it looks ------------------------------------------------------
+
+
+class TestTheTimerIsTheFeedbackLoop:
+    """The wait for this timer was the largest part of the gap between merging
+    and seeing the change.
+
+    Measured on the running host before it was changed: of roughly fifteen
+    minutes from merge to live, the PR checks took two, the release workflow
+    three, the deploy itself seconds, and the timer accounted for everything
+    from zero to twelve. It was the only segment that was both large and
+    variable - and it was one line.
+    """
+
+    TIMER = Path("deploy/systemd/bonuschef-autodeploy.timer")
+
+    @staticmethod
+    def _seconds(value: str) -> int:
+        """systemd's time spans, for the few forms this file uses."""
+        value = value.strip()
+        if value.endswith("min"):
+            return int(value[:-3]) * 60
+        if value.endswith("s"):
+            return int(value[:-1])
+        if value.endswith("h"):
+            return int(value[:-1]) * 3600
+        return int(value)
+
+    def _field(self, name: str) -> str:
+        line = next(
+            ln
+            for ln in self.TIMER.read_text().splitlines()
+            if ln.startswith(f"{name}=")
+        )
+        return line.split("=", 1)[1]
+
+    def test_it_checks_at_least_once_a_minute(self):
+        assert self._seconds(self._field("OnUnitActiveSec")) <= 60, (
+            "the poll interval is the feedback loop; a slower one is the "
+            "fifteen-minute wait coming back"
+        )
+
+    def test_the_jitter_does_not_swallow_the_interval(self):
+        """Two minutes of jitter on a one-minute timer would be most of the
+        delay this exists to remove."""
+        interval = self._seconds(self._field("OnUnitActiveSec"))
+        jitter = self._seconds(self._field("RandomizedDelaySec"))
+        assert jitter < interval, f"jitter {jitter}s >= interval {interval}s"
+
+    def test_a_missed_tick_is_still_caught_up(self):
+        """A box that was off during a release must not wait for the next
+        boundary."""
+        assert "Persistent=true" in self.TIMER.read_text()
+
+    def test_checking_often_stays_cheap(self):
+        """The whole argument for a short interval is that a tick with nothing
+        to do is one `git fetch` and nothing else. If a tick ever starts doing
+        real work, the interval has to be reconsidered."""
+        script = Path("scripts/auto-deploy.sh").read_text()
+        before_deploy = script[: script.index('log "deploying')]
+        assert before_deploy.count("git fetch") == 1
+        for expensive in ("docker ", "dbt ", "curl "):
+            assert expensive not in before_deploy, (
+                f"a no-op tick must not run {expensive.strip()}"
+            )
