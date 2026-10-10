@@ -44,6 +44,24 @@ if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
     exit 65
 fi
 
+# The tag must be what is checked out, not merely a tag that exists.
+#
+# This script validates the argument and then builds `.`, so without this check
+# passing v1.41.0 while sitting on something else succeeds and produces an
+# image built from the wrong tree. It would at least be *named* after what was
+# actually built - version.sh reports `git describe` - but the argument would
+# have been a lie the whole way through, and the deploy that follows would
+# promote it.
+#
+# deploy.sh checks the tag out before calling this, so it passes. Standalone
+# use has to check out first, which is the honest cost of not moving somebody's
+# HEAD underneath them.
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/${TAG}^{commit}")" ]; then
+    echo "error: HEAD is not at ${TAG}, so building here would not build it." >&2
+    echo "  git fetch --tags && git checkout --detach refs/tags/${TAG}" >&2
+    exit 65
+fi
+
 eval "$(bash ./scripts/version.sh)"
 IMAGE="${BONUSCHEF_IMAGE:-bonuschef}:${version}"
 

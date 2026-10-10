@@ -124,7 +124,9 @@ Two consequences to know about:
 ### Promoting a version
 
 ```bash
-# build it once
+# build it once. build-image.sh refuses unless HEAD is at the tag, because
+# otherwise it would tag an image with a version it did not build.
+git fetch --tags && git checkout --detach refs/tags/v1.41.0
 ./scripts/build-image.sh v1.41.0
 
 # watch it in the test environment (below)

@@ -363,3 +363,51 @@ class TestTheDocumentedCommandsStillWork:
                     f"{doc.name}:{number} rebuilds in place, so what runs is "
                     "not the artifact that was watched"
                 )
+
+
+class TestBuildImageBuildsWhatItWasAsked:
+    """A wart found by trying to use the script, not by reading it.
+
+    It validated the tag argument and then built `.`, so passing a tag while
+    sitting on a different commit succeeded. The image would at least be
+    *named* after what was actually built - version.sh reports `git describe` -
+    but the argument would have been a lie the whole way through, and the
+    deploy that follows promotes the result.
+    """
+
+    def test_it_refuses_when_head_is_not_at_the_tag(self, tmp_path):
+        import subprocess
+
+        repo = tmp_path / "repo"
+        (repo / "scripts").mkdir(parents=True)
+        for script in ("build-image.sh", "version.sh"):
+            target = repo / "scripts" / script
+            target.write_bytes((REPO_ROOT / "scripts" / script).read_bytes())
+        (repo / "pyproject.toml").write_text('version = "1.0.0"\n')
+
+        def git(*args):
+            subprocess.run(
+                ["git", *args], cwd=repo, check=True, capture_output=True,
+                env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                     "PATH": "/usr/bin:/bin:/usr/local/bin"},
+            )
+
+        git("init", "-q")
+        git("add", "-A")
+        git("commit", "-qm", "one")
+        git("tag", "v1.0.0")
+        git("commit", "-qm", "two", "--allow-empty")  # HEAD moves past the tag
+
+        result = subprocess.run(
+            ["bash", "scripts/build-image.sh", "v1.0.0"],
+            cwd=repo, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 65, result.stderr
+        assert "HEAD is not at v1.0.0" in result.stderr
+        assert "git checkout" in result.stderr, "it must say how to fix it"
+
+    def test_deploy_checks_the_tag_out_before_building(self):
+        """Which is why deploy.sh passes the check above."""
+        text = DEPLOY.read_text()
+        assert text.index("git checkout -q --detach") < text.index("build-image.sh")
