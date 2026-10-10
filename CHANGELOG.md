@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.41.0 (2026-10-10)
+
+### Documentation
+
+- **spec**: Somewhere to watch a change before friends do
+  ([#143](https://github.com/levyvankempen/bonuschef/pull/143),
+  [`e0b2212`](https://github.com/levyvankempen/bonuschef/commit/e0b22126a2939be0061fdb0c7b7a62cd3a637930))
+
+### Features
+
+- **deploy**: Somewhere to watch a change before friends do
+  ([#144](https://github.com/levyvankempen/bonuschef/pull/144),
+  [`5204ea6`](https://github.com/levyvankempen/bonuschef/commit/5204ea60b5c566ebffaa8bdc8213edac0a0a94ee))
+
+
 ## v1.40.2 (2026-10-10)
 
 ### Bug Fixes
