@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.40.2 (2026-10-10)
+
+### Bug Fixes
+
+- **deploy**: Install the systemd units, not just the runner
+  ([#142](https://github.com/levyvankempen/bonuschef/pull/142),
+  [`d276446`](https://github.com/levyvankempen/bonuschef/commit/d276446fbe97e52b30da38d5a3b7b98b2d5761df))
+
+
 ## v1.40.1 (2026-10-10)
 
 ### Performance Improvements
