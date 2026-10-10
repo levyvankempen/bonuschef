@@ -27,6 +27,7 @@ from bonuschef.portal.db import (
     read_pipeline_health,
     read_account_overview,
     read_account_saved_recipes,
+    read_test_environment_state,
 )
 from bonuschef.portal.freshness import describe_age, now as freshness_now
 from bonuschef.portal.review import open_review
@@ -88,6 +89,8 @@ def render_monitor(account: Account | None = None) -> None:
     st.divider()
     _render_pipeline(engine)
 
+    _render_test_environment()
+
 
 def _render_pipeline(engine) -> None:
     """The machinery behind the answers, and the matcher's outstanding work.
@@ -144,6 +147,68 @@ def _render_pipeline(engine) -> None:
 
     if st.button("Ingrediënten nakijken", icon=":material/link:"):
         open_review(engine, SINGLE_USER)
+
+
+def _render_test_environment() -> None:
+    """Whether there is somewhere to watch a change, and whether it still works.
+
+    This panel exists because the test environment is nobody's production. A
+    failed copy or a stopped container sits there unnoticed until somebody
+    needs it, which is precisely when a broken one is most expensive - the
+    change is ready, the operator wants to see it work, and instead they spend
+    the evening fixing the thing that was supposed to give them confidence.
+
+    Omitted entirely when no test environment is configured. A deployment with
+    one environment is not broken, and telling it that something is missing is
+    how a panel gets ignored.
+    """
+    # Wrapped even though the reader is written never to raise, matching the
+    # pipeline panel above. The reader's promise is a property of its code
+    # today; this is a property of the page, and the page's job is to survive
+    # anything a diagnostic does.
+    try:
+        state = read_test_environment_state()
+    except Exception as exc:  # noqa: BLE001 - reported, not raised
+        st.divider()
+        st.subheader("De testomgeving")
+        st.caption(f"Kon de testomgeving niet uitlezen: {exc}")
+        return
+    if state is None:
+        return
+
+    st.divider()
+    st.subheader("De testomgeving")
+
+    if not state.get("reachable"):
+        # Not an error: production is fine, and this is the one part of the
+        # page where a fault costs nobody anything until the operator wants to
+        # release something.
+        st.warning(
+            "De testomgeving is niet bereikbaar. Er is nu geen plek om een "
+            "wijziging te bekijken voordat anderen die zien.",
+            icon=":material/cloud_off:",
+        )
+        if state.get("error"):
+            st.caption(f":gray[{state['error']}]")
+        return
+
+    copied = state.get("copied_at")
+    if copied is None or pd.isna(copied):
+        # Running and empty. A real state, and a different one from
+        # unreachable: the stack is up, nobody has copied anything into it.
+        st.info(
+            "De testomgeving draait, maar er zijn nog geen gegevens naartoe "
+            "gekopieerd. Start met `./scripts/copy-to-test.sh`.",
+            icon=":material/content_copy:",
+        )
+        return
+
+    age = describe_age(copied, freshness_now())
+    st.success(
+        f"De testomgeving draait. Gegevens gekopieerd {age}.", icon=":material/check:"
+    )
+    if state.get("source"):
+        st.caption(f":gray[gekopieerd van {state['source']}]")
 
 
 def _render_account(engine, row) -> None:

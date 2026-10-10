@@ -300,9 +300,9 @@ def test_deploying_refreshes_the_out_of_tree_runner(tmp_path):
         "whatever version first installed it"
     )
     # and it must happen after the stack is up, not before
-    assert deploy.index("docker compose up -d --build") < deploy.index(
-        "install -m 0755"
-    ), "the runner is refreshed before the deploy succeeds"
+    assert deploy.index("docker compose up -d") < deploy.index("install -m 0755"), (
+        "the runner is refreshed before the deploy succeeds"
+    )
 
 
 def test_the_runner_finds_the_checkout_from_outside_it(server, tmp_path):

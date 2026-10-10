@@ -92,6 +92,90 @@ class OfferLine:
     reference_note: str = ""
 
 
+_BANNER_STYLES = """<style>
+[class*="st-key-bc-environment-banner"] {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+</style>"""
+
+
+def render_environment_banner() -> None:
+    """Say which environment this is, before anything else on the page.
+
+    Nothing at all in production. An invited person has one environment and
+    labelling it would be noise on every page they ever see, which is the
+    second scenario in the requirement rather than an omission.
+
+    At the top and sticky, unlike the version in the footer. The footer is
+    right for the version - "a footnote rather than chrome", as app.py puts it,
+    because "is the fix live?" is asked occasionally. Which environment you are
+    looking at has to be answered *before* you read anything else, or the page
+    misinforms you: the two deployments run the same portal, the same recipes
+    and a copy of the same data, so a price read off the wrong one is wrong in
+    a way nothing on the page reveals.
+
+    The copy's age rides along because it is the other half of the same
+    question. A test environment is only trustworthy to the extent its data is
+    recent, and "these prices are eight days old" is the difference between a
+    defect and a stale copy.
+
+    Never raises, and never takes the page down. It resolves its own engine
+    inside a try, so a database that is unreachable or not configured yet
+    costs the copy's age and nothing else - app.py renders this before the
+    sign-in wall, and resolving an engine unconditionally there once turned a
+    missing variable into a blank application.
+
+    The production check comes first, so nothing at all happens on the
+    deployment where nothing should.
+    """
+    from bonuschef.version import get_environment, is_production
+
+    if is_production():
+        return
+
+    st.markdown(_BANNER_STYLES, unsafe_allow_html=True)
+
+    copied = _describe_copy(_engine_or_none())
+    name = get_environment().upper()
+    with st.container(key="bc-environment-banner"):
+        st.warning(
+            f"**{name}** — dit is niet de echte app. "
+            + (copied or "Het is onbekend wanneer deze gegevens zijn gekopieerd."),
+            icon=":material/science:",
+        )
+
+
+def _engine_or_none():
+    """The warehouse engine, or None if there is not one to be had.
+
+    `get_engine` is cached, so this costs nothing after the first page render.
+    """
+    from bonuschef.portal.db import get_engine
+
+    try:
+        return get_engine()
+    except Exception:  # noqa: BLE001 - the banner is not worth a broken page
+        return None
+
+
+def _describe_copy(engine) -> str | None:
+    """ "Gegevens gekopieerd ..." for a database that was copied, else None."""
+    if engine is None:
+        return None
+    from bonuschef.portal.db import read_environment_copy
+    from bonuschef.portal.freshness import describe_age, now
+
+    try:
+        copy = read_environment_copy(engine)
+        if not copy or not copy.get("copied_at"):
+            return None
+        return f"Gegevens gekopieerd {describe_age(copy['copied_at'], now())}."
+    except Exception:  # noqa: BLE001 - a banner must not take the page down
+        return None
+
+
 def bigger_image(url: object) -> str:
     """The larger of AH's two recipe-image variants.
 

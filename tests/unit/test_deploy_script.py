@@ -129,7 +129,7 @@ def test_the_script_refuses_rather_than_guessing(repo):
 
 
 def test_a_deploy_reclaims_the_cache_it_creates():
-    """Every deploy runs `--build`, and every build leaves layers behind.
+    """Every build leaves layers behind.
 
     That was tolerable while deploys were occasional and manual. With the
     auto-deploy timer it happens on every release, and the cache reached 5.6 GB
@@ -143,9 +143,11 @@ def test_a_deploy_reclaims_the_cache_it_creates():
     assert "docker builder prune" in body, (
         "the deploy builds every time and never reclaims the cache"
     )
-    assert body.index("docker compose up -d --build") < body.index(
-        "docker builder prune"
-    ), "the cache is pruned before the build that creates it"
+    # The build moved out of `up` and into build-image.sh, so the anchor moves
+    # with it. Same invariant: reclaim after the step that fills the cache.
+    assert body.index("build-image.sh") < body.index("docker builder prune"), (
+        "the cache is pruned before the build that creates it"
+    )
 
 
 def test_reclaiming_keeps_recent_cache():

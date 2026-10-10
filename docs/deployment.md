@@ -93,6 +93,55 @@ different tomorrow while the image stamp claims to describe a fixed thing, which
 is the confusion this whole arrangement exists to remove. It also refuses to
 rebuild while a run is in flight (§ below), and refuses to start without `.env`.
 
+### One image per version, built once
+
+`deploy.sh` no longer builds during `up`. It calls `scripts/build-image.sh`,
+which produces `bonuschef:<version>` and **reuses an image already tagged for
+that version** rather than rebuilding it. The compose services then name that
+image instead of a build context.
+
+This matters only because there are now two environments. While every host
+built its own, nothing compared two builds, and `up -d --build` was fine. Once
+a change is supposed to be *watched working* somewhere and then promoted,
+"promote the version I watched" needs an artifact — and two builds of one
+commit were genuinely not the same bytes. `uv.lock` pins the Python side
+exactly via `uv sync --frozen`, but the base image was a floating tag, so a
+fortnight's gap bought a different Debian and CPython patch level with nothing
+in any diff to show it. The base is now pinned by digest; bumping it is a
+commit.
+
+Two consequences to know about:
+
+- **`BONUSCHEF_VERSION` is mandatory.** Compose interpolates at parse time, so
+  *every* command fails without it — `ps`, `logs` and `exec` included, none of
+  which resolve an image. Use **`./scripts/compose.sh`** instead of
+  `docker compose`: it reads the version from the running stack's OCI label and
+  hands off. Every command in this document does.
+- The version is deliberately **not** written into `.env`. The services read
+  `.env` into their environment, so a value there would override the one baked
+  into the image, and the portal would report a version it is not running.
+
+### Promoting a version
+
+```bash
+# build it once. build-image.sh refuses unless HEAD is at the tag, because
+# otherwise it would tag an image with a version it did not build.
+git fetch --tags && git checkout --detach refs/tags/v1.41.0
+./scripts/build-image.sh v1.41.0
+
+# watch it in the test environment (below)
+BONUSCHEF_VERSION=v1.41.0 docker compose \
+    -f docker-compose.test.yml --env-file .env.test up -d
+
+# then promote the same artifact
+./scripts/deploy.sh v1.41.0        # reuses bonuschef:v1.41.0, does not rebuild
+```
+
+Deploying a version that was never watched in the test environment is
+**allowed**, and deliberately so: an urgent fix must not wait on a test
+environment that happens to be broken. Nothing enforces the sequence — the
+discipline is yours.
+
 ### Deploying automatically
 
 A systemd timer checks for a newer release every minute and deploys it:
@@ -153,8 +202,137 @@ Then `.env`: copy `.env.example`, fill every key. Generate a **new**
 `POSTGRES_PASSWORD` on the guest rather than reusing the laptop's, and set the
 three password keys to the same value. Generate `NTFY_TOPIC` with
 `openssl rand -hex 16` — it is a capability URL, so anyone who knows it reads your
-notifications. `docker compose config -q` fails while any required key is unset,
+notifications. `./scripts/compose.sh config -q` fails while any required key is unset,
 which is the point.
+
+## 3b. The test environment
+
+Somewhere to watch a change work before the people who were invited see it.
+Same portal, same image, its own database, a copy of production's data, and
+**no pipeline**.
+
+### The two rules
+
+**It never holds the Albert Heijn credential.** Not "blank for now" — never.
+There is one credential, and refreshing it may rotate the refresh token;
+`refresh_tokens` persists the rotated one. Two environments refreshing it would
+invalidate each other's, and the symptom is not a broken test environment — it
+is production's prices quietly ceasing to update, in whichever environment
+refreshed first, which would be production about half the time. There is also
+no pipeline here to use a credential with: `docker-compose.test.yml` contains
+no `dagster-daemon` and no `dagster-webserver` at all. Absent, not disabled.
+
+**It is never published.** Loopback only, never on the Tailscale Funnel.
+Unfinished work is what it holds, along with a copy of production's accounts.
+
+Both rules are in the spec as requirements, and the compose file says why at
+the point where somebody would be tempted to undo them.
+
+### Setting it up
+
+It needs real disk. The 500 GB SSD is the intended home, and it is not
+provisioned yet — `/dev/sda` is wiped and nothing from it is mounted into the
+container. Until it is, the only space available is production's 16 GiB rootfs
+with ~6 GiB free, and a 1.1 GB restore plus a 1.1 GB dump beside it is how a
+test environment takes production down. So `BONUSCHEF_TEST_DATA_DIR` has **no
+default** and the stack refuses to start without it.
+
+On the Proxmox host:
+
+```bash
+# a filesystem on the SSD, and a mountpoint into the container
+# (this stops CT 101 briefly - production goes down for the restart)
+pvesm add dir bulk --path /mnt/bulk     # after formatting /dev/sda
+pct set 101 -mp0 /mnt/bulk,mp=/mnt/bulk
+```
+
+Then in the container:
+
+```bash
+cd /opt/bonuschef
+cp .env.test.example .env.test          # fill in; it must NOT get an AH token
+mkdir -p /mnt/bulk/bonuschef-test
+
+BONUSCHEF_VERSION=$(git describe --tags --abbrev=0) docker compose \
+    -f docker-compose.test.yml --env-file .env.test up -d
+```
+
+The portal is then on `127.0.0.1:8502` (production stays on 8501), reachable
+over the tailnet or `ssh -L`.
+
+### Getting data into it
+
+```bash
+./scripts/copy-to-test.sh
+```
+
+`pg_dump` from production — which keeps serving throughout, because the dump
+runs in one transaction — then drop-and-restore into the test database, then a
+row recording **when the copy was taken**. Repeatable: restoring over an
+existing database gives the same result as restoring into an empty one. The
+dump files are kept on the SSD, last three by default
+(`BONUSCHEF_KEEP_DUMPS`), and deletions are announced.
+
+The copy's age is the copy's age, not the data's. Taking it from the newest row
+of some data table would conflate "this copy is a week old" with "production's
+pipeline was down when I copied", which read identically and mean different
+things. The test portal reports it in its banner.
+
+### What the copy contains
+
+**Production's accounts** — real usernames, real scrypt password hashes, real
+saved recipes. Same host, same boundary, not published, so the exposure is not
+new; but it is a second place they live, and whoever places this disk should
+know rather than find out.
+
+Deliberately not scrubbed. The accounts are what make the copy able to
+reproduce a per-account pricing defect, which is most of what the environment
+is for.
+
+### Telling the two apart
+
+The test portal shows a sticky banner on every page naming the environment and
+how old its copy is. Production shows nothing: an invited person has one
+environment and labelling it would be noise on every page they ever see.
+
+The banner is driven by `BONUSCHEF_ENVIRONMENT`, which is unset in production.
+Absence means production — the honest reading, since production is the
+deployment that sets nothing.
+
+### Watching whether it still works
+
+Optional. Set `BONUSCHEF_TEST_DATABASE_URL` in production's `.env` and the
+Beheer page gains a panel: running or not, how old the copy is, what produced
+it. Unset, the panel is omitted — a deployment with one environment is not
+broken.
+
+One catch before you set it: the URL is resolved from inside production's
+container, where `127.0.0.1` is the container's own loopback rather than the
+host's, so the test database's published `127.0.0.1:5456` is **not** reachable
+as written. Giving it a route means one of:
+
+- `extra_hosts: ["host.docker.internal:host-gateway"]` on production's
+  `streamlit` service, then pointing the URL at `host.docker.internal:5456`;
+- a shared Docker network that production's `streamlit` and the test
+  `postgres` both join — and nothing else, so the reverse direction stays
+  impossible;
+- running the portal outside Docker, where loopback is the host's.
+
+None is done by default, because each widens production's network for a
+convenience. The panel is not part of the delivery path; the copy script and
+the banner are.
+
+### When the cluster arrives
+
+`argocd-delivers-the-portal` replaces the *how* and keeps the *what*. Every
+requirement here is written about environments rather than mechanisms — its own
+database, not published, the artifact that was watched — so two namespaces and
+two value files satisfy them exactly as well as two Compose projects.
+
+What changes: the two compose files become one chart with two value files, and
+the duplication that `tests/unit/test_the_test_environment.py` currently guards
+against goes away. What does not: the credential rule, the publication rule,
+one image per version, and the marker.
 
 ## 4. Data that cannot be rebuilt
 
@@ -168,8 +346,8 @@ partial duplicate load — with every `CREATE TABLE` failing as "already exists"
 while the `COPY`s appended anyway.
 
 ```
-docker compose up -d postgres                       # postgres only
-docker compose stop dagster-daemon dagster-webserver streamlit
+./scripts/compose.sh up -d postgres                       # postgres only
+./scripts/compose.sh stop dagster-daemon dagster-webserver streamlit
 ```
 
 Dump from the old host — the irreplaceable set is wider than it looks:
@@ -185,7 +363,7 @@ Dump from the old host — the irreplaceable set is wider than it looks:
 
 ```
 pg_dump -U postgres -d postgres --no-owner --no-acl -t 'public.<each>' -t 'public_staging.*' | gzip -9 > data.sql.gz
-gunzip -c data.sql.gz | docker compose exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1
+gunzip -c data.sql.gz | ./scripts/compose.sh exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1
 ```
 
 `ON_ERROR_STOP=1` turns silent mixing into a stop. Then compare row counts on both
@@ -211,7 +389,7 @@ shows a spinner claiming the store is being scanned.
 So after restoring, check the queue before trusting anything on-demand:
 
 ```
-docker exec pg_bonuschef psql -U postgres -d postgres -Atc \
+./scripts/compose.sh exec postgres psql -U postgres -d postgres -Atc \
   "SELECT status, count(*) FROM runs GROUP BY status;"
 ```
 
@@ -259,7 +437,8 @@ working rather than as having been applied to the wrong container.
 So after changing any model's `ref()`s, rebuild:
 
 ```
-docker compose up -d --build
+./scripts/build-image.sh "$(git describe --tags --abbrev=0)"
+./scripts/compose.sh up -d
 ```
 
 The Dockerfile runs `dbt deps` and `dbt parse` at build time, so this regenerates
@@ -267,15 +446,15 @@ the manifest once and every container gets the same one. Verify rather than
 assume, in **both** long-running containers:
 
 ```
-for c in dagster_daemon dagster_webserver; do
-  docker exec $c python -c "import json; m=json.load(open('/app/src/bonuschef/sql/target/manifest.json')); \
+for c in dagster-daemon dagster-webserver; do
+  ./scripts/compose.sh exec $c python -c "import json; m=json.load(open('/app/src/bonuschef/sql/target/manifest.json')); \
     print('$c', [n.split('.')[-1] for n in m['nodes']['model.bonuschef.dim_recipe']['depends_on']['nodes']])"
 done
 ```
 
 ### Rebuilding while a run is in flight wedges the queue for an hour
 
-`docker compose up -d --build` kills the run worker's process. Dagster does not
+Restarting a service kills the run worker's process. Dagster does not
 notice: the run stays STARTED, and with `max_concurrent_runs: 1` it holds the
 only slot. Everything afterwards queues behind a run that will never finish -
 including the credential heartbeat.
@@ -287,7 +466,7 @@ appear not to save, the refresh button does nothing.
 Check before rebuilding:
 
 ```
-docker exec pg_bonuschef psql -U postgres -d postgres -Atc \
+./scripts/compose.sh exec postgres psql -U postgres -d postgres -Atc \
   "SELECT status, count(*) FROM runs WHERE status IN ('STARTED','QUEUED') GROUP BY 1;"
 ```
 
@@ -364,8 +543,8 @@ publish anything else:
 
 ```
 tailscale funnel status             # 8501 only — no 3000, no 5455
-docker port dagster_webserver       # still 127.0.0.1:3000
-docker port pg_bonuschef            # still 127.0.0.1:5455
+./scripts/compose.sh port dagster-webserver 3000   # still 127.0.0.1:3000
+./scripts/compose.sh port postgres 5432            # still 127.0.0.1:5455
 ```
 
 Withdraw it with one command; local and tailnet access are unaffected:
@@ -394,7 +573,7 @@ There is no offline way to assert a third-party config key is still honoured.
 If disk use climbs without the tables growing, look there first:
 
 ```
-docker exec dagster_daemon du -sh /var/dlt 2>/dev/null
+./scripts/compose.sh exec dagster-daemon du -sh /var/dlt 2>/dev/null
 ```
 
 ## 8. Recoverability
@@ -440,8 +619,11 @@ pct restore 999 /var/lib/vz/dump/vzdump-lxc-101-<date>.tar.zst \
     --storage local-lvm --hostname bonuschef-restoretest \
     --net0 name=eth0,bridge=vmbr0,link_down=1,type=veth
 pct start 999
-pct exec 999 -- docker compose -f /opt/bonuschef/docker-compose.yml up -d postgres
-pct exec 999 -- docker exec pg_bonuschef psql -U postgres -At -c \
+# postgres only, so the application image - and therefore the version - is
+# not needed; the placeholder just gets the file to parse.
+pct exec 999 -- env BONUSCHEF_VERSION=verify-only \
+    docker compose -f /opt/bonuschef/docker-compose.yml up -d postgres
+pct exec 999 -- docker exec "$(pct exec 999 -- docker ps -q -f label=com.docker.compose.service=postgres)" psql -U postgres -At -c \
     "SELECT count(*) FROM public.ah__store_markdowns"   # compare against 101
 pct destroy 999 --force
 ```

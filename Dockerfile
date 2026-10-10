@@ -1,4 +1,19 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm
+# Pinned by digest, not by tag.
+#
+# `uv:python3.12-bookworm` is a floating tag: the same commit built a fortnight
+# apart picks up different Debian and CPython patch levels. That was harmless
+# while every host built its own image and nobody compared them. It stops being
+# harmless once a version is built once and run in two environments, because
+# then "the artifact I watched working" has to mean something, and a floating
+# base is the one thing in this build that can differ without appearing in any
+# diff. (uv.lock already pins the Python side exactly, via `uv sync --frozen`.)
+#
+# This is a multi-arch index, so amd64 (the deployment host) and arm64 (a
+# developer's Mac) both still resolve. Bumping it is a deliberate commit:
+#
+#   docker buildx imagetools inspect ghcr.io/astral-sh/uv:python3.12-bookworm
+#
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm@sha256:85d4cb1afa769a7338e095b927bee941cf5ec92266c7424b3f6c0f2748567248
 
 WORKDIR /app
 

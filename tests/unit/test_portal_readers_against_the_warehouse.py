@@ -135,6 +135,19 @@ NOT_COLUMNS = frozenset(
         "data",
         "columns",
         "name",
+        # Keys of the dict `read_test_environment_state` builds in Python, not
+        # columns of a result set. This guard's premise is that a `row[...]`
+        # subscript names something a SELECT returned; for these it does not,
+        # and the reader returns None when no test environment is configured,
+        # so there is no frame to compare them against either.
+        #
+        # They are not left unchecked: TestTheTestEnvironmentPanel in
+        # tests/unit/test_monitor_page.py asserts the panel reads only keys
+        # that reader can produce.
+        "reachable",
+        "copied_at",
+        "source",
+        "error",
     }
 )
 

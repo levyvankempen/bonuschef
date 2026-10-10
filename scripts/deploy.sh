@@ -34,6 +34,19 @@ if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
     exit 65
 fi
 
+# The in-flight check below runs `docker compose`, which parses
+# docker-compose.yml, which now requires BONUSCHEF_VERSION because the services
+# name an image instead of building one. The real version is not known yet - it
+# comes from the tag that has not been checked out - and these two commands do
+# not care: `ps` and `exec` address containers that are already running, and
+# neither resolves an image tag. So a placeholder, replaced with the real value
+# before anything is started.
+#
+# Found by running the deploy path after making the variable mandatory: without
+# this the in-flight check fails open, and a deploy would rebuild on top of a
+# running Dagster job - the exact thing the check exists to prevent.
+export BONUSCHEF_VERSION="${BONUSCHEF_VERSION:-placeholder-for-inspection}"
+
 # Rebuilding kills the run worker's process, and Dagster does not notice: the
 # run stays STARTED, holds its concurrency slot, and the queue stalls until
 # run monitoring times it out. Learned the hard way; see docs/deployment.md.
@@ -74,13 +87,23 @@ eval "$(bash ./scripts/version.sh)"
 export BONUSCHEF_VERSION="$version" BONUSCHEF_COMMIT="$commit"
 echo "deploying ${BONUSCHEF_VERSION} (${BONUSCHEF_COMMIT:0:12})"
 
-docker compose up -d --build
+# Build once, then run that image.
+#
+# This used to be `up -d --build`, which made every host and every deploy build
+# independently. Two builds of one commit are not the same bytes, so there was
+# no artifact to promote - only source to re-derive. build-image.sh reuses an
+# image already tagged for this version, which is what lets a version watched
+# working in one environment be the version that runs in another.
+eval "$(bash ./scripts/build-image.sh "$TAG")"
+echo "running ${image}"
+
+docker compose up -d
 
 # Reclaim the build cache this rebuild just produced.
 #
-# Every deploy runs `--build`, and every build leaves its intermediate layers
-# behind. That was tolerable while deploys were occasional and done by hand;
-# with the auto-deploy timer it happens on every release, and the cache grew
+# Every build leaves its intermediate layers behind. That was tolerable while
+# deploys were occasional and done by hand; with the auto-deploy timer it
+# happens on every release, and the cache grew
 # to 5.6 GB of a 16 GB rootfs - 100% reclaimable, and larger than the database,
 # the images and the logs put together.
 #

@@ -24,13 +24,28 @@ from bonuschef.portal.db import (
     keep_recipe,
     reject_recipe,
 )
+from bonuschef.portal.schema import ensure_account_tables
 
 pytestmark = pytest.mark.warehouse
 
 
-# The account these tests act as. Any id works; what matters is that the same
-# one is used to write and to read, because that is the whole point of the
-# column.
+# The account these tests act as.
+#
+# "Any id works" is what this said, and it was wrong: `account_recipes` has a
+# foreign key to `accounts`, so the id has to be one that exists. It did exist,
+# as a leftover from whichever other file in the suite had created account 1 -
+# five test files insert one - which made these four tests pass for a reason
+# that had nothing to do with them.
+#
+# Found by adding unrelated test files, which changed the collection order
+# enough to run these first:
+#
+#   insert or update on table "account_recipes" violates foreign key
+#   constraint "account_recipes_account_id_fkey"
+#   DETAIL: Key (account_id)=(1) is not present in table "accounts".
+#
+# So the fixture below creates it. What matters is still that the same id is
+# used to write and to read, because that is the whole point of the column.
 ACCOUNT = 1
 
 
@@ -51,6 +66,21 @@ def engine():
         pytest.skip("no database")  # ty: ignore[too-many-positional-arguments]
     ensure_catalogue_tables(eng)
     ensure_verdict_table(eng)
+    ensure_account_tables(eng)
+    # The account these tests act as, created here rather than inherited from
+    # another test file. Explicit id into a BIGSERIAL column is legal and does
+    # not move the sequence, so a real registration afterwards is unaffected.
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO public.accounts (account_id, username, password_hash)
+                VALUES (:a, 'bewaartest', '')
+                ON CONFLICT (account_id) DO NOTHING
+                """
+            ),
+            {"a": ACCOUNT},
+        )
     return eng
 
 

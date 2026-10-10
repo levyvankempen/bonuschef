@@ -1867,6 +1867,95 @@ def read_flag_reasons(engine) -> dict[int, str]:
     return {int(r[0]): r[1] for r in rows}
 
 
+# How long to wait on the test environment before calling it unreachable.
+#
+# Short on purpose. This renders on the operator's page, and a test environment
+# that is down must not make the page holding the account list take ten seconds
+# to appear - the accounts are the thing that page is for.
+_TEST_ENV_TIMEOUT_S = 3
+
+
+@st.cache_resource
+def _test_environment_engine(url: str):
+    """A second engine, for reading the test environment's database.
+
+    Cached per process like the main one, and deliberately tiny: this serves
+    one panel on one page for one person.
+    """
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
+        connect_args={"connect_timeout": _TEST_ENV_TIMEOUT_S},
+    )
+
+
+def read_test_environment_state(url: str | None = None) -> dict | None:
+    """What the test environment looks like from here, or None if unconfigured.
+
+    ``None`` means no ``BONUSCHEF_TEST_DATABASE_URL``, which means this
+    deployment has no second environment - and the panel is omitted rather than
+    reporting a fault, because a single-environment deployment is not broken.
+
+    Otherwise a dict with ``reachable``, and when it is reachable the copy's
+    age and what produced it.
+
+    Reads one way only: production reads the test environment, never the other
+    way round. Never raises - an unreachable test environment is a line on the
+    operator's page, not an exception on it.
+    """
+    url = (
+        url
+        if url is not None
+        else os.environ.get("BONUSCHEF_TEST_DATABASE_URL", "").strip()
+    )
+    if not url:
+        return None
+    try:
+        engine = _test_environment_engine(url)
+        copy = read_environment_copy(engine)
+    except Exception as exc:  # noqa: BLE001 - reported on the page, not raised
+        return {"reachable": False, "error": str(exc)[:200]}
+    if copy is None:
+        # Reachable, but nothing has been copied into it - or its schema has
+        # not been applied. Both mean "running and empty", which is a real
+        # state and a different one from unreachable.
+        return {"reachable": True, "copied_at": None, "source": None}
+    return {"reachable": True, **copy}
+
+
+def read_environment_copy(engine) -> dict | None:
+    """When this database was copied from another one, or None.
+
+    Only a test environment has a row here: production's data was not copied
+    from anywhere, so the table exists there and stays empty. ``None`` covers
+    both that and a database the portal has not yet applied its schema to.
+
+    Never raises. This feeds the environment banner, which renders before
+    anything else on the page, and a banner that can take the page down with
+    it is worse than no banner.
+    """
+    try:
+        with engine.begin() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        """
+                    SELECT copied_at, source, dump_file
+                    FROM public.environment_copy
+                    WHERE only_row
+                    """
+                    )
+                )
+                .mappings()
+                .first()
+            )
+    except Exception:
+        return None
+    return dict(row) if row else None
+
+
 def count_flagged_concepts(engine) -> int:
     """How many concepts are linked to something that contradicts them.
 
