@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v1.41.2 (2026-10-10)
+
+### Bug Fixes
+
+- **deploy**: Bound the image store, which versioned tags unbounded
+  ([#147](https://github.com/levyvankempen/bonuschef/pull/147),
+  [`87320b0`](https://github.com/levyvankempen/bonuschef/commit/87320b0c4836e935f61ece04c556828c3a251ee1))
+
+### Documentation
+
+- **spec**: Record what the apply verified and what it could not
+  ([#146](https://github.com/levyvankempen/bonuschef/pull/146),
+  [`8489ad4`](https://github.com/levyvankempen/bonuschef/commit/8489ad4470ee06f96d83a1e34d342abd04aaa5a6))
+
+
 ## v1.41.1 (2026-10-10)
 
 ### Bug Fixes
