@@ -42,28 +42,53 @@ def _code(path: Path) -> str:
 # writes is what the ordering tests read.
 STUB = r"""#!/usr/bin/env bash
 echo "$*" >> "$TRANSCRIPT"
+
+# Which project and service a filtered `docker ps` is asking about. The script
+# addresses containers by label, so the stub has to as well - answering on
+# substrings alone made a query for the test project's streamlit return the
+# test project's database.
+proj=""; svc=""
+case "$*" in *bonuschef-test*) proj=test ;; *bonuschef*) proj=prod ;; esac
+case "$*" in *service=streamlit*) svc=streamlit ;; *service=postgres*) svc=postgres ;; esac
+
 case "$1 $2" in
   "ps -q")
-    case "$*" in
-      *bonuschef-test*) echo testdb ;;
-      *streamlit*)      echo prodweb ;;
-      *)                [ "${NO_PROD_DB:-0}" = 1 ] || echo proddb ;;
+    case "$svc" in
+      streamlit)
+        # Stateful: once the script stops the portal it must stay stopped, or
+        # its own "is it really down" check can never pass.
+        if [ "$proj" = test ]; then
+          [ -f "${STOPPED}" ] || echo testweb
+        else
+          echo prodweb
+        fi
+        ;;
+      postgres)
+        if [ "$proj" = test ]; then
+          echo testdb
+        else
+          [ "${NO_PROD_DB:-0}" = 1 ] || echo proddb
+        fi
+        ;;
     esac
     ;;
   "inspect "*|"inspect")
-    echo "v1.40.2" ;;
+    echo "v1.41.4" ;;
   "compose "*|"compose")
+    case "$*" in
+      *"stop streamlit"*)  touch "${STOPPED}" ;;
+      *"start streamlit"*) rm -f "${STOPPED}" ;;
+    esac
     ;;
   "exec "*|"exec")
-    # The command is the first argument that is not a flag or a container id.
     for arg in "$@"; do
       case "$arg" in
-        pg_dump)   printf '%s' "${DUMP_BODY-PGDMP-fake-dump}" ; exit 0 ;;
+        pg_dump)    printf '%s' "${DUMP_BODY-PGDMP-fake-dump}" ; exit 0 ;;
         pg_restore) cat > /dev/null ; exit 0 ;;
-        psql)      cat > /dev/null ; exit 0 ;;
+        psql)       cat > /dev/null ; exit 0 ;;
         pg_isready) exit 0 ;;
-        date)      echo "20260110T120000Z" ; exit 0 ;;
-        du)        echo "1.1G	x" ; exit 0 ;;
+        date)       echo "20260110T120000Z" ; exit 0 ;;
+        du)         echo "1.1G	x" ; exit 0 ;;
       esac
     done
     ;;
@@ -101,6 +126,8 @@ def run(workspace: Path, **env) -> subprocess.CompletedProcess:
         **os.environ,
         "PATH": f"{workspace / 'bin'}:{os.environ['PATH']}",
         "TRANSCRIPT": str(transcript),
+        # Where the stub records that the portal has been stopped.
+        "STOPPED": str(workspace / "portal-stopped"),
         **env,
     }
     return subprocess.run(
@@ -334,6 +361,57 @@ class TestItTakesTheApplicationOffTheDatabaseFirst:
         assert stops, "nothing is stopped"
         for line in stops:
             assert "postgres" not in line, f"it stops its own database: {line.strip()}"
+
+    def test_the_stop_is_not_allowed_to_fail_quietly(self):
+        """It was `|| true` with its output discarded, and it failed silently -
+        so the restore ran against a live portal and died on the index that
+        portal had just recreated. A step the restore's correctness depends on
+        must be checked."""
+        text = _code(SCRIPT)
+        stops = [line for line in text.splitlines() if "compose_test stop" in line]
+        assert stops
+        for line in stops:
+            assert "|| true" not in line, f"a failed stop is swallowed: {line.strip()}"
+
+    def test_it_verifies_the_portal_really_stopped(self):
+        """The exit status is exactly what was trusted last time, so the stop
+        is confirmed by looking rather than by believing."""
+        text = _code(SCRIPT)
+        assert "still_up" in text
+        assert text.index("still_up") > text.index("compose_test stop")
+
+    def test_it_supplies_the_version_compose_needs_to_parse_the_file(self):
+        """Why the stop failed. Compose interpolates at parse time and the test
+        stack names `bonuschef:${BONUSCHEF_VERSION:?}`, so `stop` and `start` -
+        neither of which resolves an image - fail without it:
+
+            error while interpolating services.streamlit.image:
+            required variable BONUSCHEF_VERSION is missing a value
+
+        The same trap scripts/compose.sh absorbs for production.
+        """
+        text = _code(SCRIPT)
+        assert "org.opencontainers.image.version" in text, (
+            "the version is not resolved, so every compose call against the "
+            "test file fails"
+        )
+        assert text.index("export BONUSCHEF_VERSION") < text.index("compose_test stop")
+
+    def test_it_falls_back_to_productions_version(self):
+        """With no test stack running there is nothing to read a label off, and
+        the version this copy is being made for is whatever production runs."""
+        text = _code(SCRIPT)
+        resolution = text[: text.index("compose_test()")]
+        assert resolution.count("org.opencontainers.image.version") >= 2, (
+            "only one source of the version; a stopped test stack has no label"
+        )
+        assert "TEST_PROJECT" in resolution and "PROD_PROJECT" in resolution
+
+    def test_an_unresolvable_version_is_a_refusal(self):
+        text = _code(SCRIPT)
+        resolution = text[: text.index("compose_test()")]
+        assert "<no value>" in resolution
+        assert "die" in resolution
 
     def test_a_failed_restore_still_brings_the_portal_back(self):
         """The point of the test environment is being there when somebody wants
