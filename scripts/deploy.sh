@@ -73,6 +73,34 @@ fi
 
 git checkout -q --detach "refs/tags/${TAG}"
 
+# Start again, from the file this checkout just produced.
+#
+# Bash reads a script incrementally, so a script that replaces its own file
+# mid-run resumes at a byte offset into different content. While deploy.sh was
+# identical across releases that was invisible. The release that changed it
+# ran as a mixture of both: the old half did `up -d --build` against the new
+# docker-compose.yml, which no longer has a build section, so Compose tried to
+# *pull* `bonuschef:v1.41.0` from Docker Hub:
+#
+#   Image bonuschef:v1.41.0 Error pull access denied for bonuschef,
+#   repository does not exist or may require 'docker login'
+#
+# The build step simply was not in the script that was running. Production was
+# never at risk - `up` failed and the old containers kept serving - but the
+# deploy could not succeed, and would not have on any later tick either while
+# the two halves disagreed.
+#
+# This is the same reasoning that already puts the auto-deploy runner outside
+# the checkout: a release must not be able to change the code that is in the
+# middle of deploying it. The guard variable stops the re-exec recursing; the
+# work repeated before this point is a fetch, a tag check and an in-flight
+# query, all of which are cheap and idempotent.
+if [ "${BONUSCHEF_DEPLOY_REEXEC:-0}" != "1" ]; then
+    export BONUSCHEF_DEPLOY_REEXEC=1
+    echo "re-reading deploy.sh from ${TAG}"
+    exec bash "$0" "$@"
+fi
+
 # .env is untracked and stays put. It is the one thing on this host that
 # cannot be recreated from the repository.
 if [ ! -f .env ]; then
@@ -94,7 +122,33 @@ echo "deploying ${BONUSCHEF_VERSION} (${BONUSCHEF_COMMIT:0:12})"
 # no artifact to promote - only source to re-derive. build-image.sh reuses an
 # image already tagged for this version, which is what lets a version watched
 # working in one environment be the version that runs in another.
-eval "$(bash ./scripts/build-image.sh "$TAG")"
+# Status checked explicitly, because `eval "$(...)"` cannot report one.
+#
+# A command substitution's exit status is discarded: `eval "$(false)"` is
+# `eval ""`, which succeeds, so `set -e` sees nothing wrong. Written that way,
+# a failed build fell straight through to `docker compose up -d`, which found
+# no local image and tried to pull one - turning "the build broke" into
+# "pull access denied", a message about a registry this project does not use.
+if ! build_output="$(bash ./scripts/build-image.sh "$TAG")"; then
+    echo "error: the image for ${TAG} could not be built; not starting anything." >&2
+    exit 70
+fi
+eval "$build_output"
+
+if [ -z "${image:-}" ]; then
+    echo "error: build-image.sh reported no image for ${TAG}." >&2
+    exit 71
+fi
+
+# Present locally, before Compose is asked for it. Compose's answer to a
+# missing image is to reach for a registry, and the message it produces sends
+# the reader looking for credentials rather than for a build failure.
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "error: ${image} is not in the local image store." >&2
+    echo "Compose would try to pull it, which is not where this image lives." >&2
+    exit 72
+fi
+
 echo "running ${image}"
 
 docker compose up -d
