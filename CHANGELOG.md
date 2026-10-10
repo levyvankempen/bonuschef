@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.41.6 (2026-10-10)
+
+### Bug Fixes
+
+- **copy**: The stop that protects the restore could fail silently
+  ([#151](https://github.com/levyvankempen/bonuschef/pull/151),
+  [`6d82273`](https://github.com/levyvankempen/bonuschef/commit/6d82273fd19addf386f0ec8e12f14e4cc068e0f3))
+
+
 ## v1.41.5 (2026-10-10)
 
 ### Bug Fixes
