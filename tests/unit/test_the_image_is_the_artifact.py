@@ -387,10 +387,17 @@ class TestBuildImageBuildsWhatItWasAsked:
 
         def git(*args):
             subprocess.run(
-                ["git", *args], cwd=repo, check=True, capture_output=True,
-                env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
-                     "PATH": "/usr/bin:/bin:/usr/local/bin"},
+                ["git", *args],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                env={
+                    "GIT_AUTHOR_NAME": "t",
+                    "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t",
+                    "GIT_COMMITTER_EMAIL": "t@t",
+                    "PATH": "/usr/bin:/bin:/usr/local/bin",
+                },
             )
 
         git("init", "-q")
@@ -401,7 +408,10 @@ class TestBuildImageBuildsWhatItWasAsked:
 
         result = subprocess.run(
             ["bash", "scripts/build-image.sh", "v1.0.0"],
-            cwd=repo, capture_output=True, text=True, timeout=60,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         assert result.returncode == 65, result.stderr
         assert "HEAD is not at v1.0.0" in result.stderr
