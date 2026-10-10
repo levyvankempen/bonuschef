@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.40.1 (2026-10-10)
+
+### Performance Improvements
+
+- **deploy**: Check every minute, not every ten
+  ([#141](https://github.com/levyvankempen/bonuschef/pull/141),
+  [`7cde153`](https://github.com/levyvankempen/bonuschef/commit/7cde153f9da32a0af5f7e75458070cdfbbd70e3b))
+
+
 ## v1.40.0 (2026-10-07)
 
 ### Features
