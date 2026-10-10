@@ -84,6 +84,34 @@ if [ -z "$TEST_DB" ]; then
     [ -n "$TEST_DB" ] || die "the test database did not start"
 fi
 
+# --- get the application off the database -----------------------------------
+#
+# You cannot restore a database underneath a running application, and this one
+# writes SCHEMA, not just rows: the portal applies `ensure_account_tables` from
+# its cached engine, and its health probe runs every 30 seconds.
+#
+# Observed on the first real copy. The restore takes about a minute, the drop
+# had already run, and the portal recreated the account tables in the middle of
+# it:
+#
+#   pg_restore: error: could not execute query: ERROR:
+#   relation "account_sessions_account_idx" already exists
+#
+# Stopped rather than paused, and restarted by a trap so that a failed restore
+# does not leave the test environment down - the whole point of it is to be
+# there when somebody wants to look.
+compose_test() {
+    "$DOCKER" compose -f "$TEST_COMPOSE" --env-file "$TEST_ENV_FILE" "$@"
+}
+
+restart_app() {
+    compose_test start streamlit >/dev/null 2>&1 || true
+}
+
+echo "stopping the test portal while its database is replaced" >&2
+compose_test stop streamlit >/dev/null 2>&1 || true
+trap restart_app EXIT
+
 # --- take the dump ----------------------------------------------------------
 #
 # --format=custom so the restore can drop and recreate rather than replaying
@@ -161,6 +189,13 @@ while IFS= read -r stale; do
     echo "removing old dump $(basename "$stale") (keeping ${KEEP})" >&2
     rm -f "$stale"
 done < <(ls -1t "${DATA_DIR}/dumps"/production-*.dump 2>/dev/null | tail -n "+$((KEEP + 1))")
+
+# The portal comes back on a database that now has data in it, so its first
+# render applies the account schema to the restored copy rather than racing a
+# restore.
+trap - EXIT
+restart_app
+echo "test portal restarted" >&2
 
 echo
 echo "copied production into ${TEST_PROJECT}"

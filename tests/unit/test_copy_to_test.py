@@ -21,6 +21,23 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "copy-to-test.sh"
 
+
+def _code(path: Path) -> str:
+    """The script with its comments removed.
+
+    Ordering assertions must read the commands, not the prose about them. The
+    comments here quote the `pg_restore` failure and name `DROP SCHEMA` and
+    `pg_dump` while explaining why the portal is stopped first, so a plain
+    `text.index(...)` finds the explanation and asserts something about a
+    sentence.
+    """
+    return "\n".join(
+        line
+        for line in path.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
 # A stub that answers every docker call this script makes. The transcript it
 # writes is what the ordering tests read.
 STUB = r"""#!/usr/bin/env bash
@@ -234,6 +251,72 @@ class TestTheCopyItself:
     def test_writing_the_stamp_is_upsert_so_a_second_copy_works(self):
         text = SCRIPT.read_text()
         assert "ON CONFLICT (only_row) DO UPDATE" in text
+
+
+class TestItTakesTheApplicationOffTheDatabaseFirst:
+    """You cannot restore a database underneath a running application, and this
+    one writes SCHEMA rather than just rows.
+
+    Observed on the first real copy against production. The restore takes about
+    a minute, the drop had already run, and the portal's health probe - every
+    30 seconds - recreated the account tables in the middle of it:
+
+        pg_restore: error: could not execute query: ERROR:
+        relation "account_sessions_account_idx" already exists
+
+    The portal applies `ensure_account_tables` from its cached engine, so any
+    render or probe during the window is enough.
+    """
+
+    def test_the_portal_is_stopped_before_the_schema_is_dropped(self):
+        text = _code(SCRIPT)
+        assert text.index("compose_test stop streamlit") < text.index("DROP SCHEMA"), (
+            "the portal is still serving when the schema is dropped, so it can "
+            "recreate tables mid-restore"
+        )
+
+    def test_it_is_stopped_before_the_dump_is_even_taken(self):
+        """Simplest correct window: closed for the whole operation rather than
+        only around the restore."""
+        text = _code(SCRIPT)
+        assert text.index("compose_test stop streamlit") < text.index("pg_dump")
+
+    def test_only_the_portal_is_stopped_not_its_database(self):
+        """The database is what is being restored INTO; stopping it would make
+        the restore impossible."""
+        text = SCRIPT.read_text()
+        stops = [
+            line
+            for line in text.splitlines()
+            if "compose_test stop" in line and not line.lstrip().startswith("#")
+        ]
+        assert stops, "nothing is stopped"
+        for line in stops:
+            assert "postgres" not in line, f"it stops its own database: {line.strip()}"
+
+    def test_a_failed_restore_still_brings_the_portal_back(self):
+        """The point of the test environment is being there when somebody wants
+        to look. A failed copy that also leaves it down turns one problem into
+        two."""
+        text = SCRIPT.read_text()
+        assert "trap restart_app EXIT" in text
+
+    def test_the_trap_is_cleared_before_the_deliberate_restart(self):
+        """Otherwise the restart runs twice - harmless, but it means the exit
+        path and the success path disagree about who owns the restart."""
+        text = _code(SCRIPT)
+        assert text.index("trap - EXIT") < text.rindex("restart_app")
+
+    def test_the_portal_is_running_again_when_it_finishes(self, workspace):
+        """Exercised, not just read: the stub records compose calls."""
+        result = run(workspace)
+        assert result.returncode == 0, result.stderr
+        calls = [c for c in transcript(workspace) if "compose" in c]
+        stopped = [i for i, c in enumerate(calls) if "stop streamlit" in c]
+        started = [i for i, c in enumerate(calls) if "start streamlit" in c]
+        assert stopped, f"never stopped the portal: {calls}"
+        assert started, f"never restarted the portal: {calls}"
+        assert stopped[0] < started[-1], "restarted before it stopped"
 
 
 # --- bounded growth ---------------------------------------------------------
